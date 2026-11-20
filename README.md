@@ -24,6 +24,7 @@ Engine harness (dev only): `http://localhost:5173/engine-harness.html`.
 
 ## Scripts
 - `node scripts/convert-lessons.mjs` — one-time lesson conversion (overwrites `src/content/lessons/*.json`, including hand enrichment encoded in the script).
+- `node scripts/gen-incident-lessons.mjs` — regenerates the modules 02–03 lessons (Incident Commander, Campaign Extras) drafted from the source game's incidents/levels.
 - `node scripts/gen-icons.mjs` — regenerate `src/icons.data.ts` after editing `ICON_NAMES`/`ALIAS`.
 
 ## Adding a lesson
