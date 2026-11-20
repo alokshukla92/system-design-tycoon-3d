@@ -1,0 +1,888 @@
+{
+  "id": "the-3am-page",
+  "title": "The 3AM Page",
+  "summary": "chatter — now with stakes. Everything runs through one database instance. Hardware fails. It always does.",
+  "minutes": 7,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "ping",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why one primary is a single point of failure",
+      "step": 2
+    },
+    {
+      "text": "Replication — redundancy as a way of life",
+      "step": 3
+    },
+    {
+      "text": "Know why availability is bought",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "The SLA",
+      "chapter": "setup",
+      "title": "An SLA with teeth",
+      "body": [
+        "chatter raised a Series A. You have paying teams now, and an SLA with teeth: 99.5% availability.",
+        "Everything runs through one database instance. The investors asked about your disaster story in the board meeting. You changed the subject."
+      ],
+      "metrics": {
+        "users": 60000,
+        "rps": 1680,
+        "p95": 60,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "single primary"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ]
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ]
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000,
+        "rps": 1680,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "single primary"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Early tremor",
+      "chapter": "problem",
+      "title": "An early tremor",
+      "body": [
+        "A database instance briefly dropped. A warning shot — everything recovered in seconds, but for those seconds, 100% of writes failed."
+      ],
+      "metrics": {
+        "users": 80000,
+        "rps": 2200,
+        "p95": 220,
+        "errors": 2.1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "single primary"
+              }
+            ],
+            "heat": 0.35,
+            "cpu": 0.78
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ]
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ]
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 2200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "single primary",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Primary dies",
+      "chapter": "problem",
+      "title": "3AM page: the primary just died",
+      "body": [
+        "A primary database instance died under peak load. Do you have a failover? A single instance is a <span class=\"term\">single point of failure</span>: when it died, 100% of your product died with it."
+      ],
+      "metrics": {
+        "users": 120000,
+        "rps": 3360,
+        "p95": null,
+        "errors": 100
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              },
+              {
+                "text": "single primary"
+              }
+            ],
+            "heat": 0,
+            "cpu": -1,
+            "opacity": 0.6
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ]
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ]
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "fail": 1,
+            "style": "cut"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 3360,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "single primary",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Replicate",
+      "chapter": "technique",
+      "title": "Replication — redundancy as a way of life",
+      "body": [
+        "<span class=\"term\">Replication</span> keeps live copies on independent machines — one fails, another serves. Replicas also add read capacity for free(ish).",
+        "But the write stream still flows through one primary, and copies arrive <em>asynchronously</em> — replicas lag behind under write load."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Async replication = eventual consistency on replicas: a user can write, then read a replica that hasn't caught up, and see their data 'missing'."
+      },
+      "metrics": {
+        "users": 120000,
+        "rps": 3360,
+        "p95": 70,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "replica": {
+            "type": "db",
+            "x": 8.1,
+            "y": 18,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "mon": {
+            "type": "block",
+            "x": -10.8,
+            "y": -6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Replication",
+            "icon": "layers",
+            "lines": [
+              "primary → replica: async copy",
+              "= primary dies → replica serves",
+              "! replicas lag under write load"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ]
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ]
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "style": "off"
+          },
+          "e4": {
+            "from": "db",
+            "to": "replica",
+            "pts": [
+              "db",
+              "replica"
+            ],
+            "label": "async replicate",
+            "style": "beat"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "kind": "ping",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 3360,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "primary"
+          },
+          {
+            "id": "replica",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "replica"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "replica"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Buy uptime",
+      "chapter": "tradeoff",
+      "title": "Availability is a thing you buy",
+      "body": [
+        "Each replica costs as much as the primary. Availability is a thing you buy, not a setting you flip.",
+        "<span class=\"term\">Observability</span> isn't optional at this scale — without monitoring you learn about outages from Twitter."
+      ],
+      "changes": [
+        "+ MongoDB replica (async)",
+        "+ Observability stack",
+        "~ Read-your-writes needs primary reads or sticky routing"
+      ],
+      "metrics": {
+        "users": 120000,
+        "rps": 3360,
+        "p95": 70,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "replica": {
+            "type": "db",
+            "x": 8.1,
+            "y": 18,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "mon": {
+            "type": "block",
+            "x": -10.8,
+            "y": -6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ]
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ]
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "style": "off"
+          },
+          "e4": {
+            "from": "db",
+            "to": "replica",
+            "pts": [
+              "db",
+              "replica"
+            ],
+            "label": "async replicate",
+            "style": "beat"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "kind": "ping",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 3360,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "primary"
+          },
+          {
+            "id": "replica",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "replica"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "replica"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1844 @@
+{
+  "id": "the-region-is-down",
+  "title": "The Region Is Down. The Region Is You.",
+  "summary": "medichart — health records SaaS. 03:11, a regional outage, half your capacity gone, and doctors mid-shift. Survive the night, then build it right.",
+  "minutes": 9,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "empty",
+    [
+      "write",
+      "replication"
+    ],
+    "ping",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See what losing half your capacity does",
+      "step": 1
+    },
+    {
+      "text": "Survive: overscale what's left, shed the rest",
+      "step": 2
+    },
+    {
+      "text": "Spread capacity across failure domains",
+      "step": 4
+    },
+    {
+      "text": "Practice failover before you need it",
+      "step": 5
+    }
+  ],
+  "steps": [
+    {
+      "short": "03:10",
+      "chapter": "setup",
+      "title": "Everything in one region",
+      "body": [
+        "<b>medichart</b> serves hospitals: 3M users pulling up patient records, about 21,000 requests a second.",
+        "Everything lives in <b>one region</b> because 'multi-region was on the roadmap for Q3'. It is currently Q2."
+      ],
+      "metrics": {
+        "users": 3000000,
+        "rps": 21000,
+        "p95": 110,
+        "errors": 0.1
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -10,
+            "y1": 13,
+            "label": "ONE REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Hospitals"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "5 instances"
+          },
+          "apiB": {
+            "type": "block",
+            "x": 4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "5 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -9,
+            "y": 9,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "Cache"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "1 read replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "es": {
+            "type": "block",
+            "x": 9,
+            "y": 9,
+            "s": 4,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Search"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /patient"
+          },
+          "ea": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "eb": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "ra": {
+            "from": "apiA",
+            "to": "redis",
+            "pts": [
+              "apiA",
+              "redis"
+            ]
+          },
+          "da": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ]
+          },
+          "sa": {
+            "from": "apiA",
+            "to": "es",
+            "pts": [
+              "apiA",
+              "es"
+            ]
+          },
+          "rb": {
+            "from": "apiB",
+            "to": "redis",
+            "pts": [
+              "apiB",
+              "redis"
+            ]
+          },
+          "db_": {
+            "from": "apiB",
+            "to": "db",
+            "pts": [
+              "apiB",
+              "db"
+            ]
+          },
+          "sb": {
+            "from": "apiB",
+            "to": "es",
+            "pts": [
+              "apiB",
+              "es"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "ra"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "da"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "sa"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "eb",
+                  "rb"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "eb",
+                  "db_"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "eb",
+                  "sb"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 21000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hospitals"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Records API",
+            "sub": "medium · 10 instances · circuit breaker"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "large · 1 read replica"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "es"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Outage",
+      "chapter": "problem",
+      "title": "Half your capacity evaporated",
+      "body": [
+        "<b>03:11</b> — Your cloud provider's status page just turned red: a major regional outage. <b>~50% of your instance capacity</b> is unreachable. Provider ETA: 'investigating'.",
+        "Doctors are mid-shift. 'Down' is not a word you get to use."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Half the fleet now has to carry all of the traffic."
+      },
+      "metrics": {
+        "users": 3000000,
+        "rps": 21000,
+        "p95": null,
+        "errors": 50
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -10,
+            "y1": 13,
+            "label": "ONE REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Hospitals"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.97,
+            "sub": "5 instances",
+            "heat": 1
+          },
+          "apiB": {
+            "type": "block",
+            "x": 4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": -1,
+            "sub": "",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0,
+            "opacity": 0.6
+          },
+          "redis": {
+            "type": "block",
+            "x": -9,
+            "y": 9,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "Cache"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "1 read replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "es": {
+            "type": "block",
+            "x": 9,
+            "y": 9,
+            "s": 4,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Search"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /patient"
+          },
+          "ea": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ],
+            "fail": 0.5
+          },
+          "eb": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "ra": {
+            "from": "apiA",
+            "to": "redis",
+            "pts": [
+              "apiA",
+              "redis"
+            ]
+          },
+          "da": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ]
+          },
+          "sa": {
+            "from": "apiA",
+            "to": "es",
+            "pts": [
+              "apiA",
+              "es"
+            ]
+          },
+          "rb": {
+            "from": "apiB",
+            "to": "redis",
+            "pts": [
+              "apiB",
+              "redis"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "db_": {
+            "from": "apiB",
+            "to": "db",
+            "pts": [
+              "apiB",
+              "db"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "sb": {
+            "from": "apiB",
+            "to": "es",
+            "pts": [
+              "apiB",
+              "es"
+            ],
+            "style": "cut",
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "ra"
+                ],
+                "weight": 1,
+                "kind": "slow"
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "da"
+                ],
+                "weight": 1,
+                "kind": "slow"
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "sa"
+                ],
+                "weight": 1,
+                "kind": "slow"
+              },
+              {
+                "path": [
+                  "e1",
+                  "eb"
+                ],
+                "kind": "slow",
+                "weight": 3
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 21000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hospitals"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Records API",
+            "sub": "~5 of 10 instances reachable",
+            "status": "crit"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "large · 1 read replica"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "es"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Survive",
+      "chapter": "solution",
+      "title": "DR in its rawest form",
+      "body": [
+        "When a region degrades, <span class=\"term\">survival = remaining capacity &gt; current demand</span>.",
+        "So you <b>overscale what survived</b> and <b>shed non-critical load</b> at the edge. Not elegant — disaster recovery in its rawest form."
+      ],
+      "changes": [
+        "~ Surviving Records API overscaled",
+        "+ Load shedding at the ALB"
+      ],
+      "metrics": {
+        "users": 3000000,
+        "rps": 21000,
+        "p95": 320,
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -10,
+            "y1": 13,
+            "label": "ONE REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Hospitals"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "tags": [
+              {
+                "text": "shed non-critical",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "apiA": {
+            "type": "block",
+            "x": -4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "overscaled",
+            "heat": 0.35
+          },
+          "apiB": {
+            "type": "block",
+            "x": 4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": -1,
+            "sub": "",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0,
+            "opacity": 0.6
+          },
+          "redis": {
+            "type": "block",
+            "x": -9,
+            "y": 9,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "Cache"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "1 read replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "es": {
+            "type": "block",
+            "x": 9,
+            "y": 9,
+            "s": 4,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Search"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /patient"
+          },
+          "ea": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "eb": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "ra": {
+            "from": "apiA",
+            "to": "redis",
+            "pts": [
+              "apiA",
+              "redis"
+            ]
+          },
+          "da": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ]
+          },
+          "sa": {
+            "from": "apiA",
+            "to": "es",
+            "pts": [
+              "apiA",
+              "es"
+            ]
+          },
+          "rb": {
+            "from": "apiB",
+            "to": "redis",
+            "pts": [
+              "apiB",
+              "redis"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "db_": {
+            "from": "apiB",
+            "to": "db",
+            "pts": [
+              "apiB",
+              "db"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "sb": {
+            "from": "apiB",
+            "to": "es",
+            "pts": [
+              "apiB",
+              "es"
+            ],
+            "style": "cut",
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "ra"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "da"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "sa"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1"
+                ],
+                "kind": "empty",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 21000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hospitals"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Records API",
+            "sub": "overscaled survivors",
+            "status": "warn"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "large · 1 read replica"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "es"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Morning",
+      "chapter": "problem",
+      "title": "Morning shift, wounded fleet",
+      "body": [
+        "Morning shift is starting on the East Coast. Traffic climbs <b>1.5×</b> on your wounded fleet.",
+        "Overscaling bought you headroom; the demand side just moved again. You hold under the 4% error budget only because the survivors were scaled past what they needed at 03:11."
+      ],
+      "metrics": {
+        "users": 3000000,
+        "rps": 31500,
+        "p95": 380,
+        "errors": 3.5
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -10,
+            "y1": 13,
+            "label": "ONE REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Hospitals"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "tags": [
+              {
+                "text": "shed non-critical",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "apiA": {
+            "type": "block",
+            "x": -4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "overscaled",
+            "heat": 0.35
+          },
+          "apiB": {
+            "type": "block",
+            "x": 4.5,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": -1,
+            "sub": "",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0,
+            "opacity": 0.6
+          },
+          "redis": {
+            "type": "block",
+            "x": -9,
+            "y": 9,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "Cache"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "1 read replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "es": {
+            "type": "block",
+            "x": 9,
+            "y": 9,
+            "s": 4,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Search"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Survival math",
+            "icon": "gauge",
+            "lines": [
+              "# survival = remaining capacity > current demand",
+              "! outage: ~50% of capacity gone",
+              "! morning shift: demand 1.5×",
+              "= overscale what survived · shed the rest"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /patient"
+          },
+          "ea": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "eb": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "ra": {
+            "from": "apiA",
+            "to": "redis",
+            "pts": [
+              "apiA",
+              "redis"
+            ]
+          },
+          "da": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ]
+          },
+          "sa": {
+            "from": "apiA",
+            "to": "es",
+            "pts": [
+              "apiA",
+              "es"
+            ]
+          },
+          "rb": {
+            "from": "apiB",
+            "to": "redis",
+            "pts": [
+              "apiB",
+              "redis"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "db_": {
+            "from": "apiB",
+            "to": "db",
+            "pts": [
+              "apiB",
+              "db"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "sb": {
+            "from": "apiB",
+            "to": "es",
+            "pts": [
+              "apiB",
+              "es"
+            ],
+            "style": "cut",
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "ra"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "da"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "sa"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1"
+                ],
+                "kind": "empty",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 31500,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hospitals"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Records API",
+            "sub": "overscaled survivors",
+            "status": "warn"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "large · 1 read replica"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "es"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Domains",
+      "chapter": "technique",
+      "title": "More than one failure domain",
+      "body": [
+        "The durable fix is capacity in more than one <span class=\"term\">failure domain</span>: <b>multi-AZ first</b> (cheap, easy), multi-region for the SLAs that justify it.",
+        "Managed services (DynamoDB, SQS, ALB) are already multi-AZ — one reason they cost more on paper and less in incidents."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Multi-AZ first: same region, separate data centers, most of the protection for a fraction of the work."
+      },
+      "changes": [
+        "+ Second zone: Records API capacity",
+        "+ Records DB read replica in zone B"
+      ],
+      "metrics": {
+        "users": 3000000,
+        "rps": 21000,
+        "p95": 110,
+        "errors": 0.1
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -15,
+            "x1": -1,
+            "y0": -10,
+            "y1": 13,
+            "label": "ZONE A"
+          },
+          "zoneB": {
+            "type": "zone",
+            "x0": 1,
+            "x1": 15,
+            "y0": -10,
+            "y1": 13,
+            "label": "ZONE B"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Hospitals"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "sub": "multi-AZ"
+          },
+          "apiA": {
+            "type": "block",
+            "x": -7,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": -5,
+            "y": 8,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "apiB2": {
+            "type": "block",
+            "x": 7,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "dbB": {
+            "type": "db",
+            "x": 10,
+            "y": 7,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "read replica"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /patient"
+          },
+          "ea": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "eb2": {
+            "from": "lb",
+            "to": "apiB2",
+            "pts": [
+              "lb",
+              "apiB2"
+            ]
+          },
+          "da": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ]
+          },
+          "db2": {
+            "from": "apiB2",
+            "to": "dbB",
+            "pts": [
+              "apiB2",
+              "dbB"
+            ],
+            "label": "reads"
+          },
+          "rep": {
+            "from": "db",
+            "to": "dbB",
+            "pts": [
+              "db",
+              "dbB"
+            ],
+            "label": "replication"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "da"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "eb2",
+                  "db2"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 21000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hospitals"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Records API",
+            "sub": "spread across zones"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "large · 1 read replica"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Search"
+          },
+          {
+            "id": "dbB",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "read replica · zone B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "es"
+          },
+          {
+            "from": "db",
+            "to": "dbB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Game day",
+      "chapter": "tradeoff",
+      "title": "Paying for idle, practicing failure",
+      "body": [
+        "N+1 region capacity means paying for headroom that idles ~99% of the time. For hospital software, that math closes easily; for a meme app, maybe not.",
+        "Failover needs <em>practice</em> — an untested DR plan is a rumor. <span class=\"term\">Game days</span> exist because the first failover should never be the real one."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Buy the redundancy your SLA justifies — then rehearse using it."
+      },
+      "metrics": {
+        "users": 3000000,
+        "rps": 21000,
+        "p95": 110,
+        "errors": 0.1
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -15,
+            "x1": -1,
+            "y0": -10,
+            "y1": 13,
+            "label": "REGION A"
+          },
+          "zoneB": {
+            "type": "zone",
+            "x0": 1,
+            "x1": 15,
+            "y0": -10,
+            "y1": 13,
+            "label": "REGION B · STANDBY"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Hospitals"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "sub": "multi-AZ"
+          },
+          "apiA": {
+            "type": "block",
+            "x": -7,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": -5,
+            "y": 8,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "apiB2": {
+            "type": "block",
+            "x": 7,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Records",
+              "API"
+            ],
+            "cpu": 0.3,
+            "dim": 0.5,
+            "sub": "N+1 headroom"
+          },
+          "dbB": {
+            "type": "db",
+            "x": 10,
+            "y": 7,
+            "label": "Records DB",
+            "tags": [
+              {
+                "text": "standby"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /patient"
+          },
+          "ea": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "eb2": {
+            "from": "lb",
+            "to": "apiB2",
+            "pts": [
+              "lb",
+              "apiB2"
+            ],
+            "style": "dashed",
+            "label": "failover drill"
+          },
+          "da": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ]
+          },
+          "db2": {
+            "from": "apiB2",
+            "to": "dbB",
+            "pts": [
+              "apiB2",
+              "dbB"
+            ],
+            "label": "reads",
+            "style": "off"
+          },
+          "rep": {
+            "from": "db",
+            "to": "dbB",
+            "pts": [
+              "db",
+              "dbB"
+            ],
+            "label": "replication"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "ea",
+                  "da"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          },
+          {
+            "route": [
+              "e1",
+              "eb2"
+            ],
+            "kind": "ping",
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 21000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hospitals"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Records API",
+            "sub": "region A"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "large · 1 read replica"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Search"
+          },
+          {
+            "id": "dbB",
+            "kind": "postgres",
+            "label": "Records DB",
+            "sub": "standby · region B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "es"
+          },
+          {
+            "from": "db",
+            "to": "dbB"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1923 @@
+{
+  "id": "eight-million-messages-behind",
+  "title": "Eight Million Messages Behind",
+  "summary": "shipwell — logistics platform. Dashboards are 47 minutes behind and Kafka looks perfectly healthy. The drain is the problem.",
+  "minutes": 7,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "backlog",
+    "workers"
+  ],
+  "legend": [
+    [
+      "write",
+      "scan event"
+    ],
+    [
+      "msg",
+      "consumed"
+    ],
+    "queue"
+  ],
+  "goals": [
+    {
+      "text": "Read consumer lag: the queue is fine, the drain is not",
+      "step": 1
+    },
+    {
+      "text": "Learn why partition count caps consumer parallelism",
+      "step": 2
+    },
+    {
+      "text": "Catch up with margin, then scale back",
+      "step": 3
+    }
+  ],
+  "steps": [
+    {
+      "short": "11:15",
+      "chapter": "setup",
+      "title": "47 minutes behind",
+      "body": [
+        "<b>11:15</b> — Warehouse scanners across the country send package-scan events through <span class=\"term\">Kafka</span>. Dashboards are showing data from <b>47 minutes ago</b> and falling further behind.",
+        "Consumer lag: <b>8.2 million messages</b>. Customers are calling support asking where their packages are. The COO is calling you."
+      ],
+      "metrics": {
+        "users": 1500000,
+        "rps": 12000,
+        "backlog": "8.2M msgs",
+        "workers": 2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Scanners + Apps"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "NLB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "16 instances"
+          },
+          "kafka": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "4 partitions"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Event Store",
+            "tags": [
+              {
+                "text": "Cassandra · 4 nodes"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": -3.5,
+            "y": 8.5,
+            "n": 8,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "c1": {
+            "type": "block",
+            "x": -2.7,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C1"
+            ],
+            "heat": 1
+          },
+          "c2": {
+            "type": "block",
+            "x": 2.7,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C2"
+            ],
+            "heat": 1
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "scan event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "kafka",
+            "pts": [
+              "api",
+              "kafka"
+            ],
+            "label": "produce"
+          },
+          "k1": {
+            "from": "kafka",
+            "to": "c1",
+            "pts": [
+              "kafka",
+              "c1"
+            ]
+          },
+          "w1": {
+            "from": "c1",
+            "to": "store",
+            "pts": [
+              "c1",
+              "store"
+            ]
+          },
+          "k2": {
+            "from": "kafka",
+            "to": "c2",
+            "pts": [
+              "kafka",
+              "c2"
+            ]
+          },
+          "w2": {
+            "from": "c2",
+            "to": "store",
+            "pts": [
+              "c2",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "write",
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "k1",
+                  "w1"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k2",
+                  "w2"
+                ],
+                "kind": "msg",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1500000,
+        "rps": 12000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Scanners + Apps"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "NLB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API",
+            "sub": "16 instances"
+          },
+          {
+            "id": "kafka",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "4 partitions"
+          },
+          {
+            "id": "workers",
+            "kind": "worker",
+            "label": "Consumers",
+            "sub": "2 instances",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Event Store",
+            "sub": "4 nodes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "kafka"
+          },
+          {
+            "from": "kafka",
+            "to": "workers"
+          },
+          {
+            "from": "workers",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Healthy?",
+      "chapter": "problem",
+      "title": "Producers fine. Brokers fine.",
+      "body": [
+        "Holiday shipping volume: scan events <b>2× normal</b>, all day.",
+        "The brokers are healthy because Kafka's job is to <em>hold</em> messages — it is holding 8 million of them beautifully. The failure is downstream: <span class=\"term\">consumer throughput &lt; producer throughput</span>, permanently."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "A queue doesn't make slow consumers fast — it buys you time. If the drain stays slower than the arrivals, 'eventually' becomes 'never'."
+      },
+      "metrics": {
+        "users": 1500000,
+        "rps": 26400,
+        "backlog": "8.2M+ & rising",
+        "workers": 2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Scanners + Apps"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "NLB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "16 instances"
+          },
+          "kafka": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "4 partitions",
+            "tags": [
+              {
+                "text": "healthy",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "pills": "above"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Event Store",
+            "tags": [
+              {
+                "text": "Cassandra · 4 nodes"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": -3.5,
+            "y": 8.5,
+            "n": 12,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "c1": {
+            "type": "block",
+            "x": -2.7,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C1"
+            ],
+            "heat": 1
+          },
+          "c2": {
+            "type": "block",
+            "x": 2.7,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C2"
+            ],
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Drain < arrival",
+            "icon": "inbox",
+            "lines": [
+              "producers: fine · brokers: fine",
+              "! consumer throughput < producer throughput",
+              "! …permanently → backlog grows forever"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "scan event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "kafka",
+            "pts": [
+              "api",
+              "kafka"
+            ],
+            "label": "produce"
+          },
+          "k1": {
+            "from": "kafka",
+            "to": "c1",
+            "pts": [
+              "kafka",
+              "c1"
+            ]
+          },
+          "w1": {
+            "from": "c1",
+            "to": "store",
+            "pts": [
+              "c1",
+              "store"
+            ]
+          },
+          "k2": {
+            "from": "kafka",
+            "to": "c2",
+            "pts": [
+              "kafka",
+              "c2"
+            ]
+          },
+          "w2": {
+            "from": "c2",
+            "to": "store",
+            "pts": [
+              "c2",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "k1",
+                  "w1"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k2",
+                  "w2"
+                ],
+                "kind": "msg",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1500000,
+        "rps": 26400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Scanners + Apps"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "NLB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API",
+            "sub": "16 instances"
+          },
+          {
+            "id": "kafka",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "4 partitions"
+          },
+          {
+            "id": "workers",
+            "kind": "worker",
+            "label": "Consumers",
+            "sub": "2 instances",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Event Store",
+            "sub": "4 nodes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "kafka"
+          },
+          {
+            "from": "kafka",
+            "to": "workers"
+          },
+          {
+            "from": "workers",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Idle",
+      "chapter": "technique",
+      "title": "Partitions cap parallelism",
+      "body": [
+        "The first lever is more consumers. Scale to six… and only four of them do any work.",
+        "Each partition is read by one consumer in a group, so <b>partition count caps consumer parallelism</b>. With 4 partitions, consumers 5+ stand idle."
+      ],
+      "changes": [
+        "~ Consumers: 2 → 6 (4 busy, 2 idle)"
+      ],
+      "metrics": {
+        "users": 1500000,
+        "rps": 26400,
+        "backlog": "8.2M+ & rising",
+        "workers": 6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Scanners + Apps"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "NLB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "16 instances"
+          },
+          "kafka": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "",
+            "tags": [
+              {
+                "text": "4 partitions → 4 consumers",
+                "tone": "amber",
+                "icon": "split"
+              }
+            ],
+            "pills": "above"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Event Store",
+            "tags": [
+              {
+                "text": "Cassandra · 4 nodes"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": -3.5,
+            "y": 8.5,
+            "n": 12,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "c1": {
+            "type": "block",
+            "x": -11.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C1"
+            ],
+            "heat": 0.35
+          },
+          "c2": {
+            "type": "block",
+            "x": -6.75,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C2"
+            ],
+            "heat": 0.35
+          },
+          "c3": {
+            "type": "block",
+            "x": -2.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C3"
+            ],
+            "heat": 0.35
+          },
+          "c4": {
+            "type": "block",
+            "x": 2.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C4"
+            ],
+            "heat": 0.35
+          },
+          "c5": {
+            "type": "block",
+            "x": 6.75,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C5"
+            ],
+            "dim": 0.6,
+            "tags": [
+              {
+                "text": "idle",
+                "tone": "gray",
+                "icon": "moon"
+              }
+            ]
+          },
+          "c6": {
+            "type": "block",
+            "x": 11.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C6"
+            ],
+            "dim": 0.6,
+            "tags": [
+              {
+                "text": "idle",
+                "tone": "gray",
+                "icon": "moon"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "scan event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "kafka",
+            "pts": [
+              "api",
+              "kafka"
+            ],
+            "label": "produce"
+          },
+          "k1": {
+            "from": "kafka",
+            "to": "c1",
+            "pts": [
+              "kafka",
+              "c1"
+            ]
+          },
+          "w1": {
+            "from": "c1",
+            "to": "store",
+            "pts": [
+              "c1",
+              "store"
+            ]
+          },
+          "k2": {
+            "from": "kafka",
+            "to": "c2",
+            "pts": [
+              "kafka",
+              "c2"
+            ]
+          },
+          "w2": {
+            "from": "c2",
+            "to": "store",
+            "pts": [
+              "c2",
+              "store"
+            ]
+          },
+          "k3": {
+            "from": "kafka",
+            "to": "c3",
+            "pts": [
+              "kafka",
+              "c3"
+            ]
+          },
+          "w3": {
+            "from": "c3",
+            "to": "store",
+            "pts": [
+              "c3",
+              "store"
+            ]
+          },
+          "k4": {
+            "from": "kafka",
+            "to": "c4",
+            "pts": [
+              "kafka",
+              "c4"
+            ]
+          },
+          "w4": {
+            "from": "c4",
+            "to": "store",
+            "pts": [
+              "c4",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "k1",
+                  "w1"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k2",
+                  "w2"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k3",
+                  "w3"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k4",
+                  "w4"
+                ],
+                "kind": "msg",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 1500000,
+        "rps": 26400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Scanners + Apps"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "NLB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API",
+            "sub": "16 instances"
+          },
+          {
+            "id": "kafka",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "4 partitions"
+          },
+          {
+            "id": "workers",
+            "kind": "worker",
+            "label": "Consumers",
+            "sub": "6 instances · 2 idle",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Event Store",
+            "sub": "4 nodes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "kafka"
+          },
+          {
+            "from": "kafka",
+            "to": "workers"
+          },
+          {
+            "from": "workers",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Drain",
+      "chapter": "solution",
+      "title": "Both levers, with margin",
+      "body": [
+        "Two levers fix a drain problem: <b>more consumers AND enough partitions</b> for them to share.",
+        "Catching up a deep backlog needs drain rate &gt; arrival rate <em>with margin</em> — so temporarily overscale the workers. The lag finally starts shrinking."
+      ],
+      "changes": [
+        "+ More Kafka partitions",
+        "~ Consumers overscaled to catch up"
+      ],
+      "metrics": {
+        "users": 1500000,
+        "rps": 26400,
+        "backlog": "draining",
+        "workers": 8
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Scanners + Apps"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "NLB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "16 instances"
+          },
+          "kafka": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "more partitions"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Event Store",
+            "tags": [
+              {
+                "text": "Cassandra · 4 nodes"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": -3.5,
+            "y": 8.5,
+            "n": 5,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "c1": {
+            "type": "block",
+            "x": -14.7,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C1"
+            ],
+            "heat": 0.35
+          },
+          "c2": {
+            "type": "block",
+            "x": -10.5,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C2"
+            ],
+            "heat": 0.35
+          },
+          "c3": {
+            "type": "block",
+            "x": -6.3,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C3"
+            ],
+            "heat": 0.35
+          },
+          "c4": {
+            "type": "block",
+            "x": -2.1,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C4"
+            ],
+            "heat": 0.35
+          },
+          "c5": {
+            "type": "block",
+            "x": 2.1,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C5"
+            ],
+            "heat": 0.35
+          },
+          "c6": {
+            "type": "block",
+            "x": 6.3,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C6"
+            ],
+            "heat": 0.35
+          },
+          "c7": {
+            "type": "block",
+            "x": 10.5,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C7"
+            ],
+            "heat": 0.35
+          },
+          "c8": {
+            "type": "block",
+            "x": 14.7,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C8"
+            ],
+            "heat": 0.35
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "scan event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "kafka",
+            "pts": [
+              "api",
+              "kafka"
+            ],
+            "label": "produce"
+          },
+          "k1": {
+            "from": "kafka",
+            "to": "c1",
+            "pts": [
+              "kafka",
+              "c1"
+            ]
+          },
+          "w1": {
+            "from": "c1",
+            "to": "store",
+            "pts": [
+              "c1",
+              "store"
+            ]
+          },
+          "k2": {
+            "from": "kafka",
+            "to": "c2",
+            "pts": [
+              "kafka",
+              "c2"
+            ]
+          },
+          "w2": {
+            "from": "c2",
+            "to": "store",
+            "pts": [
+              "c2",
+              "store"
+            ]
+          },
+          "k3": {
+            "from": "kafka",
+            "to": "c3",
+            "pts": [
+              "kafka",
+              "c3"
+            ]
+          },
+          "w3": {
+            "from": "c3",
+            "to": "store",
+            "pts": [
+              "c3",
+              "store"
+            ]
+          },
+          "k4": {
+            "from": "kafka",
+            "to": "c4",
+            "pts": [
+              "kafka",
+              "c4"
+            ]
+          },
+          "w4": {
+            "from": "c4",
+            "to": "store",
+            "pts": [
+              "c4",
+              "store"
+            ]
+          },
+          "k5": {
+            "from": "kafka",
+            "to": "c5",
+            "pts": [
+              "kafka",
+              "c5"
+            ]
+          },
+          "w5": {
+            "from": "c5",
+            "to": "store",
+            "pts": [
+              "c5",
+              "store"
+            ]
+          },
+          "k6": {
+            "from": "kafka",
+            "to": "c6",
+            "pts": [
+              "kafka",
+              "c6"
+            ]
+          },
+          "w6": {
+            "from": "c6",
+            "to": "store",
+            "pts": [
+              "c6",
+              "store"
+            ]
+          },
+          "k7": {
+            "from": "kafka",
+            "to": "c7",
+            "pts": [
+              "kafka",
+              "c7"
+            ]
+          },
+          "w7": {
+            "from": "c7",
+            "to": "store",
+            "pts": [
+              "c7",
+              "store"
+            ]
+          },
+          "k8": {
+            "from": "kafka",
+            "to": "c8",
+            "pts": [
+              "kafka",
+              "c8"
+            ]
+          },
+          "w8": {
+            "from": "c8",
+            "to": "store",
+            "pts": [
+              "c8",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "k1",
+                  "w1"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k2",
+                  "w2"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k3",
+                  "w3"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k4",
+                  "w4"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k5",
+                  "w5"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k6",
+                  "w6"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k7",
+                  "w7"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k8",
+                  "w8"
+                ],
+                "kind": "msg",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 1500000,
+        "rps": 26400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Scanners + Apps"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "NLB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API",
+            "sub": "16 instances"
+          },
+          {
+            "id": "kafka",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "more partitions"
+          },
+          {
+            "id": "workers",
+            "kind": "worker",
+            "label": "Consumers",
+            "sub": "8 instances",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Event Store",
+            "sub": "4 nodes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "kafka"
+          },
+          {
+            "from": "kafka",
+            "to": "workers"
+          },
+          {
+            "from": "workers",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Headroom",
+      "chapter": "tradeoff",
+      "title": "Overprovision partitions early",
+      "body": [
+        "Once the backlog is gone, scale the workers back. Sizing for exactly steady-state means you never recover from any dip.",
+        "Adding partitions is easy at creation and annoying later: rebalancing, and ordering boundaries change. <b>Overprovision partitions early.</b>"
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Partitions are your ceiling on parallelism; workers are how close you run to it."
+      },
+      "changes": [
+        "~ Consumers scaled back after catch-up"
+      ],
+      "metrics": {
+        "users": 1500000,
+        "rps": 26400,
+        "backlog": "caught up",
+        "workers": 6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Scanners + Apps"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "NLB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "16 instances"
+          },
+          "kafka": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "more partitions"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Event Store",
+            "tags": [
+              {
+                "text": "Cassandra · 4 nodes"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": -3.5,
+            "y": 8.5,
+            "n": 1,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "c1": {
+            "type": "block",
+            "x": -11.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C1"
+            ],
+            "heat": 0
+          },
+          "c2": {
+            "type": "block",
+            "x": -6.75,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C2"
+            ],
+            "heat": 0
+          },
+          "c3": {
+            "type": "block",
+            "x": -2.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C3"
+            ],
+            "heat": 0
+          },
+          "c4": {
+            "type": "block",
+            "x": 2.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C4"
+            ],
+            "heat": 0
+          },
+          "c5": {
+            "type": "block",
+            "x": 6.75,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C5"
+            ],
+            "heat": 0
+          },
+          "c6": {
+            "type": "block",
+            "x": 11.25,
+            "y": 18,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "C6"
+            ],
+            "heat": 0
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "scan event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "kafka",
+            "pts": [
+              "api",
+              "kafka"
+            ],
+            "label": "produce"
+          },
+          "k1": {
+            "from": "kafka",
+            "to": "c1",
+            "pts": [
+              "kafka",
+              "c1"
+            ]
+          },
+          "w1": {
+            "from": "c1",
+            "to": "store",
+            "pts": [
+              "c1",
+              "store"
+            ]
+          },
+          "k2": {
+            "from": "kafka",
+            "to": "c2",
+            "pts": [
+              "kafka",
+              "c2"
+            ]
+          },
+          "w2": {
+            "from": "c2",
+            "to": "store",
+            "pts": [
+              "c2",
+              "store"
+            ]
+          },
+          "k3": {
+            "from": "kafka",
+            "to": "c3",
+            "pts": [
+              "kafka",
+              "c3"
+            ]
+          },
+          "w3": {
+            "from": "c3",
+            "to": "store",
+            "pts": [
+              "c3",
+              "store"
+            ]
+          },
+          "k4": {
+            "from": "kafka",
+            "to": "c4",
+            "pts": [
+              "kafka",
+              "c4"
+            ]
+          },
+          "w4": {
+            "from": "c4",
+            "to": "store",
+            "pts": [
+              "c4",
+              "store"
+            ]
+          },
+          "k5": {
+            "from": "kafka",
+            "to": "c5",
+            "pts": [
+              "kafka",
+              "c5"
+            ]
+          },
+          "w5": {
+            "from": "c5",
+            "to": "store",
+            "pts": [
+              "c5",
+              "store"
+            ]
+          },
+          "k6": {
+            "from": "kafka",
+            "to": "c6",
+            "pts": [
+              "kafka",
+              "c6"
+            ]
+          },
+          "w6": {
+            "from": "c6",
+            "to": "store",
+            "pts": [
+              "c6",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "k1",
+                  "w1"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k2",
+                  "w2"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k3",
+                  "w3"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k4",
+                  "w4"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k5",
+                  "w5"
+                ],
+                "kind": "msg",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "k6",
+                  "w6"
+                ],
+                "kind": "msg",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "rate": 1.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1500000,
+        "rps": 26400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Scanners + Apps"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "NLB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API",
+            "sub": "16 instances"
+          },
+          {
+            "id": "kafka",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "more partitions"
+          },
+          {
+            "id": "workers",
+            "kind": "worker",
+            "label": "Consumers",
+            "sub": "6 instances"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Event Store",
+            "sub": "4 nodes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "kafka"
+          },
+          {
+            "from": "kafka",
+            "to": "workers"
+          },
+          {
+            "from": "workers",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

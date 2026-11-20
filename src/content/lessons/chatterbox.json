@@ -1,0 +1,699 @@
+{
+  "id": "chatterbox",
+  "title": "Chatterbox",
+  "summary": "chatter — a messaging app. The same hot threads get read thousands of times a second.",
+  "minutes": 7,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why identical reads overwhelm the database",
+      "step": 2
+    },
+    {
+      "text": "Caching — and the stampede that comes with it",
+      "step": 3
+    },
+    {
+      "text": "Weigh freshness against hit ratio",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Repeat reads",
+      "chapter": "setup",
+      "title": "The same data, over and over",
+      "body": [
+        "Pivot! You rebuilt linkly's comments feature as <b>chatter</b> — a messaging app. Reads outnumber writes 4:1, and the same popular group chats get read thousands of times a second.",
+        "Your database is doing the same work over and over."
+      ],
+      "metrics": {
+        "users": 10000,
+        "rps": 280,
+        "p95": 90,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 8,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /thread/:id"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 10000,
+        "rps": 280,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fan surge",
+      "chapter": "problem",
+      "title": "A streamer sends their fans",
+      "body": [
+        "A streamer told their fans to join chatter. Concurrents are doubling, and every single one of them re-reads the same few threads."
+      ],
+      "metrics": {
+        "users": 25000,
+        "rps": 700,
+        "p95": 420,
+        "errors": 1.8
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 9,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "heat": 0.35,
+            "cpu": 0.78
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /thread/:id"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 25000,
+        "rps": 700,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "40k online",
+      "chapter": "problem",
+      "title": "40,000 members, all VERY online",
+      "body": [
+        "One group chat has 40,000 members and they are all online right now, hammering the same document. Your database is doing identical work, over and over, for every request."
+      ],
+      "metrics": {
+        "users": 60000,
+        "rps": 1680,
+        "p95": 2200,
+        "errors": 7.5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "heat": 1,
+            "cpu": 0.97
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /thread/:id"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000,
+        "rps": 1680,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Add a cache",
+      "chapter": "technique",
+      "title": "Caching — and the stampede that comes with it",
+      "body": [
+        "Most read traffic was the <em>same data over and over</em> — perfect cache material. Redis serves hot reads from memory in ~1ms and absorbs them before they reach the database.",
+        "Then a hot key expired and thousands of concurrent requests all missed at the same instant — a <span class=\"term\">cache stampede</span> that flattened the DB worse than having no cache at all, because you'd sized the DB assuming the cache."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A cache is borrowed capacity: always ask 'what happens on the miss path?' — because one day the cache will be cold."
+      },
+      "metrics": {
+        "users": 60000,
+        "rps": 1680,
+        "p95": 60,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "hot threads"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Cache-aside",
+            "icon": "zap",
+            "lines": [
+              "hit → Redis in ~1 ms",
+              "miss → MongoDB, then fill the cache",
+              "= hot reads: 2200 ms → 60 ms",
+              "! hot key expires → stampede on the DB"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /thread/:id"
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ],
+            "label": "cache check"
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "on miss",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2"
+                ],
+                "weight": 9
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000,
+        "rps": 1680,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "hot threads"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cache costs",
+      "chapter": "tradeoff",
+      "title": "Cache-aside is simple, not free",
+      "body": [
+        "<span class=\"term\">Cache-aside</span> is simple but serves stale data up to TTL. Short TTL = fresher data, more misses. Long TTL = better hit ratio, more staleness — and bigger stampedes.",
+        "<span class=\"term\">TTL jitter</span> and <span class=\"term\">request coalescing</span> cost nothing and prevent synchronized expiry. There is no good reason to skip them in production."
+      ],
+      "changes": [
+        "+ Redis cache in front of MongoDB",
+        "~ Hot-read latency: 2200ms → 60ms",
+        "~ Added TTL jitter + request coalescing to prevent stampedes"
+      ],
+      "metrics": {
+        "users": 60000,
+        "rps": 1680,
+        "p95": 60,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "hot threads"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /thread/:id"
+          },
+          "e2": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ],
+            "label": "cache check"
+          },
+          "e3": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "on miss",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2"
+                ],
+                "weight": 9
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000,
+        "rps": 1680,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "hot threads"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

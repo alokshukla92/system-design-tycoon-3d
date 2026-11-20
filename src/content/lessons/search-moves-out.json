@@ -1,0 +1,1018 @@
+{
+  "id": "search-moves-out",
+  "title": "Search Moves Out",
+  "summary": "shoply — e-commerce at scale. Product search runs on the primary database, and the Big Sale is about to multiply it by four.",
+  "minutes": 6,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "heavy",
+      "search query"
+    ],
+    "slow",
+    [
+      "write",
+      "async index"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why LIKE '%term%' is a full scan per query",
+      "step": 1
+    },
+    {
+      "text": "Move search to an inverted index",
+      "step": 3
+    },
+    {
+      "text": "Keep the source of truth in the database",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Shoply",
+      "chapter": "setup",
+      "title": "One database does everything",
+      "body": [
+        "<b>shoply</b> processes real money now: carts, payments, inventory — 8M users, about 80,000 requests a second, all served by one strongly consistent PostgreSQL primary.",
+        "About 8% of that traffic is <span class=\"term\">product search</span>, and it runs on the same database."
+      ],
+      "metrics": {
+        "users": 8000000,
+        "rps": 80000,
+        "p95": 200,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "primary · strong consistency"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /search?q=…"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 11
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "req",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 8000000,
+        "rps": 80000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "20× CPU",
+      "chapter": "problem",
+      "title": "Search eats the primary",
+      "body": [
+        "Search on a relational database means <code>LIKE '%term%'</code> — a <b>full table scan per query</b>. Product search on the primary was eating <b>20× CPU per query</b>.",
+        "The scan grows with the catalog, not with the query. A small share of requests does most of the database's work."
+      ],
+      "metrics": {
+        "users": 8000000,
+        "rps": 80000,
+        "p95": 300,
+        "errors": 0.6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "primary · strong consistency"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Search on the primary",
+            "icon": "search",
+            "chart": "bars",
+            "lines": [
+              "# DB CPU per query",
+              "! LIKE '%term%' → full table scan, every query"
+            ],
+            "bars": [
+              {
+                "label": "Product lookup",
+                "note": "1×",
+                "to": 0.05,
+                "tone": "green"
+              },
+              {
+                "label": "Search query",
+                "note": "20×",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /search?q=…"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "LIKE '%term%'"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 11
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "heavy",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 8000000,
+        "rps": 80000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Big Sale",
+      "chapter": "problem",
+      "title": "The Big Sale is live",
+      "body": [
+        "The Big Sale is LIVE. Checkout traffic <b>4×</b> — and search grows with it. Every shopper looking for a deal adds another full scan to the same primary that has to commit their payment.",
+        "Browsing is now starving money."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Search and checkout share one CPU budget. When search wins, payments time out."
+      },
+      "metrics": {
+        "users": 8000000,
+        "rps": 320000,
+        "p95": null,
+        "errors": 8
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "primary · strong consistency"
+              },
+              {
+                "text": "scanning",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /search?q=…"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "LIKE '%term%'",
+            "fail": 0.3
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "slow",
+                "weight": 11
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "heavy",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 8000000,
+        "rps": 320000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Index",
+      "chapter": "technique",
+      "title": "An inverted index",
+      "body": [
+        "Move search to <span class=\"term\">Elasticsearch</span>. A search engine <em>inverts</em> the index — term → matching products — so queries are <b>O(term), not O(rows)</b>.",
+        "The primary goes back to what only it can do: carts, payments, inventory."
+      ],
+      "changes": [
+        "+ Elasticsearch for product search",
+        "+ Async indexing from PostgreSQL"
+      ],
+      "metrics": {
+        "users": 8000000,
+        "rps": 320000,
+        "p95": 260,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": -6.3,
+            "y": 9,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "primary · strong consistency"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "search": {
+            "type": "block",
+            "x": 6.3,
+            "y": 9,
+            "s": 4,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ],
+            "sub": "inverted index"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /search?q=…"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "carts · payments"
+          },
+          "es": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search"
+          },
+          "idx": {
+            "from": "db",
+            "to": "search",
+            "pts": [
+              "db",
+              "search"
+            ],
+            "label": "async index",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 11
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "es"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "idx"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 8000000,
+        "rps": 320000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch",
+            "sub": "product search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          },
+          {
+            "from": "k8s",
+            "to": "es"
+          },
+          {
+            "from": "db",
+            "to": "es"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Eventual",
+      "chapter": "tradeoff",
+      "title": "Not a primary store",
+      "body": [
+        "Elasticsearch is <span class=\"term\">near-real-time</span> and not durable like a primary database. Standard pattern: <b>source of truth in the DB, indexed into ES asynchronously</b> — a new product may take a moment to show up in results.",
+        "Strong consistency costs latency and availability. Reserve it for money and inventory; let browsing be eventual."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Pick consistency per operation, not per system: payments strong, search eventual."
+      },
+      "metrics": {
+        "users": 8000000,
+        "rps": 320000,
+        "p95": 260,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": -6.3,
+            "y": 9,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "source of truth",
+                "tone": "green",
+                "icon": "database"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "search": {
+            "type": "block",
+            "x": 6.3,
+            "y": 9,
+            "s": 4,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ],
+            "sub": "inverted index",
+            "tags": [
+              {
+                "text": "near-real-time",
+                "tone": "violet",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /search?q=…"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "carts · payments"
+          },
+          "es": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search"
+          },
+          "idx": {
+            "from": "db",
+            "to": "search",
+            "pts": [
+              "db",
+              "search"
+            ],
+            "label": "async index",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 11
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "es"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "idx"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 8000000,
+        "rps": 320000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          },
+          {
+            "id": "es",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch",
+            "sub": "product search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          },
+          {
+            "from": "k8s",
+            "to": "es"
+          },
+          {
+            "from": "db",
+            "to": "es"
+          }
+        ]
+      }
+    }
+  ]
+}

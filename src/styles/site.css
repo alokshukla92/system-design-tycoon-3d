@@ -1,0 +1,135 @@
+/* Page-level pieces outside the classroom window: overview button, account button, upgrade dialog, course overview. */
+:root:not(.has-full):not(.is-drawer) body { overflow-y: auto; }
+.classroom-brand-fallback { margin: 0; padding: 14px 24px; font-size: 19px; }
+
+.overview-button {
+  display: grid;
+  flex: 0 0 34px;
+  place-items: center;
+  height: 34px;
+  margin-inline-start: 8px;
+  color: var(--ink-2);
+  border: 1.3px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--a-9);
+}
+.overview-button:hover { background: var(--a-2); }
+
+/* Account / sign-in slot. */
+#course-account {
+  position: relative;
+  display: grid;
+  flex: none;
+  align-items: center;
+  block-size: 40px;
+  min-inline-size: 40px;
+  margin-inline-start: 8px;
+}
+#course-account[hidden] { display: none; }
+[data-login] {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding-inline: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1.3px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--a-9);
+}
+[data-login]:hover { border-color: var(--ink); }
+
+@media (width <= 900px) {
+  [data-login] { width: 34px; padding: 0; }
+  [data-login] > span { display: none; }
+  .topbar .brand { min-width: 0; }
+  .topbar .brand .logo { flex: none; }
+  .topbar .brand__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Upgrade dialog shown for locked lessons. */
+#pro-upgrade {
+  width: min(440px, 100% - 28px);
+  padding: 24px;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 15px 50px #1d19184d;
+}
+#pro-upgrade::backdrop { background: #18140e88; }
+#pro-upgrade p { margin: 0; line-height: 1.55; }
+.upgrade-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.upgrade-head button { padding-inline: 8px; color: inherit; font-size: 24px; cursor: pointer; background: 0 0; border: 0; }
+.upgrade-badge { padding: 4px 10px; color: #4a310d; font-weight: 800; border-radius: 999px; background: #f5d991; }
+#pro-title { margin: 12px 0 6px; font-size: 23px; line-height: 1.2; }
+.upgrade-benefits { display: grid; gap: 7px; margin: 15px 0 0; padding: 0; font-size: 12.5px; line-height: 1.5; list-style: none; }
+.upgrade-benefits li { display: flex; gap: 8px; }
+.upgrade-benefits li span { color: var(--ink); font-weight: 800; }
+.upgrade-price { display: grid; gap: 2px; margin: 17px 0; }
+.upgrade-price strong { font-size: 27px; }
+.upgrade-action {
+  width: 100%;
+  padding: 10px;
+  color: #26391e;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  border: 1px solid #4b6535;
+  border-radius: 8px;
+  background: #d8edb8;
+}
+.upgrade-action:disabled { opacity: 0.6; }
+#pro-upgrade .upgrade-result { margin-top: 10px; }
+
+/* Static course overview below the window (reachable by scrolling / overview button). */
+.course-overview {
+  margin: 16px;
+  padding: clamp(20px, 2.5vw, 40px);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+html[data-interactive] .course-overview { content-visibility: auto; contain-intrinsic-block-size: auto 1800px; }
+.course-overview #course-heading { margin-block-start: 0; font-size: clamp(22px, 4vw, 34px); }
+.course-overview p { max-width: 74ch; margin-block: 12px 28px; line-height: 1.65; }
+.course-overview h2 { margin-block-end: 12px; }
+.course-overview a { color: inherit; text-underline-offset: 3px; }
+.course-modules { display: grid; gap: 20px; }
+.course-modules > section {
+  min-width: 0;
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.course-modules h3 { margin: 0 0 20px; padding-block-end: 12px; border-bottom: 1px solid var(--line); }
+.course-modules ul { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 32px; margin: 0; padding: 0; list-style: none; }
+.course-modules li { min-width: 0; }
+.course-modules li a { display: inline-block; padding-block: 4px; font-weight: 600; }
+.course-modules li a:hover { color: var(--ink); text-decoration-thickness: 2px; }
+.course-modules li a:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: 2px; }
+.course-modules li p { margin: 3px 0 0; color: var(--muted); line-height: 1.45; }
+.course-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px 24px;
+  margin-block-start: 26px;
+  padding-block-start: 16px;
+  border-top: 1px solid var(--line);
+}
+
+@media (width >= 1800px) { .course-modules ul { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (width <= 959px) { .course-modules ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width <= 599px) {
+  .course-modules ul { grid-template-columns: 1fr; gap: 18px; }
+  .course-overview { margin: 10px; padding: 20px 16px; }
+}

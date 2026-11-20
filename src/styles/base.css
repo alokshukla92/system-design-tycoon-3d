@@ -1,0 +1,82 @@
+/* Global reset, primitives and the app window frame. */
+*, :before, :after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  font-feature-settings: "calt" 0, "liga" 0;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button, input, output { font: inherit; color: inherit; }
+button { cursor: pointer; background: 0 0; border: 0; padding: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+h1, h2, p { margin: 0; }
+
+.i { flex: none; display: block; }
+
+.btn-pop {
+  background: var(--green);
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 var(--a-1), var(--pop-shadow);
+  font-weight: 700;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+}
+
+.eyebrow {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.muted-copy { color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+:root[data-lang-pending] .window { visibility: hidden; }
+
+.window {
+  position: relative;
+  display: grid;
+  grid-template-rows: 54px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: radial-gradient(120% 80% at 50% 0%, var(--a-2), transparent 60%), var(--paper);
+}
+
+/* Paper grain overlay. */
+.window:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.25 0 0 0 0 0.18 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr) 376px;
+  min-height: 0;
+}
+
+.is-fresh { animation: 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) fresh-in; }
+
+@keyframes fresh-in {
+  0% { opacity: 0; transform: translateY(4px); }
+}

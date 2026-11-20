@@ -1,0 +1,1101 @@
+{
+  "id": "the-stream-must-flow",
+  "title": "The Stream Must Flow",
+  "summary": "streamio — global video. Tonight your primary region is going to have a very bad day. The show must not stop.",
+  "minutes": 9,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    [
+      "write",
+      "cross-region sync"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why one region can't survive a regional outage",
+      "step": 2
+    },
+    {
+      "text": "CDN, multi-region & disaster recovery",
+      "step": 3
+    },
+    {
+      "text": "Buy only the DR your SLA requires",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "One region",
+      "chapter": "setup",
+      "title": "97% reads, one region",
+      "body": [
+        "<b>streamio</b> serves video to the planet. 97% of traffic is reads, most of it the same popular shows, watched from every continent.",
+        "Tonight: the season finale of your flagship show premieres globally. Also tonight, your primary region is going to have a Very Bad Day."
+      ],
+      "metrics": {
+        "users": 30000000,
+        "rps": 600000,
+        "p95": 85,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -4.5,
+            "x1": 4.5,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION A · US-EAST"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "85% of bytes"
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region A",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region A"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /stream"
+          },
+          "e2": {
+            "from": "cdn",
+            "to": "k8s",
+            "pts": [
+              "cdn",
+              "k8s"
+            ],
+            "label": "miss → origin",
+            "style": "off"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "metadata"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000000,
+        "rps": 600000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "85% of bytes"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region A"
+          },
+          {
+            "id": "db",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region A"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Global load",
+      "chapter": "problem",
+      "title": "The whole planet pressed play",
+      "body": [
+        "🎬 Season finale premiere. The whole planet pressed play at once — origin traffic climbs even with the <span class=\"term\">CDN</span> absorbing most bytes."
+      ],
+      "metrics": {
+        "users": 50000000,
+        "rps": 1400000,
+        "p95": 260,
+        "errors": 0.6
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -4.5,
+            "x1": 4.5,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION A · US-EAST"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "85% of bytes"
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region A",
+            "heat": 0.35,
+            "cpu": 0.78
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region A"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /stream"
+          },
+          "e2": {
+            "from": "cdn",
+            "to": "k8s",
+            "pts": [
+              "cdn",
+              "k8s"
+            ],
+            "label": "miss → origin",
+            "style": "off"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "metadata"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000000,
+        "rps": 1400000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "85% of bytes"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region A",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region A"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Region down",
+      "chapter": "problem",
+      "title": "Major region degradation",
+      "body": [
+        "🌩️ Major cloud region degradation. Half your primary-region capacity is GONE — mid-premiere, with nowhere for that traffic to go."
+      ],
+      "metrics": {
+        "users": 60000000,
+        "rps": 1600000,
+        "p95": 3200,
+        "errors": 18
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -4.5,
+            "x1": 4.5,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION A · US-EAST"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "85% of bytes"
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region A",
+            "heat": 1,
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "½ capacity lost",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region A"
+              }
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /stream"
+          },
+          "e2": {
+            "from": "cdn",
+            "to": "k8s",
+            "pts": [
+              "cdn",
+              "k8s"
+            ],
+            "label": "miss → origin",
+            "style": "off"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "metadata",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000000,
+        "rps": 1600000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "85% of bytes"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region A",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region A",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Go global",
+      "chapter": "technique",
+      "title": "CDN, multi-region & disaster recovery",
+      "body": [
+        "At streaming scale the CDN isn't an optimization — it IS the product. 85%+ of bytes served from edge caches means your origin handles metadata, not video. Edge latency is also the only way to beat the speed of light.",
+        "The region failure taught the <span class=\"term\">multi-region</span> lesson: redundancy must extend to <em>geography</em>. Capacity spread across regions survives a regional outage; a single-region masterpiece does not."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "DR has tiers: backups (hours) → warm standby (minutes) → active-active (seconds). Each tier costs roughly an order of magnitude more."
+      },
+      "metrics": {
+        "users": 60000000,
+        "rps": 1600000,
+        "p95": 90,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -4.5,
+            "x1": 4.5,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION A · US-EAST"
+          },
+          "zoneB": {
+            "type": "zone",
+            "x0": 5.4,
+            "x1": 14.4,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION B · EU-WEST"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "85% of bytes"
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region A",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region A"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "k8sB": {
+            "type": "block",
+            "x": 9.9,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region B",
+            "cpu": 0.3
+          },
+          "dbB": {
+            "type": "db",
+            "x": 9.9,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region B"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Disaster recovery tiers",
+            "icon": "shield",
+            "chart": "bars",
+            "lines": [
+              "# recovery time · each tier costs ~10× more"
+            ],
+            "bars": [
+              {
+                "label": "Backups",
+                "note": "hours",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Warm standby",
+                "note": "minutes",
+                "to": 0.35,
+                "tone": "amber"
+              },
+              {
+                "label": "Active-active",
+                "note": "seconds",
+                "to": 0.06,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /stream"
+          },
+          "e2": {
+            "from": "cdn",
+            "to": "k8s",
+            "pts": [
+              "cdn",
+              "k8s"
+            ],
+            "label": "miss → origin",
+            "style": "off"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "metadata"
+          },
+          "e4": {
+            "from": "cdn",
+            "to": "k8sB",
+            "pts": [
+              "cdn",
+              "k8sB"
+            ],
+            "label": "failover",
+            "style": "dashed"
+          },
+          "e5": {
+            "from": "k8sB",
+            "to": "dbB",
+            "pts": [
+              "k8sB",
+              "dbB"
+            ],
+            "label": "metadata",
+            "style": "off"
+          },
+          "e6": {
+            "from": "db",
+            "to": "dbB",
+            "pts": [
+              "db",
+              "dbB"
+            ],
+            "label": "cross-region sync"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e6"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000000,
+        "rps": 1600000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "85% of bytes"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region A"
+          },
+          {
+            "id": "db",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region A"
+          },
+          {
+            "id": "k8sB",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region B"
+          },
+          {
+            "id": "dbB",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          },
+          {
+            "from": "cdn",
+            "to": "k8sB"
+          },
+          {
+            "from": "k8sB",
+            "to": "dbB"
+          },
+          {
+            "from": "db",
+            "to": "dbB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Right-size DR",
+      "chapter": "tradeoff",
+      "title": "Buy what your SLA requires",
+      "body": [
+        "Multi-region <span class=\"term\">active-active</span> doubles infrastructure cost and forces you to answer 'which region owns this write?' — data consistency across regions is genuinely hard.",
+        "Overprovisioning for failure means most days you're paying for capacity you don't use. That's not waste — that's insurance."
+      ],
+      "changes": [
+        "+ Region B: full K8s + DynamoDB stack",
+        "+ Cross-region data sync",
+        "~ CDN failover now routes around a dead region"
+      ],
+      "metrics": {
+        "users": 60000000,
+        "rps": 1600000,
+        "p95": 90,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "zoneA": {
+            "type": "zone",
+            "x0": -4.5,
+            "x1": 4.5,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION A · US-EAST"
+          },
+          "zoneB": {
+            "type": "zone",
+            "x0": 5.4,
+            "x1": 14.4,
+            "y0": 1.5,
+            "y1": 21.5,
+            "label": "REGION B · EU-WEST"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "85% of bytes"
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region A",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region A"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "k8sB": {
+            "type": "block",
+            "x": 9.9,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "Region B",
+            "cpu": 0.3
+          },
+          "dbB": {
+            "type": "db",
+            "x": 9.9,
+            "y": 18,
+            "label": "DynamoDB",
+            "tags": [
+              {
+                "text": "Region B"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /stream"
+          },
+          "e2": {
+            "from": "cdn",
+            "to": "k8s",
+            "pts": [
+              "cdn",
+              "k8s"
+            ],
+            "label": "miss → origin",
+            "style": "off"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "metadata"
+          },
+          "e4": {
+            "from": "cdn",
+            "to": "k8sB",
+            "pts": [
+              "cdn",
+              "k8sB"
+            ],
+            "label": "failover",
+            "style": "dashed"
+          },
+          "e5": {
+            "from": "k8sB",
+            "to": "dbB",
+            "pts": [
+              "k8sB",
+              "dbB"
+            ],
+            "label": "metadata",
+            "style": "off"
+          },
+          "e6": {
+            "from": "db",
+            "to": "dbB",
+            "pts": [
+              "db",
+              "dbB"
+            ],
+            "label": "cross-region sync"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e6"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 60000000,
+        "rps": 1600000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "85% of bytes"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region A"
+          },
+          {
+            "id": "db",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region A"
+          },
+          {
+            "id": "k8sB",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "Region B"
+          },
+          {
+            "id": "dbB",
+            "kind": "dynamodb",
+            "label": "DynamoDB",
+            "sub": "Region B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          },
+          {
+            "from": "cdn",
+            "to": "k8sB"
+          },
+          {
+            "from": "k8sB",
+            "to": "dbB"
+          },
+          {
+            "from": "db",
+            "to": "dbB"
+          }
+        ]
+      }
+    }
+  ]
+}

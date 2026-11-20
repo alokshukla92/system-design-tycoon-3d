@@ -1,0 +1,1611 @@
+{
+  "id": "planet-scale",
+  "title": "Planet Scale",
+  "summary": "your empire — all products, one platform. Everything you've learned applies at once. There is no next level. This is the job.",
+  "minutes": 10,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "write",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See how failures compound at global scale",
+      "step": 2
+    },
+    {
+      "text": "Systems thinking at global scale",
+      "step": 3
+    },
+    {
+      "text": "Recap every technique in one diagram",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "100M users",
+      "chapter": "setup",
+      "title": "One platform, one hundred million users",
+      "body": [
+        "The board merged everything: chat, photos, rides, shopping, video — one platform, one hundred million users, one CTO. You.",
+        "Everything you've learned applies at once: caching, sharding, queues, redundancy, idempotency, observability, multi-region. And the CFO wants the infra bill <em>down</em> 10% this quarter."
+      ],
+      "metrics": {
+        "users": 100000000,
+        "rps": 1500000,
+        "p95": 110,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "zone": {
+            "type": "zone",
+            "x0": -2.5,
+            "x1": 26,
+            "y0": -4.5,
+            "y1": 28,
+            "label": "PRIMARY REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": 0.5,
+            "x1": 8.5,
+            "y0": -27,
+            "y1": -21,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -4.5,
+            "y": -12,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 11.7,
+            "y": -12,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 11.7,
+            "y": 0,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": 1.8,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "queue": {
+            "type": "block",
+            "x": 11.7,
+            "y": 12,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ]
+          },
+          "search": {
+            "type": "block",
+            "x": 21.6,
+            "y": 12,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 11.7,
+            "y": 24,
+            "label": "Shards ×N",
+            "tags": [
+              {
+                "text": "sharded + replicated"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "mon": {
+            "type": "block",
+            "x": -12.6,
+            "y": -24,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "static"
+          },
+          "e2": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "dynamic"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "hot reads",
+            "style": "off"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "queue",
+            "pts": [
+              "k8s",
+              "queue"
+            ],
+            "label": "writes",
+            "style": "off"
+          },
+          "e6": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search",
+            "style": "off"
+          },
+          "e7": {
+            "from": "queue",
+            "to": "db",
+            "pts": [
+              "queue",
+              "db"
+            ],
+            "label": "drain",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 100000000,
+        "rps": 1500000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Shards ×N",
+            "sub": "sharded + replicated"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "cache"
+          },
+          {
+            "from": "k8s",
+            "to": "queue"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          },
+          {
+            "from": "queue",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Peak load",
+      "chapter": "problem",
+      "title": "Every product peaking at once",
+      "body": [
+        "New Year's Eve. Every product is peaking simultaneously — and then a celebrity wedding is live-streamed, chatted, photographed and shopped. One entity, all products, all at once."
+      ],
+      "metrics": {
+        "users": 150000000,
+        "rps": 2250000,
+        "p95": 1600,
+        "errors": 4.5
+      },
+      "scene": {
+        "entities": {
+          "zone": {
+            "type": "zone",
+            "x0": -2.5,
+            "x1": 26,
+            "y0": -4.5,
+            "y1": 28,
+            "label": "PRIMARY REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": 0.5,
+            "x1": 8.5,
+            "y0": -27,
+            "y1": -21,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -4.5,
+            "y": -12,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 11.7,
+            "y": -12,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 11.7,
+            "y": 0,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "cache": {
+            "type": "block",
+            "x": 1.8,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "queue": {
+            "type": "block",
+            "x": 11.7,
+            "y": 12,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ]
+          },
+          "search": {
+            "type": "block",
+            "x": 21.6,
+            "y": 12,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 11.7,
+            "y": 24,
+            "label": "Shards ×N",
+            "tags": [
+              {
+                "text": "sharded + replicated"
+              }
+            ],
+            "heat": 0.35,
+            "cpu": 0.78
+          },
+          "mon": {
+            "type": "block",
+            "x": -12.6,
+            "y": -24,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "static"
+          },
+          "e2": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "dynamic"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route",
+            "fail": 0.35
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "hot reads",
+            "style": "off"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "queue",
+            "pts": [
+              "k8s",
+              "queue"
+            ],
+            "label": "writes",
+            "style": "off"
+          },
+          "e6": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search",
+            "style": "off"
+          },
+          "e7": {
+            "from": "queue",
+            "to": "db",
+            "pts": [
+              "queue",
+              "db"
+            ],
+            "label": "drain",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000000,
+        "rps": 2250000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "status": "crit"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Shards ×N",
+            "sub": "sharded + replicated",
+            "status": "warn"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "cache"
+          },
+          {
+            "from": "k8s",
+            "to": "queue"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          },
+          {
+            "from": "queue",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Outage again",
+      "chapter": "problem",
+      "title": "A regional outage, again",
+      "body": [
+        "🌩️ Regional outage. Again. It's always DNS. (It's not DNS.) A holiday-eve deploy lands on top of it, bold, and query load keeps climbing."
+      ],
+      "metrics": {
+        "users": 150000000,
+        "rps": 2250000,
+        "p95": 2900,
+        "errors": 8
+      },
+      "scene": {
+        "entities": {
+          "zone": {
+            "type": "zone",
+            "x0": -2.5,
+            "x1": 26,
+            "y0": -4.5,
+            "y1": 28,
+            "label": "PRIMARY REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": 0.5,
+            "x1": 8.5,
+            "y0": -27,
+            "y1": -21,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -4.5,
+            "y": -12,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 11.7,
+            "y": -12,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 11.7,
+            "y": 0,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "cache": {
+            "type": "block",
+            "x": 1.8,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "queue": {
+            "type": "block",
+            "x": 11.7,
+            "y": 12,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ]
+          },
+          "search": {
+            "type": "block",
+            "x": 21.6,
+            "y": 12,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 11.7,
+            "y": 24,
+            "label": "Shards ×N",
+            "tags": [
+              {
+                "text": "sharded + replicated"
+              }
+            ],
+            "heat": 0.35,
+            "cpu": 0.78
+          },
+          "mon": {
+            "type": "block",
+            "x": -12.6,
+            "y": -24,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "static"
+          },
+          "e2": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "dynamic"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "hot reads",
+            "style": "off"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "queue",
+            "pts": [
+              "k8s",
+              "queue"
+            ],
+            "label": "writes",
+            "style": "off"
+          },
+          "e6": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search",
+            "style": "off"
+          },
+          "e7": {
+            "from": "queue",
+            "to": "db",
+            "pts": [
+              "queue",
+              "db"
+            ],
+            "label": "drain",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e7"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000000,
+        "rps": 2250000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "status": "crit"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Shards ×N",
+            "sub": "sharded + replicated",
+            "status": "warn"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "cache"
+          },
+          {
+            "from": "k8s",
+            "to": "queue"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          },
+          {
+            "from": "queue",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fail small",
+      "chapter": "technique",
+      "title": "Systems thinking at global scale",
+      "body": [
+        "No single technique saved you here — the <em><span class=\"term\">composition</span></em> did: CDN absorbing edge reads, caches absorbing hot reads, queues absorbing write bursts, shards splitting write load, replicas and regions absorbing failures, observability telling you which of these was the problem.",
+        "Notice what scale actually changed: not the concepts, but the consequences. Every small sloppiness that was survivable at 10k users became an outage at 100M."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "You don't build a system that can't fail; you build one that fails small."
+      },
+      "metrics": {
+        "users": 150000000,
+        "rps": 2250000,
+        "p95": 130,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "zone": {
+            "type": "zone",
+            "x0": -2.5,
+            "x1": 26,
+            "y0": -4.5,
+            "y1": 28,
+            "label": "PRIMARY REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": 0.5,
+            "x1": 8.5,
+            "y0": -27,
+            "y1": -21,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -4.5,
+            "y": -12,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 11.7,
+            "y": -12,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 11.7,
+            "y": 0,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": 1.8,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "queue": {
+            "type": "block",
+            "x": 11.7,
+            "y": 12,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ]
+          },
+          "search": {
+            "type": "block",
+            "x": 21.6,
+            "y": 12,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 11.7,
+            "y": 24,
+            "label": "Shards ×N",
+            "tags": [
+              {
+                "text": "sharded + replicated"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "mon": {
+            "type": "block",
+            "x": -12.6,
+            "y": -24,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Fail small",
+            "icon": "layers",
+            "lines": [
+              "CDN → edge reads",
+              "cache → hot reads",
+              "queue → write bursts",
+              "shards → write load",
+              "replicas & regions → failures",
+              "= the composition saved you"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "static"
+          },
+          "e2": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "dynamic"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "hot reads"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "queue",
+            "pts": [
+              "k8s",
+              "queue"
+            ],
+            "label": "writes"
+          },
+          "e6": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search"
+          },
+          "e7": {
+            "from": "queue",
+            "to": "db",
+            "pts": [
+              "queue",
+              "db"
+            ],
+            "label": "drain"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3",
+                  "e4"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3",
+                  "e5",
+                  "e7"
+                ],
+                "kind": "write",
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3",
+                  "e6"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000000,
+        "rps": 2250000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Shards ×N",
+            "sub": "sharded + replicated"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "cache"
+          },
+          {
+            "from": "k8s",
+            "to": "queue"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          },
+          {
+            "from": "queue",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Everything you learned, in one diagram",
+      "body": [
+        "<span class=\"term\">Cost-performance</span> is now a first-class engineering axis: at this scale, a 10% efficiency win pays several engineers' salaries.",
+        "Complexity is the silent killer: every component you add is something that pages someone. The best architects delete components as often as they add them.",
+        "<ul class=\"takeaways\"><li><b>Day One</b> → Vertical scaling</li><li><b>The Slow Burn</b> → Indexing</li><li><b>Chatterbox</b> → Caching</li><li><b>The 3AM Page</b> → Replication</li><li><b>Picture This</b> → Horizontal scaling &amp; load balancing</li><li><b>A Million Little Writes</b> → Sharding</li><li><b>Surge</b> → Async queues</li><li><b>Checkout</b> → Idempotency &amp; CAP</li><li><b>The Stream Must Flow</b> → CDN &amp; multi-region</li></ul>"
+      ],
+      "metrics": {
+        "users": 150000000,
+        "rps": 2250000,
+        "p95": 130,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "zone": {
+            "type": "zone",
+            "x0": -2.5,
+            "x1": 26,
+            "y0": -4.5,
+            "y1": 28,
+            "label": "PRIMARY REGION"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": 0.5,
+            "x1": 8.5,
+            "y0": -27,
+            "y1": -21,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -4.5,
+            "y": -12,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 11.7,
+            "y": -12,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 11.7,
+            "y": 0,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": 1.8,
+            "y": 12,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ]
+          },
+          "queue": {
+            "type": "block",
+            "x": 11.7,
+            "y": 12,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ]
+          },
+          "search": {
+            "type": "block",
+            "x": 21.6,
+            "y": 12,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 11.7,
+            "y": 24,
+            "label": "Shards ×N",
+            "tags": [
+              {
+                "text": "sharded + replicated"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "mon": {
+            "type": "block",
+            "x": -12.6,
+            "y": -24,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Observability"
+            ],
+            "sub": "watching everything"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "static"
+          },
+          "e2": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "dynamic"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "hot reads"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "queue",
+            "pts": [
+              "k8s",
+              "queue"
+            ],
+            "label": "writes"
+          },
+          "e6": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "search"
+          },
+          "e7": {
+            "from": "queue",
+            "to": "db",
+            "pts": [
+              "queue",
+              "db"
+            ],
+            "label": "drain"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3",
+                  "e4"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3",
+                  "e5",
+                  "e7"
+                ],
+                "kind": "write",
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e2",
+                  "e3",
+                  "e6"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000000,
+        "rps": 2250000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Shards ×N",
+            "sub": "sharded + replicated"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Observability",
+            "sub": "watching everything"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "cache"
+          },
+          {
+            "from": "k8s",
+            "to": "queue"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          },
+          {
+            "from": "queue",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

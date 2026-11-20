@@ -1,0 +1,631 @@
+{
+  "id": "day-one",
+  "title": "Day One",
+  "summary": "linkly — a URL shortener. One server, one database, a dream — and a front page of Hacker News.",
+  "minutes": 6,
+  "level": "beginner",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why latency explodes before capacity runs out",
+      "step": 2
+    },
+    {
+      "text": "Vertical scaling & the single-server ceiling",
+      "step": 3
+    },
+    {
+      "text": "Know what vertical scaling costs",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Weekend MVP",
+      "chapter": "setup",
+      "title": "You shipped a weekend project",
+      "body": [
+        "You quit your job. You built <b>linkly</b>, a URL shortener, over a weekend: one API server, one MongoDB, and a dream.",
+        "Users create short links (writes) and follow them (reads). Today, traffic is tiny and everything feels instant."
+      ],
+      "metrics": {
+        "users": 100,
+        "rps": 12,
+        "p95": 40,
+        "errors": 0.1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 4,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "small instance",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /r/:slug"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.1
+          }
+        ]
+      },
+      "lab": {
+        "users": 100,
+        "rps": 12,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server",
+            "sub": "small instance"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "HN front page",
+      "chapter": "problem",
+      "title": "Front page of Hacker News",
+      "body": [
+        "It just got posted on Hacker News. Requests climb steadily through the day — nothing crashed yet, but your one small server is doing noticeably more work per second than it was built for."
+      ],
+      "metrics": {
+        "users": 4000,
+        "rps": 480,
+        "p95": 260,
+        "errors": 1.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 7,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "small instance",
+            "heat": 0.35,
+            "cpu": 0.78
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /r/:slug"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 4000,
+        "rps": 480,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server",
+            "sub": "small instance",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Traffic spike",
+      "chapter": "problem",
+      "title": "Going vertical — in the bad sense",
+      "body": [
+        "A celebrity tweets a linkly link. Traffic goes vertical in minutes. Your server's queue backs up: latency doesn't climb gently, it explodes — <span class=\"term\">queueing</span> math means wait times blow up <em>before</em> you actually run out of raw capacity."
+      ],
+      "metrics": {
+        "users": 15000,
+        "rps": 2100,
+        "p95": 1400,
+        "errors": 6.8
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 8,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "small instance",
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Why it explodes",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.97,
+            "lines": [
+              "wait ∝ 1 / (1 − utilisation)",
+              "! 97% busy → queue grows without bound"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /r/:slug",
+            "fail": 0.35
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.3,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 15000,
+        "rps": 2100,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server",
+            "sub": "small instance",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scale up",
+      "chapter": "technique",
+      "title": "Vertical scaling & the single-server ceiling",
+      "body": [
+        "Your first bottleneck was raw capacity: one small server has a hard requests-per-second ceiling, and queueing theory makes latency explode <em>before</em> you hit it — at ~80% utilization, wait times are already climbing fast.",
+        "Upgrading the instance (<span class=\"term\">vertical scaling</span>) is the right first move: zero architectural change, immediate headroom."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "At ~80% utilization, wait times are already climbing fast — latency explodes before capacity runs out."
+      },
+      "metrics": {
+        "users": 15000,
+        "rps": 2100,
+        "p95": 180,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 8,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "upgraded instance",
+            "cpu": 0.3,
+            "h": 62
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Why it explodes",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.55,
+            "lines": [
+              "wait ∝ 1 / (1 − utilisation)",
+              "= XL box → back under ~80% busy"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /r/:slug"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 15000,
+        "rps": 2100,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL",
+            "sub": "upgraded instance"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "The cost",
+      "chapter": "tradeoff",
+      "title": "What vertical scaling costs you",
+      "body": [
+        "Vertical scaling: simple, instant, no code changes — but notice the price curve: each tier costs roughly double for less-than-double capacity, and there is always a biggest box.",
+        "Keeping ~30% headroom costs money but buys you survival during spikes you didn't predict."
+      ],
+      "changes": [
+        "~ Instance tier: small → XL",
+        "~ Cost roughly doubled for less than double the capacity",
+        "~ Still a single point of failure — one box, one ceiling"
+      ],
+      "metrics": {
+        "users": 15000,
+        "rps": 2100,
+        "p95": 180,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 8,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "upgraded instance",
+            "cpu": 0.3,
+            "h": 62
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /r/:slug"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 15000,
+        "rps": 2100,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL",
+            "sub": "upgraded instance"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

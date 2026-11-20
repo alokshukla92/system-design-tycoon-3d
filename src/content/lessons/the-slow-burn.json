@@ -1,0 +1,656 @@
+{
+  "id": "the-slow-burn",
+  "title": "The Slow Burn",
+  "summary": "linkly — growing up. The server isn't even busy — so why is the dashboard crawling?",
+  "minutes": 6,
+  "level": "beginner",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why full scans slow down as data grows",
+      "step": 2
+    },
+    {
+      "text": "Indexing — O(n) scans vs O(log n) lookups",
+      "step": 3
+    },
+    {
+      "text": "Know what indexes cost",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Slow dashboard",
+      "chapter": "setup",
+      "title": "Something else is rotting",
+      "body": [
+        "linkly survived launch. Users keep coming — and they keep <em>creating data</em>: the links collection is already 70% of your disk.",
+        "Lately, support tickets mention the dashboard 'taking forever'. Your server isn't even that busy. Something else is rotting."
+      ],
+      "metrics": {
+        "users": 15000,
+        "rps": 180,
+        "p95": 120,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 8,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "XL",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "70% full"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /dashboard"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "scan collection"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 15000,
+        "rps": 180,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "70% full"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "10× data",
+      "chapter": "problem",
+      "title": "10× the documents, 0 new indexes",
+      "body": [
+        "Your database now has 10× the documents it had a month ago. Every query still scans the whole collection row by row — query cost grows with data size even though traffic hasn't."
+      ],
+      "metrics": {
+        "users": 20000,
+        "rps": 240,
+        "p95": 900,
+        "errors": 1.1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 9,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "XL",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "no index · full scans"
+              }
+            ],
+            "heat": 0.35,
+            "cpu": 0.78
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /dashboard"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "scan collection"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.8,
+            "hold": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 240,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "no index · full scans",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Promo scans",
+      "chapter": "problem",
+      "title": "A promo doubles the scans",
+      "body": [
+        "Marketing ran a promo. Read traffic is doubling — and every one of those reads is still an unindexed <span class=\"term\">full scan</span>. 5-second queries are now common."
+      ],
+      "metrics": {
+        "users": 28000,
+        "rps": 480,
+        "p95": 4800,
+        "errors": 5.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 9,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "XL",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "full scans · 5s queries"
+              }
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /dashboard"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "scan collection",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.9,
+            "hold": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 28000,
+        "rps": 480,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "full scans · 5s queries",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Add an index",
+      "chapter": "technique",
+      "title": "Indexing — O(n) scans vs O(log n) lookups",
+      "body": [
+        "Without an <span class=\"term\">index</span>, the database scans every row for every query — linear cost. An index is a sorted lookup structure (usually a <span class=\"term\">B-tree</span>): it finds rows in O(log n).",
+        "The 'tuned indexes' option turned 5-second scans back into 5-millisecond lookups."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Small test data hides O(n) scans. This failure mode is invisible in dev and brutal in prod."
+      },
+      "metrics": {
+        "users": 28000,
+        "rps": 480,
+        "p95": 35,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 9,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "XL",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "B-tree indexed"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Scan vs index",
+            "icon": "search",
+            "chart": "bars",
+            "lines": [
+              "# 10× the documents → 10× the scan",
+              "= 5 s scans → 5 ms lookups"
+            ],
+            "bars": [
+              {
+                "label": "Full scan · O(n)",
+                "note": "5 s",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "B-tree · O(log n)",
+                "note": "5 ms",
+                "to": 0.02,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /dashboard"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "index seek"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 28000,
+        "rps": 480,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "B-tree indexed"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Index cost",
+      "chapter": "tradeoff",
+      "title": "Indexes aren't free",
+      "body": [
+        "Indexes cost write performance (every insert updates the index too — ~8% in our sim) and storage. Index what you query, not everything.",
+        "Watch query plans, not just CPU — a healthy CPU chart can hide a pathological query shape."
+      ],
+      "changes": [
+        "+ B-tree index on the lookup key",
+        "~ Write cost: +8%",
+        "~ Query latency: 5000ms → 5ms"
+      ],
+      "metrics": {
+        "users": 28000,
+        "rps": 480,
+        "p95": 35,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -15,
+            "y1": -9,
+            "count": 9,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "XL",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "MongoDB",
+            "tags": [
+              {
+                "text": "B-tree indexed"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /dashboard"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "scan collection"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 28000,
+        "rps": 480,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server — XL"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "sub": "B-tree indexed"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

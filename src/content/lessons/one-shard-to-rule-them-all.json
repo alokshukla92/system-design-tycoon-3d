@@ -1,0 +1,1931 @@
+{
+  "id": "one-shard-to-rule-them-all",
+  "title": "One Shard To Rule Them All",
+  "summary": "gamerly — game stats platform. Launch night: the stats DB is sharded 8 ways, and one shard is doing all the work.",
+  "minutes": 8,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "hottest",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "write",
+      "stats write"
+    ],
+    "slow",
+    [
+      "ping",
+      "scatter-gather"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Diagnose a hot partition under live traffic",
+      "step": 1
+    },
+    {
+      "text": "See why a monotonic key wastes 7 of 8 shards",
+      "step": 2
+    },
+    {
+      "text": "Re-key to spread one hot entity",
+      "step": 3
+    },
+    {
+      "text": "Pay for it with scatter-gather range queries",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "8 shards",
+      "chapter": "setup",
+      "title": "Capacity should be fine",
+      "body": [
+        "<b>gamerly</b> tracks live player stats for 5M players. The stats DB is <span class=\"term\">sharded</span> 8 ways behind an autoscaled Stats Service, with a Redis leaderboard cache on the side.",
+        "On a normal night, writes spread across all eight shards."
+      ],
+      "metrics": {
+        "users": 5000000,
+        "rps": 45000,
+        "hottest": 13,
+        "p95": 90,
+        "errors": 0.1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Players"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Stats",
+              "Service"
+            ],
+            "cpu": 0.3,
+            "sub": "8–40 pods"
+          },
+          "cache": {
+            "type": "block",
+            "x": -10.8,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Leaderboard",
+              "Cache"
+            ]
+          },
+          "s1": {
+            "type": "db",
+            "x": -23.1,
+            "y": 13,
+            "label": "S1"
+          },
+          "s2": {
+            "type": "db",
+            "x": -16.5,
+            "y": 13,
+            "label": "S2"
+          },
+          "s3": {
+            "type": "db",
+            "x": -9.9,
+            "y": 13,
+            "label": "S3"
+          },
+          "s4": {
+            "type": "db",
+            "x": -3.3,
+            "y": 13,
+            "label": "S4"
+          },
+          "s5": {
+            "type": "db",
+            "x": 3.3,
+            "y": 13,
+            "label": "S5"
+          },
+          "s6": {
+            "type": "db",
+            "x": 9.9,
+            "y": 13,
+            "label": "S6"
+          },
+          "s7": {
+            "type": "db",
+            "x": 16.5,
+            "y": 13,
+            "label": "S7"
+          },
+          "s8": {
+            "type": "db",
+            "x": 23.1,
+            "y": 13,
+            "label": "S8"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /stats"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "leaderboard"
+          },
+          "d1": {
+            "from": "k8s",
+            "to": "s1",
+            "pts": [
+              "k8s",
+              "s1"
+            ]
+          },
+          "d2": {
+            "from": "k8s",
+            "to": "s2",
+            "pts": [
+              "k8s",
+              "s2"
+            ]
+          },
+          "d3": {
+            "from": "k8s",
+            "to": "s3",
+            "pts": [
+              "k8s",
+              "s3"
+            ]
+          },
+          "d4": {
+            "from": "k8s",
+            "to": "s4",
+            "pts": [
+              "k8s",
+              "s4"
+            ]
+          },
+          "d5": {
+            "from": "k8s",
+            "to": "s5",
+            "pts": [
+              "k8s",
+              "s5"
+            ]
+          },
+          "d6": {
+            "from": "k8s",
+            "to": "s6",
+            "pts": [
+              "k8s",
+              "s6"
+            ]
+          },
+          "d7": {
+            "from": "k8s",
+            "to": "s7",
+            "pts": [
+              "k8s",
+              "s7"
+            ]
+          },
+          "d8": {
+            "from": "k8s",
+            "to": "s8",
+            "pts": [
+              "k8s",
+              "s8"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d1"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d2"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d3"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d4"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d5"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d6"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d7"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d8"
+                ],
+                "kind": "write",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000000,
+        "rps": 45000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Players"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "Stats Service",
+            "sub": "8–40 pods"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Leaderboard Cache",
+            "sub": "long TTL + jitter"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "Stats DB (sharded)",
+            "sub": "medium · 8 shards · key: game id"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "redis"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shard 3",
+      "chapter": "problem",
+      "title": "One shard has all the fun",
+      "body": [
+        "<b>20:05</b> — A new game launched tonight. One new game id is receiving <b>nearly every write</b> on the platform.",
+        "Shard 3 is at 100% CPU and the other seven are napping. Latency alerts everywhere. The on-call DBA quit last week (unrelated, probably)."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Hot partitions are the classic sharding failure: one celebrity, one viral post, one busy tenant overwhelming a single shard."
+      },
+      "metrics": {
+        "users": 5000000,
+        "rps": 45000,
+        "hottest": 90,
+        "p95": null,
+        "errors": 12
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Players"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Stats",
+              "Service"
+            ],
+            "cpu": 0.3,
+            "sub": "8–40 pods"
+          },
+          "cache": {
+            "type": "block",
+            "x": -10.8,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Leaderboard",
+              "Cache"
+            ]
+          },
+          "s1": {
+            "type": "db",
+            "x": -23.1,
+            "y": 13,
+            "label": "S1",
+            "opacity": 0.75
+          },
+          "s2": {
+            "type": "db",
+            "x": -16.5,
+            "y": 13,
+            "label": "S2",
+            "opacity": 0.75
+          },
+          "s3": {
+            "type": "db",
+            "x": -9.9,
+            "y": 13,
+            "label": "S3",
+            "tags": [
+              {
+                "text": "100% CPU",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "s4": {
+            "type": "db",
+            "x": -3.3,
+            "y": 13,
+            "label": "S4",
+            "opacity": 0.75
+          },
+          "s5": {
+            "type": "db",
+            "x": 3.3,
+            "y": 13,
+            "label": "S5",
+            "opacity": 0.75
+          },
+          "s6": {
+            "type": "db",
+            "x": 9.9,
+            "y": 13,
+            "label": "S6",
+            "opacity": 0.75
+          },
+          "s7": {
+            "type": "db",
+            "x": 16.5,
+            "y": 13,
+            "label": "S7",
+            "opacity": 0.75
+          },
+          "s8": {
+            "type": "db",
+            "x": 23.1,
+            "y": 13,
+            "label": "S8",
+            "opacity": 0.75
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /stats"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "leaderboard"
+          },
+          "d1": {
+            "from": "k8s",
+            "to": "s1",
+            "pts": [
+              "k8s",
+              "s1"
+            ]
+          },
+          "d2": {
+            "from": "k8s",
+            "to": "s2",
+            "pts": [
+              "k8s",
+              "s2"
+            ]
+          },
+          "d3": {
+            "from": "k8s",
+            "to": "s3",
+            "pts": [
+              "k8s",
+              "s3"
+            ],
+            "label": "nearly every write",
+            "fail": 0.4
+          },
+          "d4": {
+            "from": "k8s",
+            "to": "s4",
+            "pts": [
+              "k8s",
+              "s4"
+            ]
+          },
+          "d5": {
+            "from": "k8s",
+            "to": "s5",
+            "pts": [
+              "k8s",
+              "s5"
+            ]
+          },
+          "d6": {
+            "from": "k8s",
+            "to": "s6",
+            "pts": [
+              "k8s",
+              "s6"
+            ]
+          },
+          "d7": {
+            "from": "k8s",
+            "to": "s7",
+            "pts": [
+              "k8s",
+              "s7"
+            ]
+          },
+          "d8": {
+            "from": "k8s",
+            "to": "s8",
+            "pts": [
+              "k8s",
+              "s8"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d1"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d2"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d3"
+                ],
+                "kind": "slow",
+                "weight": 14
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d4"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d5"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d6"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d7"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d8"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000000,
+        "rps": 45000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Players"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "Stats Service",
+            "sub": "8–40 pods"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Leaderboard Cache",
+            "sub": "long TTL + jitter"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "Stats DB (sharded)",
+            "sub": "8 shards · shard 3 at 100%",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "redis"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Why?",
+      "chapter": "problem",
+      "title": "Paid for 8×, got 1×",
+      "body": [
+        "Player count doubles as streamers come online. The autoscaler adds pods — and more pods hammering a saturated shard make it <em>worse</em>.",
+        "The shard key was the <span class=\"term\">game id</span> with monotonic insert patterns. Tonight one game IS the traffic, so one shard eats nearly everything."
+      ],
+      "metrics": {
+        "users": 5000000,
+        "rps": 90000,
+        "hottest": 90,
+        "p95": null,
+        "errors": 30
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Players"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Stats",
+              "Service"
+            ],
+            "cpu": 0.78,
+            "sub": "40 pods",
+            "heat": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -10.8,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Leaderboard",
+              "Cache"
+            ]
+          },
+          "s1": {
+            "type": "db",
+            "x": -23.1,
+            "y": 13,
+            "label": "S1",
+            "opacity": 0.75
+          },
+          "s2": {
+            "type": "db",
+            "x": -16.5,
+            "y": 13,
+            "label": "S2",
+            "opacity": 0.75
+          },
+          "s3": {
+            "type": "db",
+            "x": -9.9,
+            "y": 13,
+            "label": "S3",
+            "tags": [
+              {
+                "text": "100% CPU",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "s4": {
+            "type": "db",
+            "x": -3.3,
+            "y": 13,
+            "label": "S4",
+            "opacity": 0.75
+          },
+          "s5": {
+            "type": "db",
+            "x": 3.3,
+            "y": 13,
+            "label": "S5",
+            "opacity": 0.75
+          },
+          "s6": {
+            "type": "db",
+            "x": 9.9,
+            "y": 13,
+            "label": "S6",
+            "opacity": 0.75
+          },
+          "s7": {
+            "type": "db",
+            "x": 16.5,
+            "y": 13,
+            "label": "S7",
+            "opacity": 0.75
+          },
+          "s8": {
+            "type": "db",
+            "x": 23.1,
+            "y": 13,
+            "label": "S8",
+            "opacity": 0.75
+          },
+          "card": {
+            "type": "panel",
+            "title": "Monotonic shard key",
+            "icon": "split",
+            "chart": "bars",
+            "lines": [
+              "# shard key = game id",
+              "! tonight one game IS the traffic"
+            ],
+            "bars": [
+              {
+                "label": "Paid for",
+                "note": "8 shards",
+                "to": 1,
+                "tone": "gray"
+              },
+              {
+                "label": "Got",
+                "note": "1 shard",
+                "to": 0.125,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /stats"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "leaderboard"
+          },
+          "d1": {
+            "from": "k8s",
+            "to": "s1",
+            "pts": [
+              "k8s",
+              "s1"
+            ]
+          },
+          "d2": {
+            "from": "k8s",
+            "to": "s2",
+            "pts": [
+              "k8s",
+              "s2"
+            ]
+          },
+          "d3": {
+            "from": "k8s",
+            "to": "s3",
+            "pts": [
+              "k8s",
+              "s3"
+            ],
+            "label": "nearly every write",
+            "fail": 0.4
+          },
+          "d4": {
+            "from": "k8s",
+            "to": "s4",
+            "pts": [
+              "k8s",
+              "s4"
+            ]
+          },
+          "d5": {
+            "from": "k8s",
+            "to": "s5",
+            "pts": [
+              "k8s",
+              "s5"
+            ]
+          },
+          "d6": {
+            "from": "k8s",
+            "to": "s6",
+            "pts": [
+              "k8s",
+              "s6"
+            ]
+          },
+          "d7": {
+            "from": "k8s",
+            "to": "s7",
+            "pts": [
+              "k8s",
+              "s7"
+            ]
+          },
+          "d8": {
+            "from": "k8s",
+            "to": "s8",
+            "pts": [
+              "k8s",
+              "s8"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d1"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d2"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d3"
+                ],
+                "kind": "slow",
+                "weight": 14
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d4"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d5"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d6"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d7"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d8"
+                ],
+                "kind": "write",
+                "weight": 0.3
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000000,
+        "rps": 90000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Players"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "Stats Service",
+            "sub": "8–40 pods",
+            "status": "warn"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Leaderboard Cache",
+            "sub": "long TTL + jitter"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "Stats DB (sharded)",
+            "sub": "8 shards · shard 3 at 100%",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "redis"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Re-key",
+      "chapter": "technique",
+      "title": "Shard-key surgery",
+      "body": [
+        "Re-key to a <span class=\"term\">hashed / composite key</span> — game id + player id bucket — so a single hot entity spreads across all eight shards.",
+        "The cache absorbing leaderboard reads bought time while the writes rebalanced."
+      ],
+      "changes": [
+        "~ Shard key: game id → hash(game id + player bucket)"
+      ],
+      "metrics": {
+        "users": 5000000,
+        "rps": 90000,
+        "hottest": 13,
+        "p95": 180,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Players"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Stats",
+              "Service"
+            ],
+            "cpu": 0.3,
+            "sub": "re-keyed"
+          },
+          "cache": {
+            "type": "block",
+            "x": -10.8,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Leaderboard",
+              "Cache"
+            ],
+            "tags": [
+              {
+                "text": "bought time",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          },
+          "s1": {
+            "type": "db",
+            "x": -23.1,
+            "y": 13,
+            "label": "S1"
+          },
+          "s2": {
+            "type": "db",
+            "x": -16.5,
+            "y": 13,
+            "label": "S2"
+          },
+          "s3": {
+            "type": "db",
+            "x": -9.9,
+            "y": 13,
+            "label": "S3"
+          },
+          "s4": {
+            "type": "db",
+            "x": -3.3,
+            "y": 13,
+            "label": "S4"
+          },
+          "s5": {
+            "type": "db",
+            "x": 3.3,
+            "y": 13,
+            "label": "S5"
+          },
+          "s6": {
+            "type": "db",
+            "x": 9.9,
+            "y": 13,
+            "label": "S6"
+          },
+          "s7": {
+            "type": "db",
+            "x": 16.5,
+            "y": 13,
+            "label": "S7"
+          },
+          "s8": {
+            "type": "db",
+            "x": 23.1,
+            "y": 13,
+            "label": "S8"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /stats"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "leaderboard"
+          },
+          "d1": {
+            "from": "k8s",
+            "to": "s1",
+            "pts": [
+              "k8s",
+              "s1"
+            ],
+            "label": "hashed write"
+          },
+          "d2": {
+            "from": "k8s",
+            "to": "s2",
+            "pts": [
+              "k8s",
+              "s2"
+            ]
+          },
+          "d3": {
+            "from": "k8s",
+            "to": "s3",
+            "pts": [
+              "k8s",
+              "s3"
+            ]
+          },
+          "d4": {
+            "from": "k8s",
+            "to": "s4",
+            "pts": [
+              "k8s",
+              "s4"
+            ]
+          },
+          "d5": {
+            "from": "k8s",
+            "to": "s5",
+            "pts": [
+              "k8s",
+              "s5"
+            ]
+          },
+          "d6": {
+            "from": "k8s",
+            "to": "s6",
+            "pts": [
+              "k8s",
+              "s6"
+            ]
+          },
+          "d7": {
+            "from": "k8s",
+            "to": "s7",
+            "pts": [
+              "k8s",
+              "s7"
+            ]
+          },
+          "d8": {
+            "from": "k8s",
+            "to": "s8",
+            "pts": [
+              "k8s",
+              "s8"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d1"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d2"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d3"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d4"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d5"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d6"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d7"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d8"
+                ],
+                "kind": "write",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000000,
+        "rps": 90000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Players"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "Stats Service",
+            "sub": "8–40 pods"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Leaderboard Cache",
+            "sub": "long TTL + jitter"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "Stats DB (sharded)",
+            "sub": "8 shards · hashed composite key"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "redis"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Ranges",
+      "chapter": "tradeoff",
+      "title": "No more cheap range queries",
+      "body": [
+        "Hashed keys kill cheap range queries: 'top scores this hour' becomes a <span class=\"term\">scatter-gather</span> across every shard. You traded query convenience for write survival.",
+        "Live re-sharding under fire is the most expensive way to learn shard-key design."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "The cheap way: model your most-viral entity before you pick the key."
+      },
+      "metrics": {
+        "users": 5000000,
+        "rps": 90000,
+        "hottest": 13,
+        "p95": 180,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Players"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Stats",
+              "Service"
+            ],
+            "cpu": 0.3,
+            "sub": "re-keyed"
+          },
+          "cache": {
+            "type": "block",
+            "x": -10.8,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Leaderboard",
+              "Cache"
+            ]
+          },
+          "s1": {
+            "type": "db",
+            "x": -23.1,
+            "y": 13,
+            "label": "S1"
+          },
+          "s2": {
+            "type": "db",
+            "x": -16.5,
+            "y": 13,
+            "label": "S2"
+          },
+          "s3": {
+            "type": "db",
+            "x": -9.9,
+            "y": 13,
+            "label": "S3"
+          },
+          "s4": {
+            "type": "db",
+            "x": -3.3,
+            "y": 13,
+            "label": "S4"
+          },
+          "s5": {
+            "type": "db",
+            "x": 3.3,
+            "y": 13,
+            "label": "S5"
+          },
+          "s6": {
+            "type": "db",
+            "x": 9.9,
+            "y": 13,
+            "label": "S6"
+          },
+          "s7": {
+            "type": "db",
+            "x": 16.5,
+            "y": 13,
+            "label": "S7"
+          },
+          "s8": {
+            "type": "db",
+            "x": 23.1,
+            "y": 13,
+            "label": "S8"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /stats"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "cache",
+            "pts": [
+              "k8s",
+              "cache"
+            ],
+            "label": "leaderboard"
+          },
+          "d1": {
+            "from": "k8s",
+            "to": "s1",
+            "pts": [
+              "k8s",
+              "s1"
+            ],
+            "label": "top scores this hour?"
+          },
+          "d2": {
+            "from": "k8s",
+            "to": "s2",
+            "pts": [
+              "k8s",
+              "s2"
+            ]
+          },
+          "d3": {
+            "from": "k8s",
+            "to": "s3",
+            "pts": [
+              "k8s",
+              "s3"
+            ]
+          },
+          "d4": {
+            "from": "k8s",
+            "to": "s4",
+            "pts": [
+              "k8s",
+              "s4"
+            ]
+          },
+          "d5": {
+            "from": "k8s",
+            "to": "s5",
+            "pts": [
+              "k8s",
+              "s5"
+            ]
+          },
+          "d6": {
+            "from": "k8s",
+            "to": "s6",
+            "pts": [
+              "k8s",
+              "s6"
+            ]
+          },
+          "d7": {
+            "from": "k8s",
+            "to": "s7",
+            "pts": [
+              "k8s",
+              "s7"
+            ]
+          },
+          "d8": {
+            "from": "k8s",
+            "to": "s8",
+            "pts": [
+              "k8s",
+              "s8"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d1"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d2"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d3"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d4"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d5"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d6"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d7"
+                ],
+                "kind": "write",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "d8"
+                ],
+                "kind": "write",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "d3"
+                ]
+              },
+              {
+                "path": [
+                  "d4"
+                ]
+              },
+              {
+                "path": [
+                  "d5"
+                ]
+              },
+              {
+                "path": [
+                  "d6"
+                ]
+              },
+              {
+                "path": [
+                  "d7"
+                ]
+              },
+              {
+                "path": [
+                  "d8"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "ping",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000000,
+        "rps": 90000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Players"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "Stats Service",
+            "sub": "8–40 pods"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Leaderboard Cache",
+            "sub": "long TTL + jitter"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "Stats DB (sharded)",
+            "sub": "8 shards · hashed composite key"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "redis"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

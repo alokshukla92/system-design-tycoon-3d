@@ -1,0 +1,994 @@
+{
+  "id": "code-red",
+  "title": "Code Red at ticketblitz",
+  "summary": "ticketblitz — event ticketing. Your first day as infra lead: a superstar tour just went on sale and checkout is timing out.",
+  "minutes": 8,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "retry",
+    "empty",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See how fan-in reads and retries melt one database",
+      "step": 2
+    },
+    {
+      "text": "Offload reads with a cache and stop the retry storm",
+      "step": 3
+    },
+    {
+      "text": "Degrade gracefully with a rate limiter",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Day one",
+      "chapter": "setup",
+      "title": "Straight to the database",
+      "body": [
+        "<b>09:02</b> — You just joined <b>ticketblitz</b> as the new infra lead. Calendar says 'onboarding'. Slack says <b>#incident-checkout-down (327 unread)</b>.",
+        "The previous architect believed in 'keeping things simple': every request goes straight from the <span class=\"term\">Checkout API</span> to one Postgres database. Until 09:00, that held."
+      ],
+      "metrics": {
+        "users": 800000,
+        "rps": 9600,
+        "p95": 160,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Checkout",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "12 instances",
+            "tags": [
+              {
+                "text": "retries on",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ],
+            "pills": "above"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Main DB",
+            "tags": [
+              {
+                "text": "Postgres · large"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT seat map"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 800000,
+        "rps": 9600,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Checkout API",
+            "sub": "12 instances · retries on"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Main DB",
+            "sub": "large · tuned indexes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "5× spike",
+      "chapter": "problem",
+      "title": "Tickets are live",
+      "body": [
+        "A superstar tour went on sale at 09:00. Traffic is <b>5×</b> and not coming down — 48,000 requests a second, all of them landing on the same database.",
+        "Most of those reads are for data that's <em>identical for every user</em>: seat maps, event details. The database computes the same answer thousands of times a second, and the site times out."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Every minute down is ~$1,800 in lost sales."
+      },
+      "metrics": {
+        "users": 800000,
+        "rps": 48000,
+        "p95": null,
+        "errors": 35
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Checkout",
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "12 instances",
+            "tags": [
+              {
+                "text": "retries on",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ],
+            "pills": "above",
+            "heat": 0.35
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Main DB",
+            "tags": [
+              {
+                "text": "Postgres · large"
+              },
+              {
+                "text": "drowning",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT seat map",
+            "fail": 0.4
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 2.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 800000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Checkout API",
+            "sub": "12 instances · retries on",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Main DB",
+            "sub": "large · tuned indexes",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Retry storm",
+      "chapter": "problem",
+      "title": "The API makes it worse",
+      "body": [
+        "The API retries every failed call against the drowning database — <b>roughly doubling its load</b>.",
+        "A <span class=\"term\">retry storm</span> turns a slowdown into a full outage: retries against an already-overloaded dependency <em>amplify</em> the load instead of riding it out."
+      ],
+      "metrics": {
+        "users": 800000,
+        "rps": 48000,
+        "p95": null,
+        "errors": 60
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Checkout",
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "12 instances",
+            "tags": [
+              {
+                "text": "retries on",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ],
+            "pills": "above",
+            "heat": 0.35
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Main DB",
+            "tags": [
+              {
+                "text": "Postgres · large"
+              },
+              {
+                "text": "drowning",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Retry storm",
+            "icon": "refresh",
+            "chart": "bars",
+            "lines": [
+              "# load reaching the DB",
+              "! retries without a circuit breaker → collapse"
+            ],
+            "bars": [
+              {
+                "label": "Real requests",
+                "note": "1×",
+                "to": 0.5,
+                "tone": "amber"
+              },
+              {
+                "label": "+ retries of failed calls",
+                "note": "~2×",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "retry, retry…",
+            "fail": 0.55
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ],
+            "hold": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 800000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Checkout API",
+            "sub": "12 instances · retries on",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Main DB",
+            "sub": "large · tuned indexes",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Offload",
+      "chapter": "technique",
+      "title": "Cache the fan-in, break the circuit",
+      "body": [
+        "A <span class=\"term\">cache</span> absorbs the fan-in: seat maps and event details are served from Redis, and the database only sees what's truly per-user.",
+        "A <span class=\"term\">circuit breaker</span> stops the retries: once the DB is failing, calls fail fast instead of piling on. It converts 'slow and failing' into 'fast and degraded', which protects everything upstream."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Adding a cache mid-incident is a valid emergency move precisely because cache-aside needs no data migration."
+      },
+      "changes": [
+        "+ Redis cache (cache-aside) for seat maps & event details",
+        "~ API retries behind a circuit breaker"
+      ],
+      "metrics": {
+        "users": 800000,
+        "rps": 48000,
+        "p95": 240,
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Checkout",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "12 instances",
+            "tags": [
+              {
+                "text": "circuit breaker",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ],
+            "pills": "above"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "Main DB",
+            "tags": [
+              {
+                "text": "Postgres · large"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "cache-aside"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "per-user only"
+          },
+          "ec": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ],
+            "label": "GET seat map"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 800000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Checkout API",
+            "sub": "12 instances · circuit breaker"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "cache-aside"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Main DB",
+            "sub": "large · tuned indexes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Degrade",
+      "chapter": "tradeoff",
+      "title": "Degraded beats dead",
+      "body": [
+        "A <span class=\"term\">rate limiter</span> at the edge would have kept the site degraded-but-alive from the first minute: serving 80% of users beats serving 0%.",
+        "Rate limiting trades a few rejected requests for keeping the whole system alive. <b>429s are cheaper than a dead database.</b>"
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Retries, breakers and limiters are load-control decisions. Without them, every overload becomes a collapse."
+      },
+      "changes": [
+        "+ Rate limiter at the ALB (excess → 429)"
+      ],
+      "metrics": {
+        "users": 800000,
+        "rps": 48000,
+        "p95": 220,
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "tags": [
+              {
+                "text": "rate limit · 429",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Checkout",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "12 instances",
+            "tags": [
+              {
+                "text": "circuit breaker",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ],
+            "pills": "above"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "Main DB",
+            "tags": [
+              {
+                "text": "Postgres · large"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "cache": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "cache-aside"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /event"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "per-user only"
+          },
+          "ec": {
+            "from": "api",
+            "to": "cache",
+            "pts": [
+              "api",
+              "cache"
+            ],
+            "label": "GET seat map"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "ec"
+                ],
+                "weight": 4
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1"
+                ],
+                "kind": "empty",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 800000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB",
+            "sub": "rate limited"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Checkout API",
+            "sub": "12 instances · circuit breaker"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "cache-aside"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Main DB",
+            "sub": "large · tuned indexes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "cache"
+          }
+        ]
+      }
+    }
+  ]
+}

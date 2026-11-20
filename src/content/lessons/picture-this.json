@@ -1,0 +1,770 @@
+{
+  "id": "picture-this",
+  "title": "Picture This",
+  "summary": "snapgram — photo sharing. No single server you can buy will handle this. Scale OUT, not up.",
+  "minutes": 7,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why an unwatched instance fails requests",
+      "step": 2
+    },
+    {
+      "text": "Horizontal scaling & load balancing",
+      "step": 3
+    },
+    {
+      "text": "Know what scaling out demands",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Max box",
+      "chapter": "setup",
+      "title": "The top of the vertical ladder",
+      "body": [
+        "Your chat empire funds a new bet: <b>snapgram</b>, a photo-sharing app. Feeds, likes, follows — read-heavy, bursty, and growing terrifyingly fast.",
+        "No single server you can buy will handle this. You've hit the top of the vertical ladder."
+      ],
+      "metrics": {
+        "users": 100000,
+        "rps": 1400,
+        "p95": 150,
+        "errors": 0.5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 10,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /feed"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 100000,
+        "rps": 1400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "App Store #3",
+      "chapter": "problem",
+      "title": "#3 app in the App Store",
+      "body": [
+        "snapgram is the #3 app in the App Store today. One API server cannot hold this line alone — no amount of vertical upgrading buys enough headroom anymore."
+      ],
+      "metrics": {
+        "users": 250000,
+        "rps": 3500,
+        "p95": 1800,
+        "errors": 6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 11,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /feed"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 3500,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Crash",
+      "chapter": "problem",
+      "title": "An instance crashed mid-rush",
+      "body": [
+        "An API instance crashed during the rush — and every request routed to it simply failed, because nothing was watching whether it was still alive."
+      ],
+      "metrics": {
+        "users": 300000,
+        "rps": 4200,
+        "p95": 2000,
+        "errors": 9.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 11,
+            "label": "Users"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "sub": "down",
+            "heat": 0,
+            "cpu": -1,
+            "dead": 1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /feed",
+            "fail": 1,
+            "style": "cut"
+          },
+          "e2": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "find()",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 4200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server",
+            "sub": "down",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scale out",
+      "chapter": "technique",
+      "title": "Horizontal scaling & load balancing",
+      "body": [
+        "One big server has a ceiling; many small servers don't. A <span class=\"term\">load balancer</span> spreads requests across N instances and — critically — health-checks them, so a crashed instance is pulled from rotation in seconds.",
+        "Kubernetes adds <span class=\"term\">autoscaling</span>: pods scale with load. A <span class=\"term\">CDN</span> absorbed your static traffic (photos!) at the edge — half your read load never touched your servers at all."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Scale-up takes minutes (metrics → scheduling → image pull → warm), so sudden spikes still hurt before new pods arrive."
+      },
+      "metrics": {
+        "users": 400000,
+        "rps": 5600,
+        "p95": 190,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 11,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "MongoDB",
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Scale out",
+            "icon": "server",
+            "chart": "hockey",
+            "marker": 0.6,
+            "lines": [
+              "1 box at 97% → queue explodes",
+              "= N pods at ~60% each",
+              "! new pods take minutes to arrive"
+            ]
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /feed"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "edb": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "edb"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 5600,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scale-out cost",
+      "chapter": "tradeoff",
+      "title": "Horizontal scaling isn't a checkbox",
+      "body": [
+        "Horizontal scaling requires <span class=\"term\">stateless services</span> — state pushed down to DB/cache. That's an architecture decision, not a checkbox.",
+        "Autoscaling trades cost-efficiency for spike-vulnerability. For predictable launches: pre-scale. More instances = more things to observe, deploy, and debug — the LB is now critical infrastructure."
+      ],
+      "changes": [
+        "+ CDN for static reads",
+        "+ Load Balancer + K8s Cluster (replaces single API server)",
+        "~ Static reads now never touch your origin"
+      ],
+      "metrics": {
+        "users": 400000,
+        "rps": 5600,
+        "p95": 190,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 11,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /feed"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "edb": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "edb"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 5600,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1463 @@
+{
+  "id": "the-cache-that-saved-too-well",
+  "title": "The Cache That Saved Too Well",
+  "summary": "newsly — news aggregator. Redis just died mid-news-cycle, and the database underneath was never sized to live without it.",
+  "minutes": 8,
+  "level": "intermediate",
+  "metrics": [
+    "users",
+    "rps",
+    "hitRate",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    [
+      "empty",
+      "cache miss"
+    ],
+    "ping",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why an 85% cache is load-bearing infrastructure",
+      "step": 1
+    },
+    {
+      "text": "Spot the cold-start thundering herd",
+      "step": 2
+    },
+    {
+      "text": "Recover in the right order: DB first, then warm",
+      "step": 3
+    },
+    {
+      "text": "Give the cache its own redundancy",
+      "step": 5
+    }
+  ],
+  "steps": [
+    {
+      "short": "14:29",
+      "chapter": "setup",
+      "title": "A cache doing heavy lifting",
+      "body": [
+        "<b>newsly</b> serves 2M readers, about 20,000 requests a second. A Redis cache in front of MySQL absorbs <b>85% of all reads</b>.",
+        "The database underneath was sized for the <em>remaining 15%</em>. It has never seen anything else."
+      ],
+      "metrics": {
+        "users": 2000000,
+        "rps": 20000,
+        "hitRate": 85,
+        "p95": 120,
+        "errors": 0.1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "24 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "85% of reads"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "medium · sized for 15%"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /story"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "redis",
+            "pts": [
+              "api",
+              "redis"
+            ],
+            "label": "GET"
+          },
+          "e4": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "miss → SELECT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 17
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e4"
+                ],
+                "weight": 3
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "24 instances · retries on"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "long TTL"
+          },
+          {
+            "id": "db",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "medium · tuned indexes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Redis down",
+      "chapter": "problem",
+      "title": "Hit ratio: 0%",
+      "body": [
+        "<b>14:30</b> — Redis primary unreachable. Hit ratio: 0%. Database inbound: vertical line.",
+        "A cache that absorbs 85% of reads isn't an optimization anymore — it's <span class=\"term\">load-bearing infrastructure</span>, and its failure is a <b>database 6×-overload event</b>. The site goes down with it."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Nobody ever tested the miss path."
+      },
+      "metrics": {
+        "users": 2000000,
+        "rps": 20000,
+        "hitRate": 0,
+        "p95": null,
+        "errors": 80
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "24 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0,
+            "cpu": -1,
+            "opacity": 0.6
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "6× its design load",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Load-bearing cache",
+            "icon": "zap",
+            "chart": "bars",
+            "lines": [
+              "# reads reaching MySQL",
+              "! nobody ever tested the miss path"
+            ],
+            "bars": [
+              {
+                "label": "Cache up",
+                "note": "15%",
+                "to": 0.15,
+                "tone": "green"
+              },
+              {
+                "label": "Cache down",
+                "note": "100% · 6×",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /story"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "redis",
+            "pts": [
+              "api",
+              "redis"
+            ],
+            "label": "GET",
+            "style": "cut",
+            "fail": 1
+          },
+          "e4": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "every read",
+            "fail": 0.8
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e4"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "24 instances · retries on"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "DOWN",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "medium · tuned indexes",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cold start",
+      "chapter": "problem",
+      "title": "Just restart it?",
+      "body": [
+        "Restarting Redis gets you a <em>cold, empty</em> cache. Every request misses and falls through to MySQL at once.",
+        "That's the <span class=\"term\">thundering herd</span>: the misses kill the database again before the cache ever warms up."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Think before you act — the obvious fix repeats the outage."
+      },
+      "metrics": {
+        "users": 2000000,
+        "rps": 20000,
+        "hitRate": 5,
+        "p95": null,
+        "errors": 75
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "24 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "restarted",
+            "tags": [
+              {
+                "text": "cold · empty",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "herd",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /story"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "redis",
+            "pts": [
+              "api",
+              "redis"
+            ],
+            "label": "miss"
+          },
+          "e4": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "every miss",
+            "fail": 0.8
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "empty",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e4"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "24 instances · retries on"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "cold · empty"
+          },
+          {
+            "id": "db",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "medium · tuned indexes",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "DB first",
+      "chapter": "technique",
+      "title": "Recovery order matters",
+      "body": [
+        "Bring the database up to <b>survivable capacity first</b>: add replicas or a bigger tier, and rate-limit the edge so the miss path never sees more than it can take.",
+        "Only then is it safe to let the cache refill. Users get a slower site for a few minutes instead of no site."
+      ],
+      "changes": [
+        "+ MySQL read replica",
+        "+ Rate limiter at the ALB"
+      ],
+      "metrics": {
+        "users": 2000000,
+        "rps": 20000,
+        "hitRate": 20,
+        "p95": 340,
+        "errors": 4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "tags": [
+              {
+                "text": "rate limit",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "24 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "still cold"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "dbR": {
+            "type": "db",
+            "x": 11.7,
+            "y": 10,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "read replica"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /story"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "redis",
+            "pts": [
+              "api",
+              "redis"
+            ],
+            "label": "miss"
+          },
+          "e4": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "miss → SELECT"
+          },
+          "e5": {
+            "from": "api",
+            "to": "dbR",
+            "pts": [
+              "api",
+              "dbR"
+            ],
+            "label": "miss → SELECT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "kind": "empty",
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e4"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e5"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1"
+                ],
+                "kind": "empty",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB",
+            "sub": "rate limited"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "24 instances · retries on"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "warming"
+          },
+          {
+            "id": "db",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "primary · medium",
+            "status": "warn"
+          },
+          {
+            "id": "dbR",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "read replica",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "dbR"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Warm up",
+      "chapter": "solution",
+      "title": "Then warm the cache",
+      "body": [
+        "With the database holding, the cache refills on its own as requests miss and fill it. The hit ratio climbs back to 85% and the database load falls back to its 15%."
+      ],
+      "changes": [
+        "~ Redis warmed back to 85% hits"
+      ],
+      "metrics": {
+        "users": 2000000,
+        "rps": 20000,
+        "hitRate": 85,
+        "p95": 130,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "tags": [
+              {
+                "text": "rate limit",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "24 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "warm again"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "dbR": {
+            "type": "db",
+            "x": 11.7,
+            "y": 10,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "read replica"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /story"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "redis",
+            "pts": [
+              "api",
+              "redis"
+            ],
+            "label": "GET"
+          },
+          "e4": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "miss → SELECT"
+          },
+          "e5": {
+            "from": "api",
+            "to": "dbR",
+            "pts": [
+              "api",
+              "dbR"
+            ],
+            "label": "miss → SELECT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 17
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e4"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e5"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB",
+            "sub": "rate limited"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "24 instances · retries on"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "long TTL"
+          },
+          {
+            "id": "db",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "primary · medium"
+          },
+          {
+            "id": "dbR",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "read replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "dbR"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Redundancy",
+      "chapter": "tradeoff",
+      "title": "Caches deserve redundancy too",
+      "body": [
+        "Sizing the DB for full cache-miss traffic doubles your cost for an event that happens rarely — most teams instead keep a <span class=\"term\">rate limiter</span> ready to degrade gracefully.",
+        "<span class=\"term\">Redis replication</span> (a replica set for the cache itself) makes the cache crash a non-event."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Once a cache is load-bearing, it needs the same redundancy as the database behind it."
+      },
+      "changes": [
+        "+ Redis replica"
+      ],
+      "metrics": {
+        "users": 2000000,
+        "rps": 20000,
+        "hitRate": 85,
+        "p95": 130,
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "ALB"
+            ],
+            "tags": [
+              {
+                "text": "rate limit",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "24 instances"
+          },
+          "redis": {
+            "type": "block",
+            "x": -5.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "warm again"
+          },
+          "db": {
+            "type": "db",
+            "x": 5.4,
+            "y": 6,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "primary"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "dbR": {
+            "type": "db",
+            "x": 11.7,
+            "y": 10,
+            "label": "MySQL",
+            "tags": [
+              {
+                "text": "read replica"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "redisR": {
+            "type": "block",
+            "x": -14.4,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "replica"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /story"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "redis",
+            "pts": [
+              "api",
+              "redis"
+            ],
+            "label": "GET"
+          },
+          "e4": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "miss → SELECT"
+          },
+          "e5": {
+            "from": "api",
+            "to": "dbR",
+            "pts": [
+              "api",
+              "dbR"
+            ],
+            "label": "miss → SELECT"
+          },
+          "e6": {
+            "from": "redis",
+            "to": "redisR",
+            "pts": [
+              "redis",
+              "redisR"
+            ],
+            "label": "replication",
+            "style": "beat"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 17
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e4"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e5"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          },
+          {
+            "route": [
+              "e6"
+            ],
+            "kind": "ping",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "ALB",
+            "sub": "rate limited"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "24 instances · retries on"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "long TTL · replicated"
+          },
+          {
+            "id": "db",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "primary · medium"
+          },
+          {
+            "id": "dbR",
+            "kind": "mysql",
+            "label": "MySQL",
+            "sub": "read replica"
+          },
+          {
+            "id": "redisR",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "dbR"
+          },
+          {
+            "from": "redis",
+            "to": "redisR"
+          }
+        ]
+      }
+    }
+  ]
+}

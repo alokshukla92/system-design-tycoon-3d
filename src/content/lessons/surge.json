@@ -1,0 +1,972 @@
+{
+  "id": "surge",
+  "title": "Surge",
+  "summary": "swiftride — ride hailing. Your database cannot swallow rush hour in real time. Stop trying.",
+  "minutes": 8,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "queue",
+    "msg",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why synchronous writes must absorb the peak",
+      "step": 2
+    },
+    {
+      "text": "Asynchronous processing — queues as shock absorbers",
+      "step": 3
+    },
+    {
+      "text": "Know what eventual consistency costs",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "GPS pings",
+      "chapter": "setup",
+      "title": "A ping every few seconds",
+      "body": [
+        "New venture: <b>swiftride</b>. Every driver's phone sends a location ping every few seconds. Writes outnumber reads three to one, and they arrive in brutal rush-hour bursts.",
+        "It's 8:55am on a rainy Monday. Surge incoming."
+      ],
+      "metrics": {
+        "users": 3000000,
+        "rps": 18000,
+        "p95": 180,
+        "errors": 0.7
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Cassandra",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /ping"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "write"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 2.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 18000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Cassandra"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Rush hour",
+      "chapter": "problem",
+      "title": "Rain + rush hour",
+      "body": [
+        "Rain + rush hour. Ping volume is tripling for the next half hour — every ping is a synchronous write, and the database has to absorb the full peak in real time."
+      ],
+      "metrics": {
+        "users": 4500000,
+        "rps": 54000,
+        "p95": 2600,
+        "errors": 8.9
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Cassandra",
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "backlog": {
+            "type": "queue",
+            "x": 3,
+            "y": 3.5,
+            "n": 6,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /ping"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "write",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 4500000,
+        "rps": 54000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Cassandra",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Concert burst",
+      "chapter": "problem",
+      "title": "A stadium concert just ended",
+      "body": [
+        "A stadium concert just ended. 60,000 people want rides simultaneously — stacked on top of the rain-soaked rush hour that hadn't even finished yet."
+      ],
+      "metrics": {
+        "users": 6000000,
+        "rps": 72000,
+        "p95": 4100,
+        "errors": 14.5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Cassandra",
+            "tags": [
+              {
+                "text": "backlogged"
+              }
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "backlog": {
+            "type": "queue",
+            "x": 3,
+            "y": 3.5,
+            "n": 10,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /ping"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "write",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 72000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Cassandra",
+            "sub": "backlogged",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Add a queue",
+      "chapter": "technique",
+      "title": "Queues as shock absorbers",
+      "body": [
+        "Synchronous writes mean your database must absorb the <em>peak</em>. A <span class=\"term\">queue</span> (Kafka) changes the contract: producers get an instant ack, messages buffer, and workers drain them at a sustainable rate. The DB sees a smooth stream instead of a tsunami.",
+        "The <span class=\"term\">backlog</span> became your key health metric: rising backlog = consumers too slow. Consumer parallelism is capped by <span class=\"term\">partition count</span> — more workers than partitions just idle."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A queue buys time, not throughput — if drain rate stays below arrival rate forever, the backlog grows forever."
+      },
+      "metrics": {
+        "users": 6000000,
+        "rps": 72000,
+        "p95": 95,
+        "errors": 0.6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "queue": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "buffering bursts"
+          },
+          "worker": {
+            "type": "block",
+            "x": 0,
+            "y": 18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Worker",
+              "Pool"
+            ],
+            "sub": "drains at sustainable rate",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Cassandra",
+            "tags": [
+              {
+                "text": "write-optimized"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": 3,
+            "y": 3.5,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Shock absorber",
+            "icon": "inbox",
+            "lines": [
+              "producers get an instant ack",
+              "workers drain at a sustainable rate",
+              "= the DB sees a smooth stream",
+              "! drain < arrival forever → backlog grows forever"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /ping"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "queue",
+            "pts": [
+              "api",
+              "queue"
+            ],
+            "label": "produce (ack)"
+          },
+          "e4": {
+            "from": "queue",
+            "to": "worker",
+            "pts": [
+              "queue",
+              "worker"
+            ],
+            "label": "consume"
+          },
+          "e5": {
+            "from": "worker",
+            "to": "db",
+            "pts": [
+              "worker",
+              "db"
+            ],
+            "label": "write"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e4",
+              "e5"
+            ],
+            "kind": "msg",
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 72000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "buffering bursts"
+          },
+          {
+            "id": "worker",
+            "kind": "worker",
+            "label": "Worker Pool",
+            "sub": "drains at sustainable rate"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Cassandra",
+            "sub": "write-optimized"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "queue"
+          },
+          {
+            "from": "queue",
+            "to": "worker"
+          },
+          {
+            "from": "worker",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Eventual",
+      "chapter": "tradeoff",
+      "title": "Async means eventual",
+      "body": [
+        "Async means eventual: the data a user reads may be seconds behind reality. For location pings, fine. For bank balances, not fine.",
+        "Kafka is serious operational machinery. At small scale, SQS/RabbitMQ give you 80% of the benefit with 20% of the ops burden."
+      ],
+      "changes": [
+        "+ Kafka queue between API and workers",
+        "+ Worker pool draining at a sustainable rate",
+        "~ Writes acked instantly; applied seconds later"
+      ],
+      "metrics": {
+        "users": 6000000,
+        "rps": 72000,
+        "p95": 95,
+        "errors": 0.6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API",
+              "Server"
+            ],
+            "cpu": 0.3
+          },
+          "queue": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Kafka"
+            ],
+            "sub": "buffering bursts"
+          },
+          "worker": {
+            "type": "block",
+            "x": 0,
+            "y": 18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Worker",
+              "Pool"
+            ],
+            "sub": "drains at sustainable rate",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 30,
+            "label": "Cassandra",
+            "tags": [
+              {
+                "text": "write-optimized"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "backlog": {
+            "type": "queue",
+            "x": 3,
+            "y": 3.5,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /ping"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "api",
+            "pts": [
+              "lb",
+              "api"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "api",
+            "to": "queue",
+            "pts": [
+              "api",
+              "queue"
+            ],
+            "label": "produce (ack)"
+          },
+          "e4": {
+            "from": "queue",
+            "to": "worker",
+            "pts": [
+              "queue",
+              "worker"
+            ],
+            "label": "consume"
+          },
+          "e5": {
+            "from": "worker",
+            "to": "db",
+            "pts": [
+              "worker",
+              "db"
+            ],
+            "label": "write"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e4",
+              "e5"
+            ],
+            "kind": "msg",
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 72000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API Server"
+          },
+          {
+            "id": "queue",
+            "kind": "kafka",
+            "label": "Kafka",
+            "sub": "buffering bursts"
+          },
+          {
+            "id": "worker",
+            "kind": "worker",
+            "label": "Worker Pool",
+            "sub": "drains at sustainable rate"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Cassandra",
+            "sub": "write-optimized"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "queue"
+          },
+          {
+            "from": "queue",
+            "to": "worker"
+          },
+          {
+            "from": "worker",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+/* Floating chrome: toast, language menu, theme toggle, view transition. */
+.toast {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 10px;
+  padding-inline: 11px 18px;
+  border: 1.5px solid var(--ink);
+  border-radius: 12px;
+  background: var(--c-fbf7f1);
+  box-shadow: 2px 3px 0 var(--drop), 0 18px 36px -18px var(--a-23);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -10px);
+  transition: opacity 0.2s, transform 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.toast.is-on { opacity: 1; transform: translate(-50%); }
+.toast__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1.3px solid var(--ink-2);
+  border-radius: 9px;
+  background: var(--green);
+}
+.toast__text { font-size: 13px; font-weight: 800; white-space: nowrap; }
+
+/* Shared look of the small top-bar pill buttons. */
+.lang__btn, .theme-btn {
+  height: 34px;
+  color: var(--ink-2);
+  cursor: pointer;
+  border: 1.3px solid var(--c-b6ac9f);
+  border-radius: 9px;
+  background: var(--a-9);
+  box-shadow: inset 0 1px 0 var(--a-10), 0 1px 0 var(--a-11);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.lang { position: relative; margin-inline-start: 12px; }
+.lang__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding-block: 0;
+  padding-inline: 11px 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.lang__btn:hover, .lang__btn.is-open { border-color: var(--c-8f8478); background: var(--a-12); }
+.lang__chev { color: var(--muted); transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.lang__btn.is-open .lang__chev { transform: rotate(180deg); }
+.lang__menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  inset-inline-end: 0;
+  z-index: 30;
+  width: 560px;
+  padding: 12px 10px 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 3px 4px 0 var(--drop), 0 30px 60px -28px var(--a-24);
+  opacity: 0;
+  transform: translateY(-8px);
+  transform-origin: 100% 0;
+  transition: opacity 0.16s, transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.lang__menu.is-open { opacity: 1; transform: none; }
+.lang__head {
+  margin: 0 6px 8px;
+  padding-bottom: 9px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+.lang__grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(11, auto);
+  column-gap: 6px;
+}
+.lang__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  text-align: start;
+  cursor: pointer;
+  border: 1.3px solid #0000;
+  border-radius: 9px;
+}
+.lang__item:hover, .lang__item:focus-visible { background: var(--c-f3eadd); outline: 0; }
+.lang__item.is-on { border-color: var(--ink); background: var(--c-eef3e2); box-shadow: 1.5px 2px 0 var(--drop); }
+.lang__tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 800;
+  border: 1.3px solid var(--ink-2);
+  border-radius: 7px;
+  background: var(--c-fbf7f1);
+}
+.lang__item.is-on .lang__tile { color: var(--ink); border-color: var(--ink); background: var(--green); }
+.lang__names { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lang__names b { color: var(--ink); font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+.lang__names span { color: var(--muted); font-size: 11px; font-weight: 500; }
+
+.theme-btn { display: grid; place-items: center; width: 34px; margin-inline-start: 8px; }
+.theme-btn:hover { border-color: var(--c-8f8478); background: var(--a-12); }
+.theme-btn svg { transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.theme-btn:hover svg { transform: rotate(-18deg); }
+
+/* The circular reveal is driven from JS on ::view-transition-new(root). */
+::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; animation: none; }

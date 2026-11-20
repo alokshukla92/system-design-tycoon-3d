@@ -1,0 +1,1185 @@
+{
+  "id": "a-million-little-writes",
+  "title": "A Million Little Writes",
+  "summary": "snapgram — the write wall. Read replicas don't help: every write still lands on one primary.",
+  "minutes": 8,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why one hot entity swamps a single primary",
+      "step": 2
+    },
+    {
+      "text": "Sharding & partitioning — and the hot-partition trap",
+      "step": 3
+    },
+    {
+      "text": "Know why shard keys are nearly permanent",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Disk ceiling",
+      "chapter": "setup",
+      "title": "Nowhere left to go",
+      "body": [
+        "One million users. The cache eats your reads, the CDN eats your images… and the write traffic — posts, likes, comments — is all converging on one primary database that has nowhere left to go.",
+        "Read replicas don't help here: every write still lands on the primary. You need to split the <em>data itself</em>."
+      ],
+      "metrics": {
+        "users": 1000000,
+        "rps": 14000,
+        "p95": 210,
+        "errors": 0.6
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "MongoDB",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /feed"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "edb": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "edb"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 1000000,
+        "rps": 14000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "3× writes",
+      "chapter": "problem",
+      "title": "Write volume tripled this quarter",
+      "body": [
+        "Write volume has tripled this quarter. The primary is sweating — it is the one thing in your architecture that genuinely cannot be horizontally scaled... yet."
+      ],
+      "metrics": {
+        "users": 1800000,
+        "rps": 25200,
+        "p95": 1100,
+        "errors": 2.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "MongoDB",
+            "heat": 0.35,
+            "cpu": 0.78
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /feed"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "edb": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "find()"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "edb"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1800000,
+        "rps": 25200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hot key",
+      "chapter": "problem",
+      "title": "A pop star posted",
+      "body": [
+        "⭐ The pop star posted. 40 million fans are liking it, right now — all hammering the one row that represents that post, on the one primary that owns it."
+      ],
+      "metrics": {
+        "users": 2500000,
+        "rps": 35000,
+        "p95": 3900,
+        "errors": 11.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "MongoDB",
+            "heat": 1,
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "1 hot row",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /feed"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "edb": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "find()",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "edb"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2500000,
+        "rps": 35000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "db",
+            "kind": "mongodb",
+            "label": "MongoDB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shard it",
+      "chapter": "technique",
+      "title": "Sharding — and the hot-partition trap",
+      "body": [
+        "Replication copies the same data; <span class=\"term\">sharding</span> <em>splits</em> it. Each shard owns a slice of the keyspace and takes a slice of the writes — the only way past a single primary's write ceiling.",
+        "But sharding is only as good as the <span class=\"term\">shard key</span>. A monotonic key routes every new write to one shard. A hashed key spreads load evenly — and makes range queries <span class=\"term\">scatter-gather</span>."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Hot partitions hide until a hot <em>entity</em> shows up. Design for your most viral user, not your average one."
+      },
+      "metrics": {
+        "users": 2500000,
+        "rps": 35000,
+        "p95": 90,
+        "errors": 0.5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "shardA": {
+            "type": "db",
+            "x": -5.4,
+            "y": 18,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "hash(user_id) % 3 = 0"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "shardB": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "hash(user_id) % 3 = 1"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "shardC": {
+            "type": "db",
+            "x": 10.8,
+            "y": 18,
+            "label": "Shard C",
+            "tags": [
+              {
+                "text": "hash(user_id) % 3 = 2"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Shard key",
+            "icon": "split",
+            "chart": "bars",
+            "lines": [
+              "hash(user_id) % 3 → shard",
+              "= each shard takes ~⅓ of the writes",
+              "! monotonic key → every new write hits one shard"
+            ],
+            "bars": [
+              {
+                "label": "Monotonic key",
+                "note": "1 shard",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Hashed key",
+                "note": "~⅓ each",
+                "to": 0.33,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /post"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ea": {
+            "from": "k8s",
+            "to": "shardA",
+            "pts": [
+              "k8s",
+              "shardA"
+            ],
+            "label": "hashed write"
+          },
+          "eb": {
+            "from": "k8s",
+            "to": "shardB",
+            "pts": [
+              "k8s",
+              "shardB"
+            ],
+            "label": "hashed write"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "shardC",
+            "pts": [
+              "k8s",
+              "shardC"
+            ],
+            "label": "hashed write"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "ea"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "eb"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "ec"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2500000,
+        "rps": 35000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "shardA",
+            "kind": "mongodb",
+            "label": "Shard A",
+            "sub": "hash(user_id) % 3 = 0"
+          },
+          {
+            "id": "shardB",
+            "kind": "mongodb",
+            "label": "Shard B",
+            "sub": "hash(user_id) % 3 = 1"
+          },
+          {
+            "id": "shardC",
+            "kind": "mongodb",
+            "label": "Shard C",
+            "sub": "hash(user_id) % 3 = 2"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "shardA"
+          },
+          {
+            "from": "k8s",
+            "to": "shardB"
+          },
+          {
+            "from": "k8s",
+            "to": "shardC"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Key choice",
+      "chapter": "tradeoff",
+      "title": "Shard keys are nearly permanent",
+      "body": [
+        "Sharding multiplies cost and operational complexity: rebalancing, cross-shard queries, no cheap transactions across shards.",
+        "Shard-key choice is nearly permanent — re-sharding live data is one of the most painful migrations in engineering. Spend the design time up front."
+      ],
+      "changes": [
+        "~ Single primary → 3 hashed shards",
+        "~ Writes now spread across shards by hash(user_id)",
+        "~ Range queries now scatter-gather across all shards"
+      ],
+      "metrics": {
+        "users": 2500000,
+        "rps": 35000,
+        "p95": 90,
+        "errors": 0.5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "cdn": {
+            "type": "block",
+            "x": -8.1,
+            "y": -6,
+            "s": 4,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "sub": "photos, static"
+          },
+          "lb": {
+            "type": "block",
+            "x": 2.7,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 2.7,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "sub": "N pods, autoscaled",
+            "cpu": 0.3
+          },
+          "shardA": {
+            "type": "db",
+            "x": -5.4,
+            "y": 18,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "hash(user_id) % 3 = 0"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "shardB": {
+            "type": "db",
+            "x": 2.7,
+            "y": 18,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "hash(user_id) % 3 = 1"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "shardC": {
+            "type": "db",
+            "x": 10.8,
+            "y": 18,
+            "label": "Shard C",
+            "tags": [
+              {
+                "text": "hash(user_id) % 3 = 2"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "ecdn": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET /photo.jpg"
+          },
+          "elb": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /post"
+          },
+          "ek8s": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "ea": {
+            "from": "k8s",
+            "to": "shardA",
+            "pts": [
+              "k8s",
+              "shardA"
+            ],
+            "label": "hashed write"
+          },
+          "eb": {
+            "from": "k8s",
+            "to": "shardB",
+            "pts": [
+              "k8s",
+              "shardB"
+            ],
+            "label": "hashed write"
+          },
+          "ec": {
+            "from": "k8s",
+            "to": "shardC",
+            "pts": [
+              "k8s",
+              "shardC"
+            ],
+            "label": "hashed write"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "ecdn"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "ea"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "eb"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "elb",
+                  "ek8s",
+                  "ec"
+                ],
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2500000,
+        "rps": 35000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "photos, static"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "sub": "N pods, autoscaled"
+          },
+          {
+            "id": "shardA",
+            "kind": "mongodb",
+            "label": "Shard A",
+            "sub": "hash(user_id) % 3 = 0"
+          },
+          {
+            "id": "shardB",
+            "kind": "mongodb",
+            "label": "Shard B",
+            "sub": "hash(user_id) % 3 = 1"
+          },
+          {
+            "id": "shardC",
+            "kind": "mongodb",
+            "label": "Shard C",
+            "sub": "hash(user_id) % 3 = 2"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "shardA"
+          },
+          {
+            "from": "k8s",
+            "to": "shardB"
+          },
+          {
+            "from": "k8s",
+            "to": "shardC"
+          }
+        ]
+      }
+    }
+  ]
+}

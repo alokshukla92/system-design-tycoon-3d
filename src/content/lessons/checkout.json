@@ -1,0 +1,951 @@
+{
+  "id": "checkout",
+  "title": "Checkout",
+  "summary": "shoply — e-commerce at scale. A dropped write is lost revenue. A duplicated write is a double-charged customer.",
+  "minutes": 9,
+  "level": "advanced",
+  "metrics": [
+    "users",
+    "rps",
+    "p95",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "retry",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why a retry can double-charge a customer",
+      "step": 2
+    },
+    {
+      "text": "Distributed transactions, idempotency & CAP in production",
+      "step": 3
+    },
+    {
+      "text": "Know when strong consistency is worth it",
+      "step": 4
+    }
+  ],
+  "steps": [
+    {
+      "short": "Payments",
+      "chapter": "setup",
+      "title": "Money makes everything harder",
+      "body": [
+        "<b>shoply</b> processes real money now. Carts, payments, inventory — and a Black-Friday-sized sale event on the calendar.",
+        "Your retries, your queues, your failovers — all of them can duplicate or drop work. Design for <span class=\"term\">exactly-once</span> <em>effects</em> in an at-least-once world."
+      ],
+      "metrics": {
+        "users": 8000000,
+        "rps": 80000,
+        "p95": 220,
+        "errors": 0.4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "strong consistency"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /checkout"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "transaction"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 8000000,
+        "rps": 80000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Big Sale",
+      "chapter": "problem",
+      "title": "The Big Sale is live",
+      "body": [
+        "🛍️ The Big Sale is LIVE. Checkout traffic is 4× normal — every one of those requests is a transaction your database must apply exactly once."
+      ],
+      "metrics": {
+        "users": 12000000,
+        "rps": 320000,
+        "p95": 1900,
+        "errors": 3.1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "strong consistency"
+              }
+            ],
+            "heat": 0.35,
+            "cpu": 0.78
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /checkout"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "transaction"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 12000000,
+        "rps": 320000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Mid-sale crash",
+      "chapter": "problem",
+      "title": "An instance died mid-sale",
+      "body": [
+        "A pod died mid-sale. Requests in flight were lost… or were they? The client retried — was that retry a safe no-op, or a second charge?"
+      ],
+      "metrics": {
+        "users": 14000000,
+        "rps": 350000,
+        "p95": 2800,
+        "errors": 9
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "heat": 1,
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "pod died",
+                "tone": "red",
+                "icon": "skull"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "strong consistency"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /checkout"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "transaction",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ],
+            "hold": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 14000000,
+        "rps": 350000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Idempotency",
+      "chapter": "technique",
+      "title": "Idempotency & CAP in production",
+      "body": [
+        "At-least-once delivery (retries, queues, failovers) means duplicate writes are a <em>certainty</em>, not a risk. <span class=\"term\">Idempotency keys</span> — a client-generated unique id checked before applying a write — make the duplicate a no-op. That's how payment systems sleep at night.",
+        "<span class=\"term\">CAP theorem</span> stopped being theory: during the partition you chose either consistency (reject writes, stay correct) or availability (accept writes, reconcile later) — payments choose consistency; carts choose availability, <em>per-operation</em>, not per-system."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Idempotency requires a dedup store and discipline in every write path — boring, unglamorous, and absolutely mandatory."
+      },
+      "metrics": {
+        "users": 15000000,
+        "rps": 375000,
+        "p95": 240,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "strong consistency"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "idem": {
+            "type": "block",
+            "x": -8.1,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "idempotency keys"
+          },
+          "search": {
+            "type": "block",
+            "x": -8.1,
+            "y": 18,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ],
+            "sub": "product search"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Idempotency key",
+            "icon": "key",
+            "lines": [
+              "a retry carries the same key",
+              "key seen? → return the stored result",
+              "= the duplicate becomes a no-op",
+              "! every write path needs the dedup check"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /checkout"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "transaction"
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "idem",
+            "pts": [
+              "k8s",
+              "idem"
+            ],
+            "label": "check dedup key"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "GET /search",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 15000000,
+        "rps": 375000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          },
+          {
+            "id": "idem",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "idempotency keys"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch",
+            "sub": "product search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          },
+          {
+            "from": "k8s",
+            "to": "idem"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          }
+        ]
+      }
+    },
+    {
+      "short": "CAP cost",
+      "chapter": "tradeoff",
+      "title": "Strong consistency is not free",
+      "body": [
+        "Strong consistency costs latency and availability (coordination is expensive). Reserve it for money and inventory; let browsing be eventual.",
+        "<span class=\"term\">Two-phase commit</span> across services is usually a trap at scale; <span class=\"term\">sagas</span> (compensating actions) trade atomicity for availability."
+      ],
+      "changes": [
+        "+ Redis idempotency-key store",
+        "+ Elasticsearch for product search (was 20× CPU on Postgres)",
+        "~ Payments: strong consistency · Carts: eventual"
+      ],
+      "metrics": {
+        "users": 15000000,
+        "rps": 375000,
+        "p95": 240,
+        "errors": 0.3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -21,
+            "y1": -15,
+            "count": 12,
+            "label": "Users"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "k8s": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 6,
+            "h": 56,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "K8s",
+              "Cluster"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 18,
+            "label": "PostgreSQL",
+            "tags": [
+              {
+                "text": "strong consistency"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "idem": {
+            "type": "block",
+            "x": -8.1,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "idempotency keys"
+          },
+          "search": {
+            "type": "block",
+            "x": -8.1,
+            "y": 18,
+            "color": "purple",
+            "glyph": "search",
+            "label": [
+              "Elasticsearch"
+            ],
+            "sub": "product search"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /checkout"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "k8s",
+            "pts": [
+              "lb",
+              "k8s"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "k8s",
+            "to": "db",
+            "pts": [
+              "k8s",
+              "db"
+            ],
+            "label": "transaction"
+          },
+          "e4": {
+            "from": "k8s",
+            "to": "idem",
+            "pts": [
+              "k8s",
+              "idem"
+            ],
+            "label": "check dedup key"
+          },
+          "e5": {
+            "from": "k8s",
+            "to": "search",
+            "pts": [
+              "k8s",
+              "search"
+            ],
+            "label": "GET /search",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 15000000,
+        "rps": 375000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "k8s",
+            "kind": "k8s_cluster",
+            "label": "K8s Cluster"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "PostgreSQL",
+            "sub": "strong consistency"
+          },
+          {
+            "id": "idem",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "idempotency keys"
+          },
+          {
+            "id": "search",
+            "kind": "elasticsearch",
+            "label": "Elasticsearch",
+            "sub": "product search"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "k8s"
+          },
+          {
+            "from": "k8s",
+            "to": "db"
+          },
+          {
+            "from": "k8s",
+            "to": "idem"
+          },
+          {
+            "from": "k8s",
+            "to": "search"
+          }
+        ]
+      }
+    }
+  ]
+}

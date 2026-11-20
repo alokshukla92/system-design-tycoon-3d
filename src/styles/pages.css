@@ -1,0 +1,207 @@
+/* Static pages (/pricing/ /about/ /contact/ /privacy/ /terms/, 404) and the course overview below the classroom.
+   Values from the original Astro page CSS (evidence/pages/*.html inline style, CoursePage.*.css, SiteLinks.*.css). */
+
+/* ── Page tokens: the Astro pages define their own, slightly different palette. ── */
+html[data-page] {
+  color-scheme: light;
+  --paper: #f4ebe0;
+  --card: #f8f0e6;
+  --line: #d8cdbc;
+  --ink: #1d1b18;
+  --muted: #60574c;
+  --line-strong: #c6bbac;
+  --ink-2: #34302b;
+  --green: #cfe3b2;
+  --a-9: #faf5ee;
+  --a-2: #eae0d3;
+  --card-shadow: 0 8px 24px #503c2326;
+}
+html[data-page][data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #211e1a;
+  --card: #2d2822;
+  --line: #51463b;
+  --ink: #f5e9db;
+  --muted: #d3c6b6;
+  --line-strong: #746757;
+  --ink-2: #d3c6b6;
+  --green: #455438;
+  --a-9: #352e27;
+  --a-2: #40372e;
+  --card-shadow: 0 8px 24px #0005;
+}
+html[data-page], html[data-page] body { height: auto; }
+html[data-page] body {
+  min-height: 100%;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--paper);
+  font: 1rem/1.65 system-ui, sans-serif;
+  font-feature-settings: normal;
+}
+
+/* Undo the classroom resets inside page content. */
+.site-page p { margin: 1em 0; }
+.site-page ul { margin: 1em 0; padding-inline-start: 40px; list-style: disc; }
+.site-page a { color: inherit; text-underline-offset: 3px; }
+.site-page code { font-family: var(--font); font-size: 0.9em; }
+
+.site-page .shell { width: min(100% - 32px, 1080px); margin-inline: auto; }
+
+/* Header */
+.site-page .site-header { border-bottom: 1px solid var(--line); background: var(--card); }
+.site-page .header-inner,
+.site-page .site-header nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.site-page .header-inner { justify-content: space-between; padding-block: 12px; }
+.site-page .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  font: 750 0.95rem var(--font);
+  text-decoration: none;
+}
+.site-page .site-header nav a { padding-block: 8px; font-size: 0.875rem; }
+.site-page [aria-current="page"] { font-weight: 750; }
+.site-page #course-account { margin-inline-start: 0; }
+
+/* Main */
+.site-page main { padding-block: clamp(20px, 4vw, 48px); }
+.site-page .info-hero,
+.site-page .info-body,
+.site-page .pricing-card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.site-page .info-hero,
+.site-page .info-body { padding: clamp(20px, 4vw, 40px); }
+.site-page .info-hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px 32px;
+  margin-block-end: 16px;
+}
+.site-page .info-hero p { max-width: 60ch; margin: 0; color: var(--muted); }
+.site-page :is(h1, h2, .price, .start-learning, .plan-name) { font-family: var(--font); }
+.site-page h1 { margin: 0 0 10px; font-size: clamp(1.6rem, 3.5vw, 2.5rem); line-height: 1.2; }
+.site-page h2 { margin: 26px 0 8px; font-size: 1.15rem; line-height: 1.4; }
+.site-page .info-body > :first-child,
+.site-page .info-body article > :first-child { margin-block-start: 0; }
+.site-page .info-body > :last-child,
+.site-page .info-body article > :last-child { margin-block-end: 0; }
+.site-page .info-body p,
+.site-page .info-body ul { max-width: 74ch; }
+
+/* Pricing */
+.site-page .pricing-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.site-page .pricing-card { display: flex; flex-direction: column; align-items: flex-start; padding: 18px 22px; background: var(--paper); }
+.site-page .pricing-card > * { align-self: stretch; margin-block: 0; }
+.site-page .pricing-card > * + * { margin-block-start: 1em; }
+.site-page .pricing-card > .plan-name + .price { margin-block-start: 2px; }
+.site-page .pricing-card > .start-learning { align-self: flex-start; margin-block-start: auto; }
+.site-page .pricing-card > .plan-note { margin-block-end: 1em; }
+.site-page .plan-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.site-page .plan-badge {
+  padding: 2px 8px;
+  color: #4a310d;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 999px;
+  background: #f5d991;
+}
+.site-page .price { margin: 0; font-size: 2.5rem; font-weight: 800; line-height: 1.15; }
+.site-page .plan-note { color: var(--muted); font-size: 0.9rem; }
+
+/* "Start learning →" (fixed colours in both themes, like the original). */
+.site-page .start-learning {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  color: #1d2816;
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.65;
+  text-decoration: none;
+  cursor: pointer;
+  border: 1px solid #334329;
+  border-radius: 8px;
+  background: #cfe3b2;
+  box-shadow: 2px 2px #334329;
+}
+.site-page .start-learning:hover { background: #bdd79f; }
+.site-page .start-learning:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+
+/* Owner-review marker on placeholder legal copy. */
+.site-page .todo-note {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.site-page .todo-note b { margin-inline-end: 6px; color: var(--rust, #d0683a); font-family: var(--font); }
+
+/* Footer */
+.site-page footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px 24px;
+  padding-block: 18px 32px;
+  border-top: 1px solid var(--line);
+}
+.site-page footer .site-links { justify-content: center; margin: 0; }
+
+/* Toast lives outside the classroom window here. */
+.site-page .toast { position: fixed; z-index: 20; }
+
+@media (width <= 760px) {
+  .site-page .site-header nav { flex-basis: 100%; order: 1; }
+}
+
+/* ── Shared: SiteLinks / support address ── */
+.site-links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.site-links a { color: inherit; text-underline-offset: 3px; }
+.site-support { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-block: 0 12px; font-style: normal; }
+.site-support span { font-weight: 700; }
+.site-support a { color: inherit; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+
+/* ── Course overview below the classroom (CoursePage.*.css; base rules live in site.css) ── */
+.course-guide { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-block: 28px; }
+.course-guide section {
+  min-width: 0;
+  padding: clamp(16px, 2.5vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.course-guide :is(h2, h3) { margin-block: 0 12px; }
+.course-guide section :is(p, ul) { margin-block: 0 12px; line-height: 1.65; }
+.course-guide section > :last-child { margin-block-end: 0; }
+.course-guide ul { padding-inline-start: 20px; }
+.course-guide li + li { margin-block-start: 8px; }
+.course-guide .guide-faq { grid-column: 1 / -1; }
+.course-guide details { border-block-start: 1px solid var(--line); }
+.course-guide summary { padding-block: 12px; font-weight: 700; cursor: pointer; }
+.course-overview .course-references { margin-block-start: 28px; text-align: center; }
+.course-references ul { padding-inline-start: 0; list-style: none; }
+.course-references li + li { margin-top: 6px; }
+.course-footer .site-support { margin-block: 0; }
+.course-footer .site-support,
+.course-footer .site-links { justify-content: center; }
+
+@media (width <= 800px) {
+  .course-guide { grid-template-columns: 1fr; }
+}

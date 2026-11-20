@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Engine harness</title>
+    <style>
+      :root {
+        --font: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --ink: #1d1b18;
+        --c-faf3e9: #faf3e9;
+        --c-b0a698: #b0a698;
+        --c-8f2a22: #8f2a22;
+        --c-ffffff: #fff;
+        --page: #f3ece1;
+      }
+      :root[data-theme="dark"] {
+        --ink: #efe6d6;
+        --c-faf3e9: #292520;
+        --c-b0a698: #675d4f;
+        --c-8f2a22: #ebb2ad;
+        --c-ffffff: #37312a;
+        --page: #1f1c18;
+      }
+      html, body { margin: 0; height: 100%; background: var(--page); color: var(--ink); font-family: var(--font); }
+      body { display: flex; flex-direction: column; }
+      .bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; flex-wrap: wrap; font-size: 13px; }
+      .bar button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--ink); background: transparent; color: inherit; cursor: pointer; }
+      .bar .label { margin-left: 8px; opacity: 0.8; }
+      .stage { background: var(--c-faf3e9); flex: 1; min-height: 0; margin: 0 14px 14px; position: relative; overflow: hidden; border-radius: 12px; }
+      .stage__canvas { touch-action: pan-y; user-select: none; position: absolute; inset: 58px 14px 34px; }
+      .stage__canvas.is-zoomed { touch-action: none; cursor: grab; }
+      .stage__canvas.is-dragging { cursor: grabbing; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <button id="prev">◀ prev</button>
+      <button id="next">next ▶</button>
+      <button id="replay">replay</button>
+      <button id="pause">pause</button>
+      <button id="theme">theme</button>
+      <button id="fit" hidden>fit</button>
+      <span class="label" id="label"></span>
+    </div>
+    <div class="stage"><div class="stage__canvas" id="canvas"></div></div>
+    <script type="module" src="/src/engine/harness.ts"></script>
+  </body>
+</html>
