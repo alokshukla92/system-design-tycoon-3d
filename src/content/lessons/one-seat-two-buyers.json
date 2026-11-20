@@ -1,0 +1,1722 @@
+{
+  "id": "one-seat-two-buyers",
+  "title": "One Seat, Two Buyers",
+  "summary": "Puddlejump has one seat left on its Friday flight. Two travellers tap 'Book' in the same instant — and the code checks before it writes.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "seatsLeft",
+    "sold",
+    "oversold",
+    "tx",
+    "p95"
+  ],
+  "legend": [
+    [
+      "mine",
+      "Maya’s request"
+    ],
+    [
+      "req",
+      "Theo’s request"
+    ],
+    "res",
+    [
+      "slow",
+      "waiting / retry"
+    ],
+    [
+      "empty",
+      "lost the race"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Spot the check-then-write race behind double booking",
+      "step": 1
+    },
+    {
+      "text": "Learn what ACID and isolation levels do (and don't) guarantee",
+      "step": 3
+    },
+    {
+      "text": "Lock a row with SELECT … FOR UPDATE",
+      "step": 5
+    },
+    {
+      "text": "Use optimistic concurrency with a version check",
+      "step": 6
+    },
+    {
+      "text": "Keep transactions short when everyone wants the same row",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Last seat",
+      "chapter": "setup",
+      "title": "One seat left",
+      "body": [
+        "<b>Puddlejump</b> flies small planes between islands. Friday's 18:40 departure has exactly one seat left: <b>14C</b>.",
+        "Booking is a two-step dance: the API runs <code>SELECT holder FROM seats WHERE id = '14C'</code>, and if it's empty, <code>UPDATE seats SET holder = …</code>. With one buyer at a time, that works perfectly."
+      ],
+      "metrics": {
+        "seatsLeft": 1,
+        "sold": 0,
+        "oversold": "no",
+        "tx": "no",
+        "p95": 120
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: free",
+                "tone": "green",
+                "icon": "ticket"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "SELECT, then UPDATE"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Race",
+      "chapter": "problem",
+      "title": "Two taps, same instant",
+      "body": [
+        "Maya on her laptop and Theo on his phone tap <b>Book</b> within a few milliseconds of each other. Both SELECTs run before either UPDATE — so both see the seat as free.",
+        "That gap between <em>checking</em> and <em>writing</em> is a <span class=\"term\">race condition</span>. Every request is correct on its own; the interleaving is what's wrong."
+      ],
+      "changes": [
+        "+ Theo books 14C at the same moment"
+      ],
+      "metrics": {
+        "seatsLeft": 1,
+        "sold": 0,
+        "oversold": "no",
+        "tx": "no",
+        "p95": 120
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: free",
+                "tone": "green",
+                "icon": "ticket"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Timeline",
+            "icon": "clock",
+            "lines": [
+              ".010 s  Maya  SELECT 14C → free",
+              ".012 s  Theo  SELECT 14C → free",
+              ".030 s  Maya  UPDATE 14C → Maya",
+              ".031 s  Theo  UPDATE 14C → Theo",
+              "! both screens say 'Booked!'"
+            ]
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "both read 'free'"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lost update",
+      "chapter": "problem",
+      "title": "Both charged, one seat",
+      "body": [
+        "Theo's UPDATE lands a millisecond after Maya's and simply overwrites it. Her write wasn't rejected; it was erased — a <span class=\"term\">lost update</span>.",
+        "Both cards were charged and both got a confirmation email. Maya finds out at the gate. The same bug inflates stock counters, double-spends credits and books the same slot twice."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Read, decide in application code, write back: if two requests can interleave, they eventually will."
+      },
+      "changes": [
+        "~ 14C holder: Maya → Theo",
+        "~ Maya charged without a seat"
+      ],
+      "metrics": {
+        "seatsLeft": 0,
+        "sold": 2,
+        "oversold": "yes",
+        "tx": "no",
+        "p95": 120
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya",
+            "tags": [
+              {
+                "text": "charged · no seat",
+                "tone": "red",
+                "icon": "creditCard"
+              }
+            ]
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "charged · 14C",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: Theo",
+                "tone": "red",
+                "icon": "ticket"
+              },
+              {
+                "text": "Maya's write lost",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "last write wins"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "ACID",
+      "chapter": "technique",
+      "title": "Wrap it in a transaction?",
+      "body": [
+        "A <span class=\"term\">transaction</span> groups statements into one unit with <b>ACID</b> guarantees: all or nothing, constraints respected, isolated from others, durable once committed.",
+        "But <span class=\"term\">isolation</span> has levels. At <i>read committed</i> — the default in Postgres and many other databases — each statement sees whatever was committed when it started. Both transactions still read 'free', and both commit."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "BEGIN … COMMIT makes the steps atomic. It doesn't, on its own, stop two transactions from making the same decision."
+      },
+      "changes": [
+        "~ SELECT + UPDATE now inside one transaction"
+      ],
+      "metrics": {
+        "seatsLeft": 0,
+        "sold": 2,
+        "oversold": "yes",
+        "tx": "yes",
+        "p95": 125
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: free",
+                "tone": "green",
+                "icon": "ticket"
+              },
+              {
+                "text": "READ COMMITTED",
+                "tone": "gray",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "ACID",
+            "icon": "lock",
+            "lines": [
+              "**A**tomic · all of it happens, or none",
+              "**C**onsistent · constraints hold after commit",
+              "**I**solated · how much concurrent txs see",
+              "**D**urable · committed survives a crash",
+              "! both txs still read 'free' and both commit"
+            ]
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "BEGIN … COMMIT"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Isolation",
+      "chapter": "technique",
+      "title": "Turn isolation up",
+      "body": [
+        "At <span class=\"term\">serializable</span>, the database guarantees the result is as if transactions ran one after another. When it detects that Maya's and Theo's can't be ordered that way, it aborts one with a serialization error.",
+        "Theo's transaction is retried from the top: this time the SELECT sees Maya as the holder, and Theo is told the seat is gone. Correct — at the cost of aborted work and retry logic in every caller."
+      ],
+      "changes": [
+        "~ Isolation level: read committed → serializable",
+        "+ Retry on serialization failure"
+      ],
+      "metrics": {
+        "seatsLeft": 0,
+        "sold": 1,
+        "oversold": "no",
+        "tx": "yes",
+        "p95": 180
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "aborted → retry → taken",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: Maya",
+                "tone": "violet",
+                "icon": "ticket"
+              },
+              {
+                "text": "SERIALIZABLE",
+                "tone": "violet",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Isolation levels",
+            "icon": "layers",
+            "lines": [
+              "Read uncommitted · may see unfinished writes",
+              "Read committed · a common default · lost updates",
+              "Repeatable read · stable snapshot · some anomalies",
+              "Serializable · as if one at a time",
+              "# stronger levels abort conflicts → the app retries"
+            ]
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "BEGIN ISOLATION SERIALIZABLE"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9,
+            "kind": "slow",
+            "pattern": [
+              "req",
+              "slow"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Row lock",
+      "chapter": "technique",
+      "title": "Lock the row you'll change",
+      "body": [
+        "A more targeted fix: read the seat with <code>SELECT … FOR UPDATE</code>. This takes a <span class=\"term\">row lock</span> on 14C until the transaction ends — <span class=\"term\">pessimistic locking</span>.",
+        "Theo's identical query now <em>waits</em> for Maya's transaction. When she commits, his query returns 'held by Maya' and he's shown the next best seat. Only buyers of 14C queue; the rest of the plane is unaffected."
+      ],
+      "changes": [
+        "~ SELECT → SELECT … FOR UPDATE",
+        "+ Theo waits for Maya's lock"
+      ],
+      "metrics": {
+        "seatsLeft": 0,
+        "sold": 1,
+        "oversold": "no",
+        "tx": "yes",
+        "p95": 140
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "waits, then 'taken'",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C locked by Maya",
+                "tone": "violet",
+                "icon": "lock"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "wait": {
+            "type": "queue",
+            "x": 3.6,
+            "y": 4,
+            "n": 1,
+            "gap": 1.1,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "SELECT … FOR UPDATE"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 1.4,
+            "rate": 0.9,
+            "kind": "slow"
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Optimistic",
+      "chapter": "technique",
+      "title": "Don't lock — check on write",
+      "body": [
+        "<span class=\"term\">Optimistic concurrency</span> takes no lock at all. Each row carries a <code>version</code>; the update only applies if the version is still the one you read. If the database reports <b>0 rows updated</b>, someone got there first.",
+        "The simplest form needs no version column: <code>UPDATE seats SET holder = 'Theo' WHERE id = '14C' AND holder IS NULL</code> — the check and the write become one atomic statement."
+      ],
+      "changes": [
+        "- Row lock",
+        "+ Version column checked on every update"
+      ],
+      "metrics": {
+        "seatsLeft": 0,
+        "sold": 1,
+        "oversold": "no",
+        "tx": "yes",
+        "p95": 95
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "0 rows → 'taken'",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: Maya · v8",
+                "tone": "violet",
+                "icon": "ticket"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Optimistic update",
+            "icon": "code",
+            "lines": [
+              "UPDATE seats SET holder = 'Theo', version = 8",
+              "WHERE id = '14C' AND version = 7",
+              "! 0 rows updated → someone else won",
+              "= no lock held while people think"
+            ]
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "UPDATE … WHERE version = 7"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9,
+            "kind": "empty"
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hot rows",
+      "chapter": "tradeoff",
+      "title": "When everyone wants the same seats",
+      "body": [
+        "Holiday sale: 2,000 shoppers chase 180 seats. With row locks, buyers of popular seats queue behind each other; with optimistic checks, most attempts fail and retry, burning work.",
+        "The worst pattern holds a lock while calling a slow payment provider — every lock is held for seconds instead of milliseconds, and p95 explodes."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Low contention → optimistic is cheap. High contention on a few rows → lock (or queue) them, and keep each transaction tiny."
+      },
+      "changes": [
+        "~ 2,000 concurrent shoppers",
+        "~ Database hot on a few rows"
+      ],
+      "metrics": {
+        "seatsLeft": 37,
+        "sold": 143,
+        "oversold": "no",
+        "tx": "yes",
+        "p95": 900
+      },
+      "scene": {
+        "entities": {
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "hot rows",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "crowd": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -23,
+            "y1": -17,
+            "count": 14,
+            "label": "2,000 shoppers"
+          },
+          "wait": {
+            "type": "queue",
+            "x": 3.6,
+            "y": 4,
+            "n": 6,
+            "gap": 1.1,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Under contention",
+            "icon": "flame",
+            "lines": [
+              "# 2,000 buyers chasing 180 seats"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Row locks",
+                "note": "long queues on popular seats",
+                "to": 0.85,
+                "tone": "amber"
+              },
+              {
+                "label": "Optimistic",
+                "note": "most attempts fail and retry",
+                "to": 0.95,
+                "tone": "red"
+              },
+              {
+                "label": "Short hold, pay outside",
+                "note": "locks held for ms",
+                "to": 0.2,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "c": {
+            "from": "crowd",
+            "to": "api",
+            "pts": [
+              "crowd",
+              "api"
+            ],
+            "label": "book"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "lock waits / retries"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "c",
+              "q"
+            ],
+            "bounce": true,
+            "pattern": [
+              "req",
+              "slow",
+              "slow"
+            ],
+            "hold": 0.6,
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "hot rows",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Short tx",
+      "chapter": "solution",
+      "title": "Hold fast, pay later",
+      "body": [
+        "Split the work. A tiny transaction marks the seat <b>held</b> with an expiry (<code>held_until = now() + 10 min</code>) and commits in milliseconds. Payment happens <em>outside</em> any transaction.",
+        "When payment succeeds, a second short transaction confirms the booking; if it fails or the timer runs out, the hold expires and the seat goes back on sale. Locks are held for milliseconds again."
+      ],
+      "changes": [
+        "+ Seat holds with a 10-minute expiry",
+        "~ Payment moved outside the transaction"
+      ],
+      "metrics": {
+        "seatsLeft": 37,
+        "sold": 143,
+        "oversold": "no",
+        "tx": "yes",
+        "p95": 210
+      },
+      "scene": {
+        "entities": {
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C held · 10 min",
+                "tone": "violet",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "crowd": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -23,
+            "y1": -17,
+            "count": 14,
+            "label": "2,000 shoppers"
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": -6,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "creditCard",
+            "label": [
+              "Payment",
+              "provider"
+            ],
+            "h": 34
+          },
+          "wait": {
+            "type": "queue",
+            "x": 3.6,
+            "y": 4,
+            "n": 0,
+            "gap": 1.1,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "c": {
+            "from": "crowd",
+            "to": "api",
+            "pts": [
+              "crowd",
+              "api"
+            ],
+            "label": "book"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "hold seat · 3 ms"
+          },
+          "p": {
+            "from": "api",
+            "to": "pay",
+            "pts": [
+              "api",
+              "pay"
+            ],
+            "label": "charge · no lock held",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "c",
+              "q"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          },
+          {
+            "route": [
+              "p"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "hold": 0.8,
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "short holds"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "One seat, one buyer",
+      "body": [
+        "<ul class=\"takeaways\"><li>Check-then-write in application code is a race; two requests will interleave.</li><li>Transactions give atomicity, but the default isolation level may still allow lost updates.</li><li>Serializable, row locks (<code>FOR UPDATE</code>) and optimistic version checks each make the decision safe.</li><li>Keep transactions short: never hold a lock while waiting on something slow.</li></ul>"
+      ],
+      "metrics": {
+        "seatsLeft": 0,
+        "sold": 1,
+        "oversold": "no",
+        "tx": "yes",
+        "p95": 95
+      },
+      "scene": {
+        "entities": {
+          "maya": {
+            "type": "device",
+            "x": -7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Maya"
+          },
+          "theo": {
+            "type": "device",
+            "x": 7,
+            "y": -18,
+            "w": 5,
+            "d": 5,
+            "label": "Theo",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "'14C taken — try 15A?'",
+                "tone": "gray",
+                "icon": "info"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Booking",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "14C: Maya · v8",
+                "tone": "violet",
+                "icon": "ticket"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "m": {
+            "from": "maya",
+            "to": "api",
+            "pts": [
+              "maya",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "t": {
+            "from": "theo",
+            "to": "api",
+            "pts": [
+              "theo",
+              "api"
+            ],
+            "label": "book 14C"
+          },
+          "q": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "heads": "both",
+            "label": "UPDATE … WHERE version = 7"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "m",
+              "q"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "t",
+              "q"
+            ],
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.9,
+            "kind": "empty"
+          }
+        ]
+      },
+      "lab": {
+        "users": 240,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Booking API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "seats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

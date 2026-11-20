@@ -1,4 +1,8 @@
+import { COURSE } from "../src/content/course";
 import { GUIDE_TITLE, expect, hashOf, openLesson, openSidebar, readStorage, test } from "./fixtures";
+
+/** Lessons in the course (the progress card counts every course lesson). */
+const TOTAL = COURSE.reduce((n, m) => n + m.lessons.length, 0);
 
 test.describe("Lessons", () => {
   test("deep link renders the lesson and step", async ({ page }) => {
@@ -52,7 +56,7 @@ test.describe("Lessons", () => {
   test("finishing a lesson marks it done and Next opens the next lesson", async ({ page }) => {
     await openLesson(page, "#/day-one/4");
     expect(await readStorage<string[]>(page, "done")).toBeNull();
-    await expect(page.locator("#progress .progress__pct")).toHaveText("0 / 16");
+    await expect(page.locator("#progress .progress__pct")).toHaveText(`0 / ${TOTAL}`);
 
     await page.locator("#next").click();
     await expect(page.locator("#tl-count")).toHaveText("Step 5 of 5");
@@ -60,7 +64,7 @@ test.describe("Lessons", () => {
     await expect.poll(() => readStorage<string[]>(page, "done")).toEqual(["day-one"]);
     await expect(page.locator('#sidebar li[data-lesson="day-one"]')).toHaveAttribute("data-done", "true");
     await expect(page.locator('#sidebar .mod__head[data-mod="startup-career"] .mod__count')).toHaveText("1/10");
-    await expect(page.locator("#progress .progress__pct")).toHaveText("1 / 16");
+    await expect(page.locator("#progress .progress__pct")).toHaveText(`1 / ${TOTAL}`);
 
     await page.locator("#next").click();
     await expect(page).toHaveURL(/#\/the-slow-burn\/1$/);
@@ -79,7 +83,7 @@ test.describe("Lessons", () => {
     await expect(page.locator("#head .title")).toHaveText("Day One");
     await expect(page.locator("#tl-count")).toHaveText("Step 3 of 5");
     await expect(page.locator('#sidebar li[data-lesson="day-one"]')).toHaveAttribute("data-done", "true");
-    await expect(page.locator("#progress .progress__pct")).toHaveText("1 / 16");
+    await expect(page.locator("#progress .progress__pct")).toHaveText(`1 / ${TOTAL}`);
 
     await page.reload();
     await expect(page.locator("#tl-count")).toHaveText("Step 3 of 5");
@@ -110,6 +114,48 @@ test.describe("Lessons", () => {
     await progress.click();
     await expect(progress).toHaveAttribute("aria-expanded", "true");
     await expect.poll(() => readStorage(page, "progressOpen")).toBe(true);
-    await expect(page.locator("#progress .progress__list li")).toHaveCount(3);
+    await expect(page.locator("#progress .progress__list li")).toHaveCount(COURSE.length);
+  });
+
+  test.describe("lazy lesson chunks", () => {
+    // Lessons are code-split; `checkout` is not prefetched from day-one (only the next lesson is).
+    const CHUNK = /\/assets\/checkout-[\w-]+\.js$/;
+    const ERROR = "This lesson could not be loaded. Please try again.";
+
+    test("the current lesson stays on screen while the next one loads", async ({ page }) => {
+      let release = () => {};
+      const gate = new Promise<void>((r) => (release = r));
+      await page.route(CHUNK, async (route) => {
+        await gate;
+        await route.continue();
+      });
+      await openLesson(page, "#/day-one/2");
+      await page.evaluate(() => (location.hash = "#/checkout/1"));
+      await expect(page.locator("main.sheet")).toHaveAttribute("aria-busy", "true");
+      await expect(page.locator("#head .title")).toHaveText("Day One");
+      release();
+      await expect(page.locator("#head .title")).toHaveText("Checkout");
+      await expect(page.locator("#tl-count")).toHaveText(/^Step 1 of \d+$/);
+      await expect(page.locator("main.sheet")).not.toHaveAttribute("aria-busy");
+    });
+
+    test("a lesson that fails to load shows the error toast and keeps the current lesson", async ({ page, pageErrors }) => {
+      await page.route(CHUNK, (route) => route.abort());
+      await openLesson(page, "#/day-one/2");
+      await page.evaluate(() => (location.hash = "#/checkout/1"));
+      await expect(page.locator(".toast__text")).toHaveText(ERROR);
+      await expect(page.locator("#head .title")).toHaveText("Day One");
+      await expect(page.locator("main.sheet")).not.toHaveAttribute("aria-busy");
+      pageErrors.splice(0); // the aborted chunk request is logged as a console error
+    });
+
+    test("a failed first load falls back to the default lesson", async ({ page, pageErrors }) => {
+      await page.route(CHUNK, (route) => route.abort());
+      await page.goto("/#/checkout/1");
+      await expect(page.locator(".toast__text")).toHaveText(ERROR);
+      await expect(page.locator("#head .title")).toHaveText("Day One");
+      await expect(page).toHaveURL(/#\/day-one\/1$/);
+      pageErrors.splice(0);
+    });
   });
 });

@@ -1,0 +1,2256 @@
+{
+  "id": "give-up-gracefully",
+  "title": "Give Up Gracefully",
+  "summary": "Slow dependencies are worse than dead ones. Timeouts, careful retries, circuit breakers, fallbacks and bulkheads keep one failure from spreading.",
+  "minutes": 13,
+  "level": "advanced",
+  "metrics": [
+    "checkout",
+    "success",
+    "payLoad",
+    "threads"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "retry",
+    [
+      "empty",
+      "fast failure"
+    ],
+    [
+      "ping",
+      "trial call"
+    ],
+    "msg",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Set timeouts so slow calls can't hold every thread",
+      "step": 2
+    },
+    {
+      "text": "Retry with backoff and jitter without starting a storm",
+      "step": 5
+    },
+    {
+      "text": "Stop calling a failing service with a circuit breaker",
+      "step": 6
+    },
+    {
+      "text": "Degrade with fallbacks and isolate with bulkheads",
+      "step": 8
+    },
+    {
+      "text": "Propagate deadlines down the call chain",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Happy path",
+      "chapter": "setup",
+      "title": "A checkout with two helpers",
+      "body": [
+        "<b>Hearth</b> delivers groceries. When a shopper checks out, the Orders service asks Payments to charge the card and asks Picks for “you may also like” suggestions to show on the confirmation page.",
+        "Orders handles requests with a pool of 200 worker threads. On a normal evening only a handful are busy at once."
+      ],
+      "metrics": {
+        "checkout": 240,
+        "success": 99,
+        "payLoad": "1×",
+        "threads": "14 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.35
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "One checkout",
+            "icon": "cart",
+            "lines": [
+              "Orders → Payments: charge card   ~90 ms",
+              "Orders → Picks: suggestions      ~40 ms",
+              "200 worker threads in Orders",
+              "= 240 ms end to end"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.3
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "No timeout",
+      "chapter": "problem",
+      "title": "Slow is worse than down",
+      "body": [
+        "The payments database's disk saturates and queries slow to many seconds. Payments doesn't fail — it just answers slowly. Orders' HTTP client has the default timeout of 60 seconds, so every checkout thread waits.",
+        "Within seconds all 200 threads are stuck. Orders can't even serve requests that don't need Payments. One slow dependency has spread into a full outage: a <span class=\"term\">cascading failure</span>."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "A dead service fails fast and frees resources. A slow one holds them. Every remote call needs a timeout."
+      },
+      "changes": [
+        "~ Payments DB slows to seconds",
+        "~ All Orders threads waiting"
+      ],
+      "metrics": {
+        "checkout": 30000,
+        "success": 3,
+        "payLoad": "1×",
+        "threads": "200 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "200 / 200 threads stuck",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.4,
+            "heat": 0.6,
+            "tags": [
+              {
+                "text": "waiting on DB",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB",
+            "heat": 1,
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "disk saturated",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "No timeout set",
+            "icon": "hourglass",
+            "lines": [
+              "the HTTP client's default: wait 60 s",
+              "each stuck call holds an Orders thread",
+              "200 threads × 60 s = full in seconds",
+              "! Orders stops answering anything at all"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.6,
+            "kind": "slow",
+            "hold": 2.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders",
+            "status": "crit"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Timeouts",
+      "chapter": "solution",
+      "title": "Decide how long to wait",
+      "body": [
+        "Set an explicit <span class=\"term\">timeout</span> on the Payments call, based on how it normally behaves: if its p99 is 300 ms, waiting 800 ms covers healthy slow calls while cutting off sick ones.",
+        "Checkouts that hit the timeout fail — but they fail in under a second, threads come back, and the rest of Orders keeps working."
+      ],
+      "changes": [
+        "+ 800 ms timeout on Payments calls",
+        "~ Threads freed quickly"
+      ],
+      "metrics": {
+        "checkout": 800,
+        "success": 62,
+        "payLoad": "1×",
+        "threads": "52 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "heat": 0.2,
+            "tags": [
+              {
+                "text": "timeout 800 ms",
+                "tone": "green",
+                "icon": "timer"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.4,
+            "heat": 0.6,
+            "tags": [
+              {
+                "text": "waiting on DB",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB",
+            "heat": 1,
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "disk saturated",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Choosing a timeout",
+            "icon": "timer",
+            "lines": [
+              "Payments p99 on a good day: 300 ms",
+              "timeout ≈ p99 × 2–3 → 800 ms",
+              "= a stuck call frees its thread fast",
+              "# failing fast beats failing slowly"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge · gives up at 800 ms",
+            "heads": "both",
+            "fail": 0.38
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.6,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Retry",
+      "chapter": "technique",
+      "title": "Most blips go away",
+      "body": [
+        "The database recovers. Now a different pattern shows up: about one call in 50 fails for passing reasons — a pod restarting, a dropped connection. Those are <span class=\"term\">transient failures</span>, and an immediate second try almost always works.",
+        "One retry lifts success from 98% to 99.5% for a few percent more load. Retrying is only safe because the charge carries an idempotency key — a repeated charge can't bill twice."
+      ],
+      "changes": [
+        "~ Payments DB healthy",
+        "+ One retry on failure"
+      ],
+      "metrics": {
+        "checkout": 300,
+        "success": 99,
+        "payLoad": "1.05×",
+        "threads": "16 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "1 retry on blips",
+                "tone": "green",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.35
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Transient failures",
+            "icon": "refresh",
+            "lines": [
+              "1 call in 50 hits a blip:",
+              "a restarted pod, a dropped packet",
+              "retry once → almost always succeeds",
+              "= 98% → 99.5% of checkouts OK"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge · retry once",
+            "heads": "both",
+            "fail": 0.04
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.6,
+            "pattern": [
+              "req",
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Retry storm",
+      "chapter": "problem",
+      "title": "Retries pile on a struggling service",
+      "body": [
+        "Friday at 6 pm Payments gets busy and starts failing some calls. Orders retries each failure three times, instantly. The phone app also retries failed checkouts. Payments, already overloaded, now gets four times the traffic — and fails even more.",
+        "This <span class=\"term\">retry storm</span> feeds itself: the more it fails, the more it's retried. Retries that help with blips make real overload much worse."
+      ],
+      "changes": [
+        "~ Payments overloaded",
+        "~ 3 immediate retries per failure",
+        "~ Load on payments ×4"
+      ],
+      "metrics": {
+        "checkout": 2400,
+        "success": 18,
+        "payLoad": "4×",
+        "threads": "200 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "3 instant retries",
+                "tone": "red",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.99,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "4× normal load",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Retry storm",
+            "icon": "refresh",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Real checkouts",
+                "note": "1×",
+                "to": 0.25,
+                "tone": "gray"
+              },
+              {
+                "label": "+ Orders' 3 retries each",
+                "note": "4×",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "! the app retries too: worst case 4 × 4 = 16×",
+              "# retries hit hardest exactly when it's down"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge · retry, retry, retry",
+            "heads": "both",
+            "fail": 0.6,
+            "labelTone": "red"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 3,
+            "pattern": [
+              "req",
+              "slow",
+              "slow",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders",
+            "status": "crit"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Backoff",
+      "chapter": "solution",
+      "title": "Wait longer, and not all together",
+      "body": [
+        "<span class=\"term\">Exponential backoff</span> doubles the wait before each attempt (100, 200, 400 ms…), giving a struggling service room to recover. <span class=\"term\">Jitter</span> randomises each wait so thousands of clients don't retry in the same millisecond.",
+        "Add a cap (at most 3 tries) and a retry budget (retries may add at most 10% extra load), and retry in one layer only — not in the app, Orders and Payments all at once."
+      ],
+      "changes": [
+        "~ Retries back off exponentially",
+        "+ Random jitter",
+        "~ Load on payments 4× → 1.2×"
+      ],
+      "metrics": {
+        "checkout": 600,
+        "success": 91,
+        "payLoad": "1.2×",
+        "threads": "60 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "backoff + jitter",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.78,
+            "heat": 0.3,
+            "tags": [
+              {
+                "text": "recovering",
+                "tone": "amber",
+                "icon": "heartPulse"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "When do retries land?",
+            "icon": "clock",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "No jitter: all at +100 ms",
+                "note": "spike",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Full jitter: random 0–100 ms",
+                "note": "spread",
+                "to": 0.3,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "wait = random(0, 100 ms × 2^attempt)",
+              "# cap tries at 3; retry budget ≤ 10% extra"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "retry after 100 · 200 · 400 ms ± jitter",
+            "heads": "both",
+            "fail": 0.15,
+            "labelTone": "amber"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.7,
+            "pattern": [
+              "req",
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Breaker",
+      "chapter": "technique",
+      "title": "Stop calling, for a while",
+      "body": [
+        "When Payments is clearly down, even careful retries waste time. A <span class=\"term\">circuit breaker</span> in Orders watches recent results; once most calls fail, it <i>opens</i> and fails every call instantly without touching the network.",
+        "After a cool-down it goes half-open and lets a few trial calls through. If they succeed, it closes and traffic resumes; if not, it waits again. Payments gets quiet time to recover."
+      ],
+      "changes": [
+        "+ Circuit breaker (open)",
+        "~ Payments receives trial calls only"
+      ],
+      "metrics": {
+        "checkout": 20,
+        "success": 40,
+        "payLoad": "0.1×",
+        "threads": "8 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "breaker OPEN",
+                "tone": "red",
+                "icon": "power"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "resting",
+                "tone": "green",
+                "icon": "moon"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Circuit breaker",
+            "icon": "power",
+            "lines": [
+              "CLOSED: calls flow, failures counted",
+              "> 50% of last 20 calls fail → OPEN",
+              "OPEN: fail instantly, no call for 30 s",
+              "HALF-OPEN: let a few trial calls through",
+              "trials pass → CLOSED · fail → OPEN again"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "trial call every 30 s",
+            "heads": "both",
+            "style": "dashed"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.4,
+            "kind": "empty"
+          },
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.25,
+            "kind": "ping"
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fallback",
+      "chapter": "solution",
+      "title": "A worse answer beats no answer",
+      "body": [
+        "Failing fast protects the system, but the shopper still sees an error. A <span class=\"term\">fallback</span> gives a degraded but useful result instead: accept the order, queue the charge, and confirm by email once Payments is back (with limits for new customers to manage fraud risk).",
+        "If Picks is down, show cached bestsellers. Every dependency deserves the question: what's good enough when it's gone?"
+      ],
+      "changes": [
+        "+ Charge-later queue",
+        "~ Orders accepted while Payments rests"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "success": 96,
+        "payLoad": "0.1×",
+        "threads": "12 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "breaker OPEN → fallback",
+                "tone": "amber",
+                "icon": "power"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "resting",
+                "tone": "green",
+                "icon": "moon"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Degrade, don't die",
+            "icon": "layers",
+            "lines": [
+              "payments down → accept the order",
+              "queue the charge, confirm by email",
+              "picks down → show cached bestsellers",
+              "= most checkouts still succeed",
+              "# decide per feature: what's good enough?"
+            ]
+          },
+          "later": {
+            "type": "block",
+            "x": -9,
+            "y": -22,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Charge",
+              "later"
+            ],
+            "h": 32
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "trial call every 30 s",
+            "heads": "both",
+            "style": "dashed"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          },
+          "lt": {
+            "from": "orders",
+            "to": "later",
+            "pts": [
+              "orders",
+              "later"
+            ],
+            "heads": "end"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "lt"
+            ],
+            "rate": 1.2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.25,
+            "kind": "ping"
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Bulkheads",
+      "chapter": "technique",
+      "title": "Watertight compartments",
+      "body": [
+        "Now Picks hangs for 5 seconds per call. Suggestions are optional, but with one shared thread pool, slow Picks calls slowly take all 200 threads and checkout starves — a nice-to-have breaking a must-have.",
+        "<span class=\"term\">Bulkheads</span> give each dependency its own limited pool (or concurrency limit): Picks may use 30 threads, Payments 120. When Picks is slow, only its compartment floods."
+      ],
+      "changes": [
+        "~ Picks hangs",
+        "+ Separate pools per dependency"
+      ],
+      "metrics": {
+        "checkout": 280,
+        "success": 99,
+        "payLoad": "1×",
+        "threads": "70 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "picks pool full 30/30",
+                "tone": "red",
+                "icon": "boxes"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "own pool · fine",
+                "tone": "green",
+                "icon": "boxes"
+              }
+            ]
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like",
+            "heat": 1,
+            "cpu": 0.95,
+            "tags": [
+              {
+                "text": "hangs 5 s",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "One pool vs bulkheads",
+            "icon": "boxes",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Shared pool: Picks takes all 200",
+                "note": "checkout starves",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Bulkhead: Picks capped at 30",
+                "note": "checkout fine",
+                "to": 0.15,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "# like a ship's watertight compartments"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 1,
+            "kind": "slow",
+            "hold": 1.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Deadlines",
+      "chapter": "insight",
+      "title": "Time budgets flow downstream",
+      "body": [
+        "Timeouts must fit inside each other. If the app gives up at 3 s, Orders has about 2.5 s, so its Payments call can take at most 800 ms twice. Passing a <span class=\"term\">deadline</span> with each request lets every service stop work nobody is waiting for any more.",
+        "Together: timeouts bound waiting, backoff and budgets bound retries, breakers stop hopeless calls, fallbacks keep value, bulkheads contain damage."
+      ],
+      "changes": [
+        "+ Deadline passed with each call"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "success": 99,
+        "payLoad": "1×",
+        "threads": "16 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "deadline 2.5 s",
+                "tone": "violet",
+                "icon": "timer"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.35
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Budgets flow downstream",
+            "icon": "timer",
+            "lines": [
+              "app gives up at 3.0 s",
+              "Orders must answer within 2.5 s",
+              "Payments call: 800 ms × at most 2",
+              "! work after the caller gave up is waste",
+              "# retry in one layer only, and only idempotent calls"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.3
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders",
+            "sub": "deadline 2.5 s"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Fail fast, fail small",
+      "body": [
+        "<ul class=\"takeaways\"><li>Every remote call needs a timeout based on its normal latency.</li><li>Retry transient failures — with exponential backoff, jitter, a cap and idempotency.</li><li>Retry storms turn overload into collapse; retry in one layer only.</li><li>Circuit breakers stop calling a failing service and probe for recovery.</li><li>Fallbacks give a degraded answer; bulkheads keep one slow dependency from taking every thread.</li></ul>"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "success": 99,
+        "payLoad": "1×",
+        "threads": "16 / 200"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -22,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "timeouts · backoff · breaker",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": -7,
+            "y": -9,
+            "s": 3.8,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.35
+          },
+          "pdb": {
+            "type": "db",
+            "x": -7,
+            "y": 3,
+            "label": "payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 7,
+            "y": -9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "sparkles",
+            "label": [
+              "Picks"
+            ],
+            "h": 40,
+            "sub": "you may also like"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /checkout",
+            "heads": "both"
+          },
+          "p": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pd": {
+            "from": "pay",
+            "to": "pdb",
+            "pts": [
+              "pay",
+              "pdb"
+            ]
+          },
+          "r": {
+            "from": "orders",
+            "to": "recs",
+            "pts": [
+              "orders",
+              "recs"
+            ],
+            "label": "suggest",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "p",
+              "pd"
+            ],
+            "bounce": true,
+            "rate": 1.3
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "payments DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

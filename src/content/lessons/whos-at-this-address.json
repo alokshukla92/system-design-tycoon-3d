@@ -1,0 +1,2355 @@
+{
+  "id": "whos-at-this-address",
+  "title": "Who's at This Address?",
+  "summary": "Forkful's services keep moving as they autoscale. How does one service find another — and how do the apps find any of them?",
+  "minutes": 10,
+  "level": "intermediate",
+  "metrics": [
+    "instances",
+    "lookup",
+    "deadCalls",
+    "p95"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "ping",
+      "heartbeat / health check"
+    ],
+    [
+      "poison",
+      "unauthenticated"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why hard-coded addresses break once instances move",
+      "step": 1
+    },
+    {
+      "text": "Compare client-side, server-side and DNS discovery",
+      "step": 3
+    },
+    {
+      "text": "Keep traffic off sick instances with health checks",
+      "step": 6
+    },
+    {
+      "text": "Put an API gateway in front as the single front door",
+      "step": 7
+    }
+  ],
+  "steps": [
+    {
+      "short": "One address",
+      "chapter": "setup",
+      "title": "Payments lives at 10.0.3.17",
+      "body": [
+        "<b>Forkful</b> takes food orders. At checkout, the Orders service calls the Payments service — and finds it the simplest way possible: Payments' IP address sits in a config file.",
+        "With one long-lived Payments server, that works. Nothing moves, so nothing needs finding."
+      ],
+      "metrics": {
+        "instances": 1,
+        "lookup": "hard-coded IP",
+        "deadCalls": 0,
+        "p95": 120
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service",
+            "tags": [
+              {
+                "text": "PAY_URL=10.0.3.17",
+                "tone": "paper",
+                "icon": "file"
+              }
+            ]
+          },
+          "p1": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.3.17"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "c_p1": {
+            "from": "orders",
+            "to": "p1",
+            "pts": [
+              "orders",
+              "p1"
+            ],
+            "label": "charge"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "c_p1"
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Diners"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "p1",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "10.0.3.17"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "p1"
+          }
+        ]
+      }
+    },
+    {
+      "short": "IPs move",
+      "chapter": "problem",
+      "title": "The address went stale",
+      "body": [
+        "Payments moves to containers with autoscaling. On Friday evening it scales to three instances — and every deploy or scale event hands out <b>fresh IP addresses</b>. The old server at 10.0.3.17 was replaced an hour ago.",
+        "Orders is still calling the address in its config. Every charge goes to a machine that no longer exists, times out, and the checkout fails. In a dynamic fleet, <i>where</i> a service lives is runtime data, not configuration."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Containers, autoscaling and rolling deploys all change addresses — often many times a day."
+      },
+      "changes": [
+        "+ Payments autoscaled to 3 instances with new IPs",
+        "~ Old instance 10.0.3.17 is gone",
+        "~ Orders still calls the old address"
+      ],
+      "metrics": {
+        "instances": 3,
+        "lookup": "hard-coded IP",
+        "deadCalls": 100,
+        "p95": null
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service",
+            "tags": [
+              {
+                "text": "PAY_URL=10.0.3.17",
+                "tone": "red",
+                "icon": "file"
+              }
+            ]
+          },
+          "p2": {
+            "type": "block",
+            "x": -9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.7.41"
+          },
+          "p3": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.9.12"
+          },
+          "p4": {
+            "type": "block",
+            "x": 9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.4.88"
+          },
+          "p1": {
+            "type": "ghost",
+            "x": 0,
+            "y": 19,
+            "s": 3.6,
+            "h": 40,
+            "label": "10.0.3.17 · gone"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "c_p1": {
+            "from": "orders",
+            "to": "p1",
+            "pts": [
+              "orders",
+              "p1"
+            ],
+            "label": "charge",
+            "fail": 1,
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "c_p1"
+            ],
+            "rate": 2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Registry",
+      "chapter": "technique",
+      "title": "A phone book for services",
+      "body": [
+        "A <span class=\"term\">service registry</span> keeps a live list of instances per service. Each Payments instance registers its address when it starts and sends a <b>heartbeat</b> every few seconds; if heartbeats stop, the registry drops it.",
+        "Now Orders asks by <i>name</i> — \"where is payments?\" — and gets the current list of healthy addresses. Consul, etcd/ZooKeeper-backed registries and Kubernetes' own endpoint lists all play this role."
+      ],
+      "changes": [
+        "+ Service registry",
+        "+ Instances register and send heartbeats",
+        "~ Orders looks Payments up by name"
+      ],
+      "metrics": {
+        "instances": 3,
+        "lookup": "registry",
+        "deadCalls": 0,
+        "p95": 125
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service"
+          },
+          "p2": {
+            "type": "block",
+            "x": -9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.7.41"
+          },
+          "p3": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.9.12"
+          },
+          "p4": {
+            "type": "block",
+            "x": 9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.4.88"
+          },
+          "reg": {
+            "type": "block",
+            "x": -15,
+            "y": -5,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36,
+            "tags": [
+              {
+                "text": "payments → 3 healthy",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "q": {
+            "from": "orders",
+            "to": "reg",
+            "pts": [
+              "orders",
+              "reg"
+            ],
+            "label": "where is payments?",
+            "style": "dashed",
+            "heads": "both"
+          },
+          "hb_p2": {
+            "from": "p2",
+            "to": "reg",
+            "pts": [
+              "p2",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hb_p3": {
+            "from": "p3",
+            "to": "reg",
+            "pts": [
+              "p3",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hb_p4": {
+            "from": "p4",
+            "to": "reg",
+            "pts": [
+              "p4",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "c_p2": {
+            "from": "orders",
+            "to": "p2",
+            "pts": [
+              "orders",
+              "p2"
+            ]
+          },
+          "c_p3": {
+            "from": "orders",
+            "to": "p3",
+            "pts": [
+              "orders",
+              "p3"
+            ]
+          },
+          "c_p4": {
+            "from": "orders",
+            "to": "p4",
+            "pts": [
+              "orders",
+              "p4"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "hb_p2"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hb_p3"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hb_p4"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "q"
+            ],
+            "rate": 0.5,
+            "kind": "ping",
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "c_p2",
+                "c_p3",
+                "c_p4"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Client-side",
+      "chapter": "technique",
+      "title": "The caller picks an instance",
+      "body": [
+        "In <span class=\"term\">client-side discovery</span>, Orders fetches the instance list, caches it, and load-balances across it itself. No extra hop, and the client can be smart — prefer the same zone, retry on another instance.",
+        "The catch is staleness. When an instance crashes, the registry notices after a few missed heartbeats, but Orders keeps using its cached list until the next refresh. For those seconds, some calls still go to a dead address — so clients also need timeouts and retries. Every language your services use needs this logic too."
+      ],
+      "changes": [
+        "~ Orders caches the instance list and balances itself",
+        "~ One instance crashes; the registry evicts it"
+      ],
+      "metrics": {
+        "instances": 3,
+        "lookup": "client-side",
+        "deadCalls": 4,
+        "p95": 140
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service",
+            "tags": [
+              {
+                "text": "cached list · refresh 30 s",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "p2": {
+            "type": "block",
+            "x": -9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.7.41"
+          },
+          "p3": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.9.12"
+          },
+          "p4": {
+            "type": "block",
+            "x": 9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": -1,
+            "sub": "10.0.4.88",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "reg": {
+            "type": "block",
+            "x": -15,
+            "y": -5,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36,
+            "tags": [
+              {
+                "text": "p4 missed 3 beats → evicted",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "q": {
+            "from": "orders",
+            "to": "reg",
+            "pts": [
+              "orders",
+              "reg"
+            ],
+            "label": "list",
+            "style": "dashed",
+            "heads": "both"
+          },
+          "hb_p2": {
+            "from": "p2",
+            "to": "reg",
+            "pts": [
+              "p2",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hb_p3": {
+            "from": "p3",
+            "to": "reg",
+            "pts": [
+              "p3",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "c_p2": {
+            "from": "orders",
+            "to": "p2",
+            "pts": [
+              "orders",
+              "p2"
+            ]
+          },
+          "c_p3": {
+            "from": "orders",
+            "to": "p3",
+            "pts": [
+              "orders",
+              "p3"
+            ]
+          },
+          "c_p4": {
+            "from": "orders",
+            "to": "p4",
+            "pts": [
+              "orders",
+              "p4"
+            ],
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "hb_p2"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hb_p3"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "c_p2",
+                "c_p3",
+                "c_p4"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Server-side",
+      "chapter": "technique",
+      "title": "One stable name in front",
+      "body": [
+        "With <span class=\"term\">server-side discovery</span>, Orders calls a single stable name — <code>payments.internal</code> — and a load balancer behind that name watches the registry and spreads calls over healthy instances.",
+        "Callers stay simple and language-agnostic, and the balancer updates the moment the registry changes. The cost is one more network hop and one more component that must itself be highly available."
+      ],
+      "changes": [
+        "+ Internal load balancer at payments.internal",
+        "~ Orders calls one stable name"
+      ],
+      "metrics": {
+        "instances": 3,
+        "lookup": "server-side LB",
+        "deadCalls": 0,
+        "p95": 128
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service",
+            "tags": [
+              {
+                "text": "PAY_URL=payments.internal",
+                "tone": "green",
+                "icon": "file"
+              }
+            ]
+          },
+          "p2": {
+            "type": "block",
+            "x": -9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.7.41"
+          },
+          "p3": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.9.12"
+          },
+          "p4": {
+            "type": "block",
+            "x": 9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.4.88"
+          },
+          "reg": {
+            "type": "block",
+            "x": -15,
+            "y": -5,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36,
+            "tags": [
+              {
+                "text": "payments → 3 healthy",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "ilb": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "payments",
+              ".internal"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "one stable name",
+                "tone": "green",
+                "icon": "signpost"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "o": {
+            "from": "orders",
+            "to": "ilb",
+            "pts": [
+              "orders",
+              "ilb"
+            ],
+            "label": "charge"
+          },
+          "w": {
+            "from": "reg",
+            "to": "ilb",
+            "pts": [
+              "reg",
+              "ilb"
+            ],
+            "style": "dashed"
+          },
+          "hb_p2": {
+            "from": "p2",
+            "to": "reg",
+            "pts": [
+              "p2",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hb_p3": {
+            "from": "p3",
+            "to": "reg",
+            "pts": [
+              "p3",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hb_p4": {
+            "from": "p4",
+            "to": "reg",
+            "pts": [
+              "p4",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "c_p2": {
+            "from": "ilb",
+            "to": "p2",
+            "pts": [
+              "ilb",
+              "p2"
+            ]
+          },
+          "c_p3": {
+            "from": "ilb",
+            "to": "p3",
+            "pts": [
+              "ilb",
+              "p3"
+            ]
+          },
+          "c_p4": {
+            "from": "ilb",
+            "to": "p4",
+            "pts": [
+              "ilb",
+              "p4"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "hb_p2"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hb_p3"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hb_p4"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "e1",
+              "o",
+              [
+                "c_p2",
+                "c_p3",
+                "c_p4"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Diners"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "ilb",
+            "kind": "load_balancer",
+            "label": "payments.internal"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "3 instances"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "ilb"
+          },
+          {
+            "from": "ilb",
+            "to": "pay"
+          }
+        ]
+      }
+    },
+    {
+      "short": "DNS",
+      "chapter": "technique",
+      "title": "Discovery through DNS",
+      "body": [
+        "The most universal option is <span class=\"term\">DNS-based discovery</span>: the registry publishes records, and <code>payments.svc</code> resolves to the current instance IPs. Every language and tool already speaks DNS.",
+        "But DNS answers are cached — by resolvers, by the OS, sometimes by the runtime for far longer than the record's TTL. After an instance dies, some callers keep its address until their cache expires. Keep TTLs short and still expect a few failed calls to retry."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Kubernetes Services combine both ideas: a DNS name that points at a stable virtual IP, which the cluster balances over ready pods."
+      },
+      "changes": [
+        "+ DNS records published from the registry",
+        "~ Orders resolves payments.svc, cached for 30 s",
+        "~ One instance died; cached answers still include it"
+      ],
+      "metrics": {
+        "instances": 3,
+        "lookup": "DNS",
+        "deadCalls": 2,
+        "p95": 126
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service",
+            "tags": [
+              {
+                "text": "cached answer: .41 .12 .88",
+                "tone": "amber",
+                "icon": "globe"
+              }
+            ]
+          },
+          "p2": {
+            "type": "block",
+            "x": -9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.7.41"
+          },
+          "p3": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.9.12"
+          },
+          "p4": {
+            "type": "block",
+            "x": 9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": -1,
+            "sub": "10.0.4.88",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "reg": {
+            "type": "block",
+            "x": -15,
+            "y": -5,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36,
+            "tags": [
+              {
+                "text": "p4 removed",
+                "tone": "amber",
+                "icon": "check"
+              }
+            ]
+          },
+          "dns": {
+            "type": "block",
+            "x": -15,
+            "y": -16,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "globe",
+            "label": [
+              "DNS"
+            ],
+            "h": 36,
+            "tags": [
+              {
+                "text": "TTL 30 s",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "r": {
+            "from": "orders",
+            "to": "dns",
+            "pts": [
+              "orders",
+              "dns"
+            ],
+            "label": "payments.svc?",
+            "style": "dashed",
+            "heads": "both"
+          },
+          "u": {
+            "from": "reg",
+            "to": "dns",
+            "pts": [
+              "reg",
+              "dns"
+            ],
+            "style": "dashed"
+          },
+          "hb_p2": {
+            "from": "p2",
+            "to": "reg",
+            "pts": [
+              "p2",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hb_p3": {
+            "from": "p3",
+            "to": "reg",
+            "pts": [
+              "p3",
+              "reg"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "c_p2": {
+            "from": "orders",
+            "to": "p2",
+            "pts": [
+              "orders",
+              "p2"
+            ]
+          },
+          "c_p3": {
+            "from": "orders",
+            "to": "p3",
+            "pts": [
+              "orders",
+              "p3"
+            ]
+          },
+          "c_p4": {
+            "from": "orders",
+            "to": "p4",
+            "pts": [
+              "orders",
+              "p4"
+            ],
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "hb_p2"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hb_p3"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "r"
+            ],
+            "rate": 0.5,
+            "kind": "ping",
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "c_p2",
+                "c_p3",
+                "c_p4"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Health",
+      "chapter": "solution",
+      "title": "Only send traffic to the ready",
+      "body": [
+        "Being registered isn't the same as being able to serve. <span class=\"term\">Health checks</span> come in two kinds: a <b>liveness</b> check asks \"is the process stuck?\" (if so, restart it), and a <b>readiness</b> check asks \"can you take traffic right now?\"",
+        "A fresh instance warming its cache answers <code>/ready</code> with 503, so it stays out of rotation until it's actually useful. Instances that start failing readiness are pulled out before callers notice."
+      ],
+      "changes": [
+        "+ 4th Payments instance, still warming up",
+        "+ Readiness probes on every instance",
+        "~ Not-ready instance gets no traffic"
+      ],
+      "metrics": {
+        "instances": 4,
+        "lookup": "server-side LB",
+        "deadCalls": 0,
+        "p95": 122
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Diners"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "service"
+          },
+          "p2": {
+            "type": "block",
+            "x": -9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.7.41"
+          },
+          "p3": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.9.12"
+          },
+          "p4": {
+            "type": "block",
+            "x": 9,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.4.88"
+          },
+          "p5": {
+            "type": "block",
+            "x": 18,
+            "y": 6,
+            "s": 3.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "10.0.6.20",
+            "tags": [
+              {
+                "text": "not ready: warming cache",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ],
+            "dim": 0.5
+          },
+          "reg": {
+            "type": "block",
+            "x": -15,
+            "y": -5,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36,
+            "tags": [
+              {
+                "text": "3 ready · 1 warming",
+                "tone": "green",
+                "icon": "heartPulse"
+              }
+            ]
+          },
+          "ilb": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "payments",
+              ".internal"
+            ],
+            "h": 32
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "POST /order"
+          },
+          "o": {
+            "from": "orders",
+            "to": "ilb",
+            "pts": [
+              "orders",
+              "ilb"
+            ],
+            "label": "charge"
+          },
+          "w": {
+            "from": "reg",
+            "to": "ilb",
+            "pts": [
+              "reg",
+              "ilb"
+            ],
+            "style": "dashed"
+          },
+          "hc_p2": {
+            "from": "reg",
+            "to": "p2",
+            "pts": [
+              "reg",
+              "p2"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hc_p3": {
+            "from": "reg",
+            "to": "p3",
+            "pts": [
+              "reg",
+              "p3"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hc_p4": {
+            "from": "reg",
+            "to": "p4",
+            "pts": [
+              "reg",
+              "p4"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "hc_p5": {
+            "from": "reg",
+            "to": "p5",
+            "pts": [
+              "reg",
+              "p5"
+            ],
+            "style": "beat",
+            "heads": "none",
+            "label": "GET /ready → 503",
+            "labelTone": "amber"
+          },
+          "c_p2": {
+            "from": "ilb",
+            "to": "p2",
+            "pts": [
+              "ilb",
+              "p2"
+            ]
+          },
+          "c_p3": {
+            "from": "ilb",
+            "to": "p3",
+            "pts": [
+              "ilb",
+              "p3"
+            ]
+          },
+          "c_p4": {
+            "from": "ilb",
+            "to": "p4",
+            "pts": [
+              "ilb",
+              "p4"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "o",
+              [
+                "c_p2",
+                "c_p3",
+                "c_p4"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "hc_p2"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hc_p3"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hc_p4"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "hc_p5"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 0.5,
+            "bounce": true,
+            "fanout": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Diners"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "ilb",
+            "kind": "load_balancer",
+            "label": "payments.internal"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "4 instances"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "ilb"
+          },
+          {
+            "from": "ilb",
+            "to": "pay"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Gateway",
+      "chapter": "solution",
+      "title": "One front door for the apps",
+      "body": [
+        "Inside the network, services can find each other. But the phone app shouldn't know about Menu, Orders and Payments, their addresses, or how they're split — that would freeze the internal design into every installed app.",
+        "An <span class=\"term\">API gateway</span> is the single public entry point. It terminates TLS, checks the caller's token, applies rate limits, and routes <code>/menu</code> and <code>/orders</code> to the right service using the same discovery underneath."
+      ],
+      "changes": [
+        "+ API gateway at api.forkful.app",
+        "+ Menu, Orders and Payments behind it",
+        "~ Apps only know one hostname"
+      ],
+      "metrics": {
+        "instances": 6,
+        "lookup": "gateway + registry",
+        "deadCalls": 0,
+        "p95": 130
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Apps & web"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "auth · limits · routing",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "menu": {
+            "type": "block",
+            "x": -10,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Menu"
+            ],
+            "cpu": 0.3,
+            "sub": "×3"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "×4"
+          },
+          "pay": {
+            "type": "block",
+            "x": 10,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "×6"
+          },
+          "reg": {
+            "type": "block",
+            "x": -18,
+            "y": -18,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "api.forkful.app"
+          },
+          "gm": {
+            "from": "gw",
+            "to": "menu",
+            "pts": [
+              "gw",
+              "menu"
+            ],
+            "label": "/menu"
+          },
+          "go": {
+            "from": "gw",
+            "to": "orders",
+            "pts": [
+              "gw",
+              "orders"
+            ],
+            "label": "/orders"
+          },
+          "op": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge"
+          },
+          "rg": {
+            "from": "reg",
+            "to": "gw",
+            "pts": [
+              "reg",
+              "gw"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "gm"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "go"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "go",
+                  "op"
+                ]
+              }
+            ],
+            "rate": 2.2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 2400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Apps & web"
+          },
+          {
+            "id": "gw",
+            "kind": "load_balancer",
+            "label": "API Gateway",
+            "sub": "TLS · auth · rate limit"
+          },
+          {
+            "id": "menu",
+            "kind": "api_server",
+            "label": "Menu",
+            "sub": "×3"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders",
+            "sub": "×4"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "×6"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw"
+          },
+          {
+            "from": "gw",
+            "to": "menu"
+          },
+          {
+            "from": "gw",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "pay"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Door rules",
+      "chapter": "tradeoff",
+      "title": "Keep the front door thin",
+      "body": [
+        "Shared concerns belong at the gateway: a scraper with no token is turned away with 401, a flood gets 429, and services never see either.",
+        "But every request now passes through it, so run several stateless copies, and resist putting business logic there. A gateway that knows about discounts and order rules becomes a new monolith that every team has to change and deploy."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "If the gateway is down, everything is down. Treat it like the most critical service you run."
+      },
+      "changes": [
+        "+ Scraper bot rejected at the gateway",
+        "~ Gateway runs ×3, stateless"
+      ],
+      "metrics": {
+        "instances": 6,
+        "lookup": "gateway + registry",
+        "deadCalls": 0,
+        "p95": 132
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Apps & web"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "×3 · 401/429 at the door",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ]
+          },
+          "menu": {
+            "type": "block",
+            "x": -10,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Menu"
+            ],
+            "cpu": 0.3,
+            "sub": "×3"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "×4"
+          },
+          "pay": {
+            "type": "block",
+            "x": 10,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "×6"
+          },
+          "reg": {
+            "type": "block",
+            "x": -18,
+            "y": -18,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36
+          },
+          "bot": {
+            "type": "device",
+            "x": 14,
+            "y": -31,
+            "w": 5,
+            "d": 5,
+            "label": "Scraper bot",
+            "tags": [
+              {
+                "text": "no token",
+                "tone": "red",
+                "icon": "bot"
+              }
+            ]
+          },
+          "biz": {
+            "type": "ghost",
+            "x": 10,
+            "y": -18,
+            "s": 3.6,
+            "h": 40,
+            "label": "no business logic here"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "api.forkful.app"
+          },
+          "gm": {
+            "from": "gw",
+            "to": "menu",
+            "pts": [
+              "gw",
+              "menu"
+            ],
+            "label": "/menu"
+          },
+          "go": {
+            "from": "gw",
+            "to": "orders",
+            "pts": [
+              "gw",
+              "orders"
+            ],
+            "label": "/orders"
+          },
+          "op": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge"
+          },
+          "rg": {
+            "from": "reg",
+            "to": "gw",
+            "pts": [
+              "reg",
+              "gw"
+            ],
+            "style": "dashed"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "label": "GET /menu ×9000",
+            "fail": 0.9,
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "gm"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "go"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "go",
+                  "op"
+                ]
+              }
+            ],
+            "rate": 2.2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b"
+            ],
+            "rate": 2.4,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 2400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Apps & web"
+          },
+          {
+            "id": "gw",
+            "kind": "load_balancer",
+            "label": "API Gateway",
+            "sub": "TLS · auth · rate limit"
+          },
+          {
+            "id": "menu",
+            "kind": "api_server",
+            "label": "Menu",
+            "sub": "×3"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders",
+            "sub": "×4"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "×6"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw"
+          },
+          {
+            "from": "gw",
+            "to": "menu"
+          },
+          {
+            "from": "gw",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "pay"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Who's at this address: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Registry</b> → instances register and heartbeat; callers look up by name</li><li><b>Client-side</b> → no extra hop, but caches go stale and logic lives in every client</li><li><b>Server-side / DNS</b> → simple callers; one more hop, or TTL-cached answers</li><li><b>Health checks</b> → readiness keeps traffic off instances that can't serve</li><li><b>API gateway</b> → one thin, replicated front door for auth, limits and routing</li></ul>"
+      ],
+      "metrics": {
+        "instances": 6,
+        "lookup": "gateway + registry",
+        "deadCalls": 0,
+        "p95": 130
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 9,
+            "label": "Apps & web"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "auth · limits · routing",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "menu": {
+            "type": "block",
+            "x": -10,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Menu"
+            ],
+            "cpu": 0.3,
+            "sub": "×3"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "sub": "×4"
+          },
+          "pay": {
+            "type": "block",
+            "x": 10,
+            "y": -4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "×6"
+          },
+          "reg": {
+            "type": "block",
+            "x": -18,
+            "y": -18,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "listOrdered",
+            "label": [
+              "Service",
+              "Registry"
+            ],
+            "h": 36
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "api.forkful.app"
+          },
+          "gm": {
+            "from": "gw",
+            "to": "menu",
+            "pts": [
+              "gw",
+              "menu"
+            ],
+            "label": "/menu"
+          },
+          "go": {
+            "from": "gw",
+            "to": "orders",
+            "pts": [
+              "gw",
+              "orders"
+            ],
+            "label": "/orders"
+          },
+          "op": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge"
+          },
+          "rg": {
+            "from": "reg",
+            "to": "gw",
+            "pts": [
+              "reg",
+              "gw"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "gm"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "go"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "go",
+                  "op"
+                ]
+              }
+            ],
+            "rate": 2.2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 2400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Apps & web"
+          },
+          {
+            "id": "gw",
+            "kind": "load_balancer",
+            "label": "API Gateway",
+            "sub": "TLS · auth · rate limit"
+          },
+          {
+            "id": "menu",
+            "kind": "api_server",
+            "label": "Menu",
+            "sub": "×3"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders",
+            "sub": "×4"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "×6"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw"
+          },
+          {
+            "from": "gw",
+            "to": "menu"
+          },
+          {
+            "from": "gw",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "pay"
+          }
+        ]
+      }
+    }
+  ]
+}

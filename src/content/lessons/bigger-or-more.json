@@ -1,0 +1,1921 @@
+{
+  "id": "bigger-or-more",
+  "title": "Bigger or More?",
+  "summary": "Vertical vs horizontal scaling: a bigger machine is simple until it hits the ceiling — or fails.",
+  "minutes": 10,
+  "level": "beginner",
+  "metrics": [
+    "rps",
+    "p95",
+    "cost",
+    "survive"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "fail",
+    [
+      "write",
+      "replication"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Scale up and know what it buys",
+      "step": 2
+    },
+    {
+      "text": "Spot the ceiling and the single point of failure",
+      "step": 4
+    },
+    {
+      "text": "Scale out behind a load balancer and plan for N+1",
+      "step": 6
+    },
+    {
+      "text": "See where the bottleneck moves next",
+      "step": 7
+    }
+  ],
+  "steps": [
+    {
+      "short": "One server",
+      "chapter": "setup",
+      "title": "One machine runs everything",
+      "body": [
+        "Fernway, an online bookshop, runs its whole web app on one 4-vCPU cloud server with a Postgres database beside it. At 300 requests per second the server is 30% busy and pages load in about 110 ms.",
+        "Every growing system reaches the same fork in the road: make the machine <b>bigger</b>, or add <b>more</b> machines."
+      ],
+      "metrics": {
+        "rps": 300,
+        "p95": 110,
+        "cost": 140,
+        "survive": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 5,
+            "label": "Shoppers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app"
+            ],
+            "sub": "4 vCPU · $140/mo",
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "db": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "db"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app",
+            "sub": "4 vCPU"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Book club",
+      "chapter": "problem",
+      "title": "Traffic quadruples",
+      "body": [
+        "A celebrity book club recommends a Fernway exclusive. Traffic climbs to 1,200 requests per second, four times what the server was sized for.",
+        "CPU sits at 95%, requests queue, and p95 latency jumps from 110 ms to 950 ms. Something has to give."
+      ],
+      "changes": [
+        "~ Traffic 300 → 1,200 req/s",
+        "~ Web app CPU 30% → 95%"
+      ],
+      "metrics": {
+        "rps": 1200,
+        "p95": 950,
+        "cost": 140,
+        "survive": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app"
+            ],
+            "sub": "4 vCPU · $140/mo",
+            "cpu": 0.95,
+            "heat": 0.9
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "cpu": 0.45
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /books",
+            "heads": "both",
+            "fail": 0.08
+          },
+          "db": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "db"
+            ],
+            "bounce": true,
+            "rate": 2.6,
+            "pattern": [
+              "slow",
+              "slow",
+              "req"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app",
+            "sub": "4 vCPU",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scale up",
+      "chapter": "solution",
+      "title": "Vertical scaling: a bigger box",
+      "body": [
+        "The quickest fix is <span class=\"term\">vertical scaling</span> (scaling up): move to a 16-vCPU machine with four times the memory. No code changes, no new moving parts — the app doesn't even notice.",
+        "CPU drops back to about 30% and p95 returns to 130 ms. The bill goes from $140 to $560 a month: in the cloud, price grows roughly in step with size."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Resizing a cloud VM usually means stopping it. Without a second machine, that's a few minutes of downtime."
+      },
+      "changes": [
+        "~ Web app 4 → 16 vCPU",
+        "~ Cost $140 → $560 / month"
+      ],
+      "metrics": {
+        "rps": 1200,
+        "p95": 130,
+        "cost": 560,
+        "survive": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -2,
+            "s": 5.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app"
+            ],
+            "sub": "16 vCPU · $560/mo",
+            "cpu": 0.3,
+            "h": 66
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "cpu": 0.45
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "db": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "db"
+            ],
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app",
+            "sub": "16 vCPU"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Ceiling",
+      "chapter": "problem",
+      "title": "The ladder has a top rung",
+      "body": [
+        "Growth continues. 4,800 req/s needs a 64-vCPU machine at about $2,240 a month — still available. But cloud machines top out at a few hundred vCPUs, and the largest, rarest sizes often carry a premium.",
+        "Software hits limits first: lock contention, a single-threaded component or memory bandwidth can cap the speed-up long before the hardware runs out."
+      ],
+      "changes": [
+        "~ Web app 16 → 64 vCPU",
+        "~ Cost $560 → $2,240 / month"
+      ],
+      "metrics": {
+        "rps": 4800,
+        "p95": 140,
+        "cost": 2240,
+        "survive": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -2,
+            "s": 7,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app"
+            ],
+            "sub": "64 vCPU · $2,240/mo",
+            "cpu": 0.7,
+            "h": 84,
+            "tags": [
+              {
+                "text": "near the top size",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "cpu": 0.6
+          },
+          "card": {
+            "type": "panel",
+            "title": "Climbing the size ladder",
+            "icon": "trendingUp",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "4 vCPU",
+                "note": "$140 · 300 req/s",
+                "to": 0.03,
+                "tone": "green"
+              },
+              {
+                "label": "16 vCPU",
+                "note": "$560 · 1,200 req/s",
+                "to": 0.1,
+                "tone": "green"
+              },
+              {
+                "label": "64 vCPU",
+                "note": "$2,240 · 4,800 req/s",
+                "to": 0.35,
+                "tone": "amber",
+                "bold": true
+              },
+              {
+                "label": "largest offered",
+                "note": "hard limit",
+                "to": 1,
+                "tone": "red"
+              }
+            ],
+            "lines": [
+              "! no size above the top rung"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "db": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "db"
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "One basket",
+      "chapter": "problem",
+      "title": "All eggs, one basket",
+      "body": [
+        "Then, on a Saturday afternoon, the host machine suffers a hardware fault. With one server there is no partial outage: <b>everything</b> is down until a replacement boots and warms up.",
+        "A lone machine is a <span class=\"term\">single point of failure</span>. Planned work hurts too — every OS patch or resize is downtime."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Bigger hardware fails just as often as small hardware — and takes more down with it."
+      },
+      "changes": [
+        "~ Web app DOWN",
+        "~ Every request fails"
+      ],
+      "metrics": {
+        "rps": 4800,
+        "p95": null,
+        "cost": 2240,
+        "survive": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -2,
+            "s": 7,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app"
+            ],
+            "sub": "64 vCPU · $2,240/mo",
+            "cpu": -1,
+            "h": 84,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "cpu": 0.05
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /books",
+            "heads": "both",
+            "style": "cut",
+            "fail": 1
+          },
+          "db": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ],
+            "label": "SQL",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 2.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scale out",
+      "chapter": "solution",
+      "title": "Horizontal scaling: more boxes",
+      "body": [
+        "<span class=\"term\">Horizontal scaling</span> (scaling out) spreads the load across several ordinary machines behind a load balancer. Four 16-vCPU servers cost the same as one 64-vCPU machine — $2,240 plus about $25 for the balancer.",
+        "Need more? Add a fifth. There's no top rung, and capacity grows (or shrinks) in small steps as traffic changes."
+      ],
+      "changes": [
+        "+ Load balancer",
+        "~ One 64-vCPU box → four 16-vCPU boxes",
+        "~ Survives losing a server: yes"
+      ],
+      "metrics": {
+        "rps": 4800,
+        "p95": 130,
+        "cost": 2265,
+        "survive": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 1"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a2": {
+            "type": "block",
+            "x": -5,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 2"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a3": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 3"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a4": {
+            "type": "block",
+            "x": 5,
+            "y": 7,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 4"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "pg": {
+            "type": "db",
+            "x": -8.5,
+            "y": 5.5,
+            "label": "Postgres",
+            "cpu": 0.6
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "app",
+            "pts": [
+              "lb",
+              "app"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "a2",
+            "pts": [
+              "lb",
+              "a2"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "a3",
+            "pts": [
+              "lb",
+              "a3"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "lb",
+            "to": "a4",
+            "pts": [
+              "lb",
+              "a4"
+            ],
+            "heads": "both"
+          },
+          "d0": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ]
+          },
+          "d1": {
+            "from": "a2",
+            "to": "pg",
+            "pts": [
+              "a2",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "a3",
+            "to": "pg",
+            "pts": [
+              "a3",
+              "pg"
+            ]
+          },
+          "d3": {
+            "from": "a4",
+            "to": "pg",
+            "pts": [
+              "a4",
+              "pg"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 4800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app ×4",
+            "sub": "16 vCPU each"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lose one",
+      "chapter": "solution",
+      "title": "Losing a server is now a shrug",
+      "body": [
+        "When app 3 fails, the balancer stops sending it traffic and the other three absorb its share — each goes from ~55% to ~75% busy. Shoppers see slightly slower pages, not an error page.",
+        "This is why teams size for <span class=\"term\">N+1</span>: enough capacity that losing any one machine still leaves everyone below the latency knee."
+      ],
+      "changes": [
+        "~ App 3 DOWN",
+        "~ Others 55% → 75% busy"
+      ],
+      "metrics": {
+        "rps": 4800,
+        "p95": 170,
+        "cost": 2265,
+        "survive": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 1"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.75
+          },
+          "a2": {
+            "type": "block",
+            "x": -5,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 2"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.75
+          },
+          "a3": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 3"
+            ],
+            "sub": "16 vCPU",
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "a4": {
+            "type": "block",
+            "x": 5,
+            "y": 7,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 4"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.75
+          },
+          "pg": {
+            "type": "db",
+            "x": -8.5,
+            "y": 5.5,
+            "label": "Postgres",
+            "cpu": 0.6
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "app",
+            "pts": [
+              "lb",
+              "app"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "a2",
+            "pts": [
+              "lb",
+              "a2"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "a3",
+            "pts": [
+              "lb",
+              "a3"
+            ],
+            "heads": "both",
+            "style": "cut"
+          },
+          "b3": {
+            "from": "lb",
+            "to": "a4",
+            "pts": [
+              "lb",
+              "a4"
+            ],
+            "heads": "both"
+          },
+          "d0": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ]
+          },
+          "d1": {
+            "from": "a2",
+            "to": "pg",
+            "pts": [
+              "a2",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "a3",
+            "to": "pg",
+            "pts": [
+              "a3",
+              "pg"
+            ],
+            "style": "off"
+          },
+          "d3": {
+            "from": "a4",
+            "to": "pg",
+            "pts": [
+              "a4",
+              "pg"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 4800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app ×4",
+            "sub": "16 vCPU each"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fine print",
+      "chapter": "tradeoff",
+      "title": "More machines, more problems",
+      "body": [
+        "Scaling out isn't free. The app must be <b>stateless</b> — a session kept in one server's memory is invisible to the others. There are more machines to deploy, monitor and patch, and every request takes an extra hop through the balancer.",
+        "And look at the database: still one machine, now serving four app servers. Scaling out the stateless tier pushes the bottleneck down into the data tier."
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Stateless servers get their own lesson: <i>Forget Me Now</i>."
+      },
+      "changes": [
+        "~ Database CPU 60% → 88%",
+        "~ Survives losing a server: partly"
+      ],
+      "metrics": {
+        "rps": 4800,
+        "p95": 160,
+        "cost": 2265,
+        "survive": "partly"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 1"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a2": {
+            "type": "block",
+            "x": -5,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 2"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a3": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 3"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a4": {
+            "type": "block",
+            "x": 5,
+            "y": 7,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 4"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "pg": {
+            "type": "db",
+            "x": -8.5,
+            "y": 5.5,
+            "label": "Postgres",
+            "cpu": 0.88,
+            "heat": 0.6,
+            "tags": [
+              {
+                "text": "still just one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "app",
+            "pts": [
+              "lb",
+              "app"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "a2",
+            "pts": [
+              "lb",
+              "a2"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "a3",
+            "pts": [
+              "lb",
+              "a3"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "lb",
+            "to": "a4",
+            "pts": [
+              "lb",
+              "a4"
+            ],
+            "heads": "both"
+          },
+          "d0": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ]
+          },
+          "d1": {
+            "from": "a2",
+            "to": "pg",
+            "pts": [
+              "a2",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "a3",
+            "to": "pg",
+            "pts": [
+              "a3",
+              "pg"
+            ]
+          },
+          "d3": {
+            "from": "a4",
+            "to": "pg",
+            "pts": [
+              "a4",
+              "pg"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0",
+                  "d0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b3",
+                  "d3"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 3,
+            "hold": 0.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 4800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app ×4",
+            "sub": "16 vCPU each"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Use both",
+      "chapter": "insight",
+      "title": "Up for state, out for compute",
+      "body": [
+        "Most real systems mix the two. Stateless app servers scale <b>out</b> cheaply. Databases are harder to split, so they're usually scaled <b>up</b> first — a bigger primary — with a standby copy so a hardware fault doesn't become an outage.",
+        "Spreading data across machines (read replicas, sharding) is the next step when even the largest database box isn't enough."
+      ],
+      "changes": [
+        "~ Database scaled up",
+        "+ Standby database",
+        "~ Cost $2,265 → $3,385 / month"
+      ],
+      "metrics": {
+        "rps": 4800,
+        "p95": 130,
+        "cost": 3385,
+        "survive": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 1"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a2": {
+            "type": "block",
+            "x": -5,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 2"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a3": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 3"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a4": {
+            "type": "block",
+            "x": 5,
+            "y": 7,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 4"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "pg": {
+            "type": "db",
+            "x": -8.5,
+            "y": 5.5,
+            "label": "Postgres",
+            "cpu": 0.45,
+            "r": 2.3,
+            "h": 50,
+            "tags": [
+              {
+                "text": "scaled up",
+                "tone": "green",
+                "icon": "trendingUp"
+              }
+            ]
+          },
+          "standby": {
+            "type": "db",
+            "x": -3.5,
+            "y": 10.5,
+            "label": "Standby",
+            "cpu": 0.1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Scaling recipe",
+            "icon": "layers",
+            "lines": [
+              "web tier → out (add servers)",
+              "database → up (bigger box)",
+              "+ standby copy for failover",
+              "# then replicas & shards — module 06"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "app",
+            "pts": [
+              "lb",
+              "app"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "a2",
+            "pts": [
+              "lb",
+              "a2"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "a3",
+            "pts": [
+              "lb",
+              "a3"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "lb",
+            "to": "a4",
+            "pts": [
+              "lb",
+              "a4"
+            ],
+            "heads": "both"
+          },
+          "d0": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ]
+          },
+          "d1": {
+            "from": "a2",
+            "to": "pg",
+            "pts": [
+              "a2",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "a3",
+            "to": "pg",
+            "pts": [
+              "a3",
+              "pg"
+            ]
+          },
+          "d3": {
+            "from": "a4",
+            "to": "pg",
+            "pts": [
+              "a4",
+              "pg"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "standby",
+            "pts": [
+              "pg",
+              "standby"
+            ],
+            "label": "replicate",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 80000,
+        "rps": 4800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Web app ×4",
+            "sub": "16 vCPU each"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "scaled up · standby"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Bigger or more?",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Scale up</b>: simplest, no code changes — but has a ceiling, needs restarts, and stays a single point of failure.</li><li><b>Scale out</b>: no ceiling, survives failures, grows in small steps — but needs stateless servers and a load balancer.</li><li>Plan for N+1 so one failure doesn't overload the rest.</li><li>Scaling the app tier moves the bottleneck to the data tier.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next: the load balancer — the front door that makes “more” possible."
+      },
+      "metrics": {
+        "rps": 4800,
+        "p95": 130,
+        "cost": 3385,
+        "survive": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -22,
+            "y1": -16,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 1"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a2": {
+            "type": "block",
+            "x": -5,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 2"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a3": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 3"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "a4": {
+            "type": "block",
+            "x": 5,
+            "y": 7,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "app 4"
+            ],
+            "sub": "16 vCPU",
+            "cpu": 0.55
+          },
+          "pg": {
+            "type": "db",
+            "x": -8.5,
+            "y": 5.5,
+            "label": "Postgres",
+            "cpu": 0.45,
+            "r": 2.3,
+            "h": 50
+          },
+          "standby": {
+            "type": "db",
+            "x": -3.5,
+            "y": 10.5,
+            "label": "Standby",
+            "cpu": 0.1
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /books",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "app",
+            "pts": [
+              "lb",
+              "app"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "a2",
+            "pts": [
+              "lb",
+              "a2"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "a3",
+            "pts": [
+              "lb",
+              "a3"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "lb",
+            "to": "a4",
+            "pts": [
+              "lb",
+              "a4"
+            ],
+            "heads": "both"
+          },
+          "d0": {
+            "from": "app",
+            "to": "pg",
+            "pts": [
+              "app",
+              "pg"
+            ]
+          },
+          "d1": {
+            "from": "a2",
+            "to": "pg",
+            "pts": [
+              "a2",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "a3",
+            "to": "pg",
+            "pts": [
+              "a3",
+              "pg"
+            ]
+          },
+          "d3": {
+            "from": "a4",
+            "to": "pg",
+            "pts": [
+              "a4",
+              "pg"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "standby",
+            "pts": [
+              "pg",
+              "standby"
+            ],
+            "label": "replicate",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      }
+    }
+  ]
+}

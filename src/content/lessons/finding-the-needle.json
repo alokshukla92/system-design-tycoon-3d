@@ -1,0 +1,2029 @@
+{
+  "id": "finding-the-needle",
+  "title": "Finding the Needle",
+  "summary": "Parcelly's support team searches 40 million shipments by tracking code — and waits seven seconds every time. Learn what an index really is, how B-trees find one row in four reads, and what indexes cost.",
+  "minutes": 11,
+  "level": "beginner",
+  "metrics": [
+    "rows",
+    "p95",
+    "writeCost",
+    "indexes"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "write"
+  ],
+  "goals": [
+    {
+      "text": "See why a query without an index reads every row",
+      "step": 1
+    },
+    {
+      "text": "Understand how a B-tree finds one row in a few page reads",
+      "step": 3
+    },
+    {
+      "text": "Design a composite index and know its column-order rule",
+      "step": 4
+    },
+    {
+      "text": "Weigh the write and storage cost of every index",
+      "step": 6
+    }
+  ],
+  "steps": [
+    {
+      "short": "40M parcels",
+      "chapter": "setup",
+      "title": "One table, forty million rows",
+      "body": [
+        "<b>Parcelly</b> tracks parcels for small shops. Its <code>shipments</code> table holds <b>40 million rows</b> and grows by 2,000 a second at peak.",
+        "Looking a parcel up by its numeric <code>id</code> is instant: the <span class=\"term\">primary key</span> comes with an index for free, so the database jumps straight to the row."
+      ],
+      "metrics": {
+        "rows": 1,
+        "p95": 4,
+        "writeCost": 1,
+        "indexes": "PK only"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "PK: id",
+                "tone": "green",
+                "icon": "key"
+              }
+            ],
+            "cpu": 0.25
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "parcel #31,902,114"
+          },
+          "e2": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "WHERE id = ?"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Full scan",
+      "chapter": "problem",
+      "title": "Searching by tracking code",
+      "body": [
+        "Customers don't know internal ids — they paste a tracking code like <code>PX-7Q2K</code>. There's no index on <code>tracking_code</code>, so the database does the only thing it can: a <span class=\"term\">full table scan</span>, reading all 40 million rows (~9 GB) to find one.",
+        "Each search takes seconds and burns disk and CPU that every other query needs. Ten agents searching at once bring the database to its knees."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Full scans hide in small test data. With 1,000 rows they take a millisecond; with 40 million they take seconds."
+      },
+      "changes": [
+        "~ Query filters on tracking_code (no index)",
+        "~ Database at 96% CPU scanning"
+      ],
+      "metrics": {
+        "rows": 40000000,
+        "p95": 7400,
+        "writeCost": 1,
+        "indexes": "PK only"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "waiting…",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "full scan",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.96,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Full table scan",
+            "icon": "search",
+            "lines": [
+              "# every row is read and compared"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Rows checked",
+                "note": "40,000,000",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "Rows wanted",
+                "note": "1",
+                "to": 0.01,
+                "tone": "green"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "“where's PX-7Q2K?”"
+          },
+          "e2": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "WHERE tracking_code = ?"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.2,
+            "hold": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "An index",
+      "chapter": "solution",
+      "title": "Keep a sorted copy of the column",
+      "body": [
+        "An <span class=\"term\">index</span> is a separate structure holding every tracking code <em>in sorted order</em>, each with a pointer to its row — like the index at the back of a book.",
+        "Because it's sorted, the database can jump to the right spot instead of reading everything. One <code>CREATE INDEX</code> later, the same search reads one row."
+      ],
+      "changes": [
+        "+ idx_tracking on tracking_code",
+        "~ App seeks the index, then fetches one row"
+      ],
+      "metrics": {
+        "rows": 1,
+        "p95": 3,
+        "writeCost": 2,
+        "indexes": 1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "idx": {
+            "type": "block",
+            "x": -11,
+            "y": -7,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "tracking"
+            ],
+            "sub": "index"
+          },
+          "card": {
+            "type": "panel",
+            "title": "An index is a sorted lookup table",
+            "icon": "listOrdered",
+            "lines": [
+              "PX-7Q1Z → row 22,040,117",
+              "PX-7Q2K → row 4,118,770",
+              "PX-7Q31 → row 39,002,876",
+              "= sorted, so the database can jump, not search",
+              "# CREATE INDEX ON shipments (tracking_code)"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "“where's PX-7Q2K?”"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ],
+            "label": "seek PX-7Q2K"
+          },
+          "e4": {
+            "from": "idx",
+            "to": "db",
+            "pts": [
+              "idx",
+              "db"
+            ],
+            "label": "row 4,118,770"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e3",
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "B-tree",
+      "chapter": "technique",
+      "title": "Inside the index: a B-tree",
+      "body": [
+        "Most database indexes are <span class=\"term\">B-trees</span>: a shallow tree of fixed-size pages. The root page splits the key range into slices, each pointing at a child page; leaf pages hold the keys and row pointers.",
+        "Each page holds hundreds of keys, so the tree is very wide and very short. Finding <code>PX-7Q2K</code> among 40 million codes means reading the root, one branch and one leaf — then the row."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Doubling the table adds almost nothing: with ~400 keys per page, one more level covers 400× more rows."
+      },
+      "changes": [
+        "~ Index expanded: root → branches → leaves"
+      ],
+      "metrics": {
+        "rows": 1,
+        "p95": 3,
+        "writeCost": 2,
+        "indexes": 1
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "idx": {
+            "type": "block",
+            "x": -22,
+            "y": 12,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "root"
+            ],
+            "sub": "A … Z"
+          },
+          "b1": {
+            "type": "block",
+            "x": -22,
+            "y": 3,
+            "s": 2.8,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "A–M"
+            ]
+          },
+          "b2": {
+            "type": "block",
+            "x": -13,
+            "y": 12,
+            "s": 2.8,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "N–Z"
+            ]
+          },
+          "l1": {
+            "type": "block",
+            "x": -20.5,
+            "y": -4.5,
+            "s": 2.8,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "…"
+            ],
+            "dim": 0.6
+          },
+          "l2": {
+            "type": "block",
+            "x": -16,
+            "y": 0,
+            "s": 2.8,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "PA–PW"
+            ],
+            "tags": []
+          },
+          "l3": {
+            "type": "block",
+            "x": -11,
+            "y": 5,
+            "s": 2.8,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "PX–PZ"
+            ],
+            "tags": [
+              {
+                "text": "PX-7Q2K",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "l4": {
+            "type": "block",
+            "x": -6.5,
+            "y": 9.5,
+            "s": 2.8,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "…"
+            ],
+            "dim": 0.6
+          },
+          "card": {
+            "type": "panel",
+            "title": "Why it's only ~4 reads",
+            "icon": "layers",
+            "lines": [
+              "one 8 KB page holds ~400 keys",
+              "root → 400 → 160,000 → 64,000,000 keys",
+              "= 40M rows: root, branch, leaf, row",
+              "# each extra level multiplies reach by ~400"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "“where's PX-7Q2K?”"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ],
+            "label": "seek"
+          },
+          "t1": {
+            "from": "idx",
+            "to": "b1",
+            "pts": [
+              "idx",
+              "b1"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "idx",
+            "to": "b2",
+            "pts": [
+              "idx",
+              "b2"
+            ]
+          },
+          "t3": {
+            "from": "b1",
+            "to": "l1",
+            "pts": [
+              "b1",
+              "l1"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "b1",
+            "to": "l2",
+            "pts": [
+              "b1",
+              "l2"
+            ],
+            "style": "dashed"
+          },
+          "t5": {
+            "from": "b2",
+            "to": "l3",
+            "pts": [
+              "b2",
+              "l3"
+            ]
+          },
+          "t6": {
+            "from": "b2",
+            "to": "l4",
+            "pts": [
+              "b2",
+              "l4"
+            ],
+            "style": "dashed"
+          },
+          "e4": {
+            "from": "l3",
+            "to": "db",
+            "pts": [
+              "l3",
+              "db"
+            ],
+            "label": "row 4,118,770"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e3",
+              "t2",
+              "t5",
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Composite",
+      "chapter": "technique",
+      "title": "One index, two columns",
+      "body": [
+        "The parcel history page asks: <code>WHERE customer_id = 88 ORDER BY created_at DESC LIMIT 20</code>. A <span class=\"term\">composite index</span> on <code>(customer_id, created_at)</code> sorts entries by customer first, then by date within each customer.",
+        "All of customer 88's parcels sit side by side, already in date order. The database seeks to the newest one and reads 20 neighbours — no sorting, no scanning."
+      ],
+      "changes": [
+        "+ idx_cust_date on (customer_id, created_at)"
+      ],
+      "metrics": {
+        "rows": 20,
+        "p95": 5,
+        "writeCost": 3,
+        "indexes": 2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "idx": {
+            "type": "block",
+            "x": -11,
+            "y": -7,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "tracking"
+            ],
+            "sub": "index"
+          },
+          "idx2": {
+            "type": "block",
+            "x": -12,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "customer",
+              "+ date"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Sorted by customer, then date",
+            "icon": "listOrdered",
+            "lines": [
+              "(87, Nov 19) → row 31,902,114",
+              "**(88, Mar 02) → row 4,118,770**",
+              "**(88, Nov 18) → row 39,870,051**",
+              "**(88, Nov 20) → row 39,991,203**",
+              "(89, Jan 07) → row 12,550,940",
+              "= all of 88's parcels sit side by side, newest last"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "customer 88's history"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ],
+            "label": "seek PX-7Q2K"
+          },
+          "e4": {
+            "from": "idx",
+            "to": "db",
+            "pts": [
+              "idx",
+              "db"
+            ],
+            "label": "row 4,118,770"
+          },
+          "e5": {
+            "from": "app",
+            "to": "idx2",
+            "pts": [
+              "app",
+              "idx2"
+            ],
+            "label": "seek (88, newest)"
+          },
+          "e6": {
+            "from": "idx2",
+            "to": "db",
+            "pts": [
+              "idx2",
+              "db"
+            ],
+            "label": "20 rows"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e5",
+              "e6"
+            ],
+            "bounce": true,
+            "rate": 1.8
+          },
+          {
+            "route": [
+              "e3",
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Column order",
+      "chapter": "insight",
+      "title": "Order of columns matters",
+      "body": [
+        "An analyst asks for “all parcels created since yesterday”. The composite index can't help: dates are only sorted <em>within</em> each customer, so yesterday's parcels are scattered across millions of customer sections. Back to a full scan.",
+        "This is the <span class=\"term\">leftmost prefix</span> rule: a composite index serves queries that constrain its first column(s). Put equality filters first and the range or sort column last."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Need both access paths? That's two indexes — and, as you'll see next, each one has a price."
+      },
+      "changes": [
+        "~ Query filters on created_at only"
+      ],
+      "metrics": {
+        "rows": 40000000,
+        "p95": 7400,
+        "writeCost": 3,
+        "indexes": 2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "full scan",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.96,
+            "heat": 1
+          },
+          "idx": {
+            "type": "block",
+            "x": -11,
+            "y": -7,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "tracking"
+            ],
+            "sub": "index"
+          },
+          "idx2": {
+            "type": "block",
+            "x": -12,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "customer",
+              "+ date"
+            ],
+            "dim": 0.5,
+            "tags": [
+              {
+                "text": "dates scattered",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Leftmost prefix rule",
+            "icon": "alert",
+            "lines": [
+              "(customer_id, created_at) can answer:",
+              "= customer_id = 88",
+              "= customer_id = 88 AND created_at > …",
+              "! created_at > … alone → full scan",
+              "# like a phone book: sorted by surname, then first name"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "all parcels since yesterday"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ]
+          },
+          "e4": {
+            "from": "idx",
+            "to": "db",
+            "pts": [
+              "idx",
+              "db"
+            ]
+          },
+          "e5": {
+            "from": "app",
+            "to": "idx2",
+            "pts": [
+              "app",
+              "idx2"
+            ],
+            "label": "can't seek by date",
+            "style": "off"
+          },
+          "e6": {
+            "from": "idx2",
+            "to": "db",
+            "pts": [
+              "idx2",
+              "db"
+            ]
+          },
+          "e7": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "WHERE created_at > ?"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e7"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.2,
+            "hold": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Write cost",
+      "chapter": "tradeoff",
+      "title": "Every index taxes every write",
+      "body": [
+        "Over a year, teams added indexes for every report idea — six in total. Each new parcel now means writing the row <b>plus an entry in every index</b>, each in a different place on disk.",
+        "At 2,000 inserts a second that's 12,000 writes a second. Inserts slow down, the indexes take more disk than the table itself, and backups grow with them."
+      ],
+      "changes": [
+        "+ Carrier feed inserting 2,000 rows / s",
+        "+ 4 more indexes (status, weight, zip, destination)"
+      ],
+      "metrics": {
+        "rows": 1,
+        "p95": 3,
+        "writeCost": 6,
+        "indexes": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "+2,000 / s",
+                "tone": "amber",
+                "icon": "trendingUp"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "idx": {
+            "type": "block",
+            "x": -11,
+            "y": -7,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "tracking"
+            ],
+            "sub": "index"
+          },
+          "idx2": {
+            "type": "block",
+            "x": -12,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "customer",
+              "+ date"
+            ]
+          },
+          "x4": {
+            "type": "block",
+            "x": -17,
+            "y": 13,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "destination"
+            ],
+            "tags": [
+              {
+                "text": "0 scans",
+                "tone": "amber"
+              }
+            ]
+          },
+          "x1": {
+            "type": "block",
+            "x": -27,
+            "y": 3,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "status"
+            ],
+            "tags": [
+              {
+                "text": "0 scans",
+                "tone": "amber"
+              }
+            ]
+          },
+          "x2": {
+            "type": "block",
+            "x": -22,
+            "y": 8,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "weight"
+            ],
+            "tags": [
+              {
+                "text": "0 scans",
+                "tone": "amber"
+              }
+            ]
+          },
+          "x3": {
+            "type": "block",
+            "x": -12,
+            "y": 18,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "zip"
+            ],
+            "tags": [
+              {
+                "text": "1 report / mo",
+                "tone": "amber"
+              }
+            ]
+          },
+          "feed": {
+            "type": "block",
+            "x": 16,
+            "y": 6,
+            "s": 4.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "package",
+            "label": [
+              "Carriers"
+            ],
+            "tags": [
+              {
+                "text": "2,000 inserts / s",
+                "tone": "paper"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Cost of one INSERT",
+            "icon": "database",
+            "lines": [
+              "# every index is a separate sorted structure to update"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Table row",
+                "note": "1 write",
+                "to": 0.17,
+                "tone": "green"
+              },
+              {
+                "label": "Index entries",
+                "note": "+5 writes",
+                "from": 0.17,
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "“where's PX-7Q2K?”"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ],
+            "label": "seek"
+          },
+          "e4": {
+            "from": "idx",
+            "to": "db",
+            "pts": [
+              "idx",
+              "db"
+            ],
+            "label": "row"
+          },
+          "w0": {
+            "from": "feed",
+            "to": "db",
+            "pts": [
+              "feed",
+              "db"
+            ],
+            "label": "INSERT"
+          },
+          "w1": {
+            "from": "db",
+            "to": "idx",
+            "pts": [
+              "db",
+              "idx"
+            ],
+            "style": "dashed"
+          },
+          "w2": {
+            "from": "db",
+            "to": "idx2",
+            "pts": [
+              "db",
+              "idx2"
+            ],
+            "style": "dashed"
+          },
+          "w3": {
+            "from": "db",
+            "to": "x1",
+            "pts": [
+              "db",
+              "x1"
+            ],
+            "style": "dashed"
+          },
+          "w4": {
+            "from": "db",
+            "to": "x2",
+            "pts": [
+              "db",
+              "x2"
+            ],
+            "style": "dashed"
+          },
+          "w5": {
+            "from": "db",
+            "to": "x3",
+            "pts": [
+              "db",
+              "x3"
+            ],
+            "style": "dashed"
+          },
+          "w6": {
+            "from": "db",
+            "to": "x4",
+            "pts": [
+              "db",
+              "x4"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w0"
+            ],
+            "kind": "write",
+            "rate": 2.2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "w1"
+                ]
+              },
+              {
+                "path": [
+                  "w2"
+                ]
+              },
+              {
+                "path": [
+                  "w3"
+                ]
+              },
+              {
+                "path": [
+                  "w4"
+                ]
+              },
+              {
+                "path": [
+                  "w5"
+                ]
+              },
+              {
+                "path": [
+                  "w6"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 1.1
+          },
+          {
+            "route": [
+              "e1",
+              "e3",
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Prune",
+      "chapter": "solution",
+      "title": "Keep the indexes that earn their keep",
+      "body": [
+        "The database tracks how often each index is used. Three have <b>zero</b> scans in a month; the ZIP index serves one monthly report that can run on a replica instead.",
+        "Dropping them halves the write cost per insert. Reads that matter are unaffected — they were never using those indexes."
+      ],
+      "changes": [
+        "- idx_status, idx_weight, idx_dest, idx_zip"
+      ],
+      "metrics": {
+        "rows": 1,
+        "p95": 3,
+        "writeCost": 3,
+        "indexes": 2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "+2,000 / s",
+                "tone": "green",
+                "icon": "trendingUp"
+              }
+            ],
+            "cpu": 0.3,
+            "heat": 0
+          },
+          "idx": {
+            "type": "block",
+            "x": -11,
+            "y": -7,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "tracking"
+            ],
+            "sub": "index"
+          },
+          "idx2": {
+            "type": "block",
+            "x": -12,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "customer",
+              "+ date"
+            ]
+          },
+          "feed": {
+            "type": "block",
+            "x": 16,
+            "y": 6,
+            "s": 4.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "package",
+            "label": [
+              "Carriers"
+            ],
+            "tags": [
+              {
+                "text": "2,000 inserts / s",
+                "tone": "paper"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Index usage, last 30 days",
+            "icon": "chart",
+            "lines": [
+              "idx_tracking     1.9 billion scans   keep",
+              "idx_cust_date    310 million scans   keep",
+              "! idx_status, idx_weight, idx_dest   0 scans   drop",
+              "! idx_zip   1 report / month   drop, run on a replica",
+              "= 6 writes per insert → 3"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "“where's PX-7Q2K?”"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ],
+            "label": "seek"
+          },
+          "e4": {
+            "from": "idx",
+            "to": "db",
+            "pts": [
+              "idx",
+              "db"
+            ],
+            "label": "row"
+          },
+          "w0": {
+            "from": "feed",
+            "to": "db",
+            "pts": [
+              "feed",
+              "db"
+            ],
+            "label": "INSERT"
+          },
+          "w1": {
+            "from": "db",
+            "to": "idx",
+            "pts": [
+              "db",
+              "idx"
+            ],
+            "style": "dashed"
+          },
+          "w2": {
+            "from": "db",
+            "to": "idx2",
+            "pts": [
+              "db",
+              "idx2"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w0"
+            ],
+            "kind": "write",
+            "rate": 2.2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "w1"
+                ]
+              },
+              {
+                "path": [
+                  "w2"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 1.1
+          },
+          {
+            "route": [
+              "e1",
+              "e3",
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Indexes in one breath",
+      "body": [
+        "<ul class=\"takeaways\"><li>No index on the filtered column → <b>full scan</b>, cost grows with table size.</li><li>A <b>B-tree</b> index finds a row in a handful of page reads, and keeps keys sorted for ranges and ORDER BY.</li><li><b>Composite</b> indexes follow the leftmost-prefix rule: equality columns first.</li><li>Every index adds a <b>write</b> per insert and disk space — measure and prune.</li></ul>"
+      ],
+      "metrics": {
+        "rows": 1,
+        "p95": 3,
+        "writeCost": 3,
+        "indexes": 2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 6,
+            "label": "Support agents"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Support",
+              "app"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 2,
+            "y": 8,
+            "label": "shipments",
+            "tags": [
+              {
+                "text": "40M rows",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "+2,000 / s",
+                "tone": "green",
+                "icon": "trendingUp"
+              }
+            ],
+            "cpu": 0.3,
+            "heat": 0
+          },
+          "idx": {
+            "type": "block",
+            "x": -11,
+            "y": -7,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "tracking"
+            ],
+            "sub": "index"
+          },
+          "idx2": {
+            "type": "block",
+            "x": -12,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "purple",
+            "glyph": "listOrdered",
+            "label": [
+              "customer",
+              "+ date"
+            ]
+          },
+          "feed": {
+            "type": "block",
+            "x": 16,
+            "y": 6,
+            "s": 4.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "package",
+            "label": [
+              "Carriers"
+            ],
+            "tags": [
+              {
+                "text": "2,000 inserts / s",
+                "tone": "paper"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Index checklist",
+            "icon": "listChecks",
+            "lines": [
+              "index the columns your hot queries filter on",
+              "composite: equality columns first, then range / sort",
+              "check the plan (EXPLAIN) — no seek means no index",
+              "! every index taxes every write and uses disk",
+              "= measure usage; drop what nobody reads"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "“where's PX-7Q2K?”"
+          },
+          "e3": {
+            "from": "app",
+            "to": "idx",
+            "pts": [
+              "app",
+              "idx"
+            ],
+            "label": "seek"
+          },
+          "e4": {
+            "from": "idx",
+            "to": "db",
+            "pts": [
+              "idx",
+              "db"
+            ],
+            "label": "row"
+          },
+          "w0": {
+            "from": "feed",
+            "to": "db",
+            "pts": [
+              "feed",
+              "db"
+            ],
+            "label": "INSERT"
+          },
+          "w1": {
+            "from": "db",
+            "to": "idx",
+            "pts": [
+              "db",
+              "idx"
+            ],
+            "style": "dashed"
+          },
+          "w2": {
+            "from": "db",
+            "to": "idx2",
+            "pts": [
+              "db",
+              "idx2"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w0"
+            ],
+            "kind": "write",
+            "rate": 2.2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "w1"
+                ]
+              },
+              {
+                "path": [
+                  "w2"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 1.1
+          },
+          {
+            "route": [
+              "e1",
+              "e3",
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Support agents"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Support app"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "shipments",
+            "sub": "40M rows"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

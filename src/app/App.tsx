@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect } from "react";
 import { LabView } from "../lab/ui/LabView";
 import { PracticeView } from "../lab/ui/PracticeView";
-import { FLAT, getLesson } from "../content";
+import { getLesson } from "../content";
 import { SearchModal } from "../search/SearchModal";
 import type { Lesson } from "../types/lesson";
 import { isRtl } from "../i18n";
@@ -55,10 +55,13 @@ function onKey(e: KeyboardEvent): void {
 
 let lessonMounted = false;
 
+const isUnlocked = (id: string) => !isLocked(id);
+
 /** The classroom proper (course tree, lesson sheet, guide rail). */
 function LessonBody() {
   const lessonId = useClassroom((s) => s.lessonId);
   const step = useClassroom((s) => s.step);
+  const loading = useClassroom((s) => !!s.loadingLesson);
   const lesson: Lesson | undefined = lessonId ? getLesson(lessonId) : undefined;
 
   useEffect(() => {
@@ -74,7 +77,7 @@ function LessonBody() {
     <>
       <Sidebar />
       <DrawerBackdrop />
-      <main className="sheet">
+      <main className="sheet" aria-busy={loading || undefined}>
         <LessonHead lesson={lesson} />
         <Stage lesson={lesson} />
         <Timeline lesson={lesson} step={step} />
@@ -98,11 +101,6 @@ function Classroom() {
   const done = useClassroom((s) => s.done);
   const recent = useClassroom((s) => s.recent);
   const labRoute = useLabRoute();
-
-  const searchable = useMemo(
-    () => FLAT.filter((l) => !isLocked(l.id)).map((l) => getLesson(l.id)).filter((l): l is Lesson => !!l),
-    [],
-  );
 
   // Child effects (engine creation in <Canvas>) run before this one, so the first route has an engine.
   useEffect(() => {
@@ -155,7 +153,7 @@ function Classroom() {
           onOpen={openSearch}
           onClose={closeSearch}
           onPick={onPick}
-          lessons={searchable}
+          include={isUnlocked}
           currentLessonId={lessonId}
           done={done}
           recent={recent}

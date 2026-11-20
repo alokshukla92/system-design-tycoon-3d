@@ -1,0 +1,3450 @@
+{
+  "id": "ship-it-safely",
+  "title": "Ship It Safely",
+  "summary": "Ferncart trades fortnightly big-bang releases for a pipeline, feature flags, blue-green, canaries with automatic rollback and safe schema changes.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "deploys",
+    "leadTime",
+    "failRate",
+    "restore"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "heavy",
+      "build artifact"
+    ],
+    [
+      "mine",
+      "new feature"
+    ],
+    "ping",
+    [
+      "kill",
+      "rollback"
+    ],
+    "write",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Build once and promote one artifact through pipeline stages",
+      "step": 2
+    },
+    {
+      "text": "Separate deploying code from releasing features with flags",
+      "step": 3
+    },
+    {
+      "text": "Compare blue-green and canary rollouts",
+      "step": 5
+    },
+    {
+      "text": "Roll back automatically when a canary misbehaves",
+      "step": 7
+    },
+    {
+      "text": "Change a database schema without downtime (expand/contract)",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Release day",
+      "chapter": "setup",
+      "title": "The fortnightly release train",
+      "body": [
+        "Ferncart's tests are in good shape now, but shipping is still an event. Every other Thursday night an engineer copies the new build to all four servers and restarts them.",
+        "Each release carries about <b>40 commits</b> from two weeks of work. If anything goes wrong, rolling back means rebuilding the previous version by hand."
+      ],
+      "metrics": {
+        "deploys": "1 / 2 wks",
+        "leadTime": "2 weeks",
+        "failRate": "30%",
+        "restore": "4 hours"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v41"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v41"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v41"
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v41"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "PROD FLEET · 4 SERVERS"
+          },
+          "ops": {
+            "type": "device",
+            "x": 18,
+            "y": -12,
+            "label": "Ops laptop"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Release train",
+            "icon": "clock",
+            "lines": [
+              "# every other Thursday, 22:00",
+              "40 commits shipped together",
+              "! rollback = rebuild v40 by hand"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "dep": {
+            "from": "ops",
+            "to": "s4",
+            "pts": [
+              "ops",
+              "s4"
+            ],
+            "label": "scp + restart",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.2
+          },
+          {
+            "route": [
+              "dep"
+            ],
+            "kind": "heavy",
+            "rate": 0.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App fleet",
+            "sub": "4 servers"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Big bang",
+      "chapter": "problem",
+      "title": "Everything breaks at once",
+      "body": [
+        "Release v42 includes a commit that reads a new config key nobody added in production. Checkout crashes on <b>all four servers at the same moment</b>.",
+        "Which of the 40 commits did it? It takes four hours to find the cause, revert, rebuild and redeploy. Every shopper was affected the whole time."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Big batches make failures both <em>more likely</em> and <em>harder to diagnose</em>, and an all-at-once rollout makes them hit everyone."
+      },
+      "changes": [
+        "~ All 4 servers run v42",
+        "~ Checkout errors for every shopper"
+      ],
+      "metrics": {
+        "deploys": "1 / 2 wks",
+        "leadTime": "2 weeks",
+        "failRate": "30%",
+        "restore": "4 hours"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": 0.96,
+            "h": 40,
+            "sub": "v42",
+            "heat": 1
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": 0.96,
+            "h": 40,
+            "sub": "v42",
+            "heat": 1,
+            "tags": [
+              {
+                "text": "crash: missing config",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": 0.96,
+            "h": 40,
+            "sub": "v42",
+            "heat": 1
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": 0.96,
+            "h": 40,
+            "sub": "v42",
+            "heat": 1
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "ALL 4 SERVERS ON v42"
+          },
+          "ops": {
+            "type": "device",
+            "x": 18,
+            "y": -12,
+            "label": "Ops laptop"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "fail": 0.45
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "fail": 0.45
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ],
+            "fail": 0.45
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ],
+            "fail": 0.45
+          },
+          "dep": {
+            "from": "ops",
+            "to": "s4",
+            "pts": [
+              "ops",
+              "s4"
+            ],
+            "label": "v42 everywhere",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4,
+            "pattern": [
+              "req",
+              "slow"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Pipeline",
+      "chapter": "technique",
+      "title": "A pipeline that builds once",
+      "body": [
+        "A <span class=\"term\">CI/CD pipeline</span> turns every merge into the same sequence of stages: build, test, deploy. No laptop, no manual steps.",
+        "The key rule: <b>build once, promote the same artifact</b>. The image tagged <code>a3f9c1</code> that passed tests is byte-for-byte what reaches production; only configuration changes per environment.",
+        "Because every artifact is kept, rolling back is just deploying the previous one again: minutes, not hours."
+      ],
+      "changes": [
+        "- Removed ops laptop",
+        "+ Commit → Build → Test → Deploy stages",
+        "~ Deploys use a versioned artifact"
+      ],
+      "metrics": {
+        "deploys": "3",
+        "leadTime": "1 day",
+        "failRate": "15%",
+        "restore": "20 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v42.1"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v42.1"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v42.1"
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v42.1"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "PROD FLEET · 4 SERVERS"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "same artifact"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.2
+          },
+          {
+            "route": [
+              "q1",
+              "q2",
+              "q3",
+              "dep"
+            ],
+            "kind": "heavy",
+            "rate": 0.35
+          }
+        ]
+      }
+    },
+    {
+      "short": "Feature flags",
+      "chapter": "technique",
+      "title": "Deploy is not release",
+      "body": [
+        "With <span class=\"term\">feature flags</span>, new code ships switched off: <code>if (flags.on(\"new-checkout\", user))</code>. Deploying becomes boring; <em>releasing</em> is a separate, reversible decision.",
+        "The team turns the new checkout on for staff, then 5% of shoppers, then everyone. If it misbehaves, flipping the flag off takes seconds and needs no deploy."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Flags are debt: give each one an owner and delete it once the rollout is done."
+      },
+      "changes": [
+        "+ Feature flag service",
+        "~ Servers run v43 with the feature dark",
+        "~ 5% of shoppers see the new checkout"
+      ],
+      "metrics": {
+        "deploys": "5",
+        "leadTime": "4 hours",
+        "failRate": "10%",
+        "restore": "1 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v43 · dark"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v43 · dark"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v43 · dark"
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v43 · dark"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "PROD FLEET · 4 SERVERS"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "flags": {
+            "type": "block",
+            "x": -17,
+            "y": -15,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "toggle",
+            "label": [
+              "Feature",
+              "flags"
+            ],
+            "tags": [
+              {
+                "text": "new checkout: 5%",
+                "tone": "violet",
+                "icon": "toggle"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "same artifact"
+          },
+          "fl": {
+            "from": "flags",
+            "to": "s1",
+            "pts": [
+              "flags",
+              "s1"
+            ],
+            "label": "flag rules",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4,
+            "pattern": [
+              "req",
+              "req",
+              "req",
+              "req",
+              "req",
+              "req",
+              "mine"
+            ]
+          },
+          {
+            "route": [
+              "fl"
+            ],
+            "kind": "push",
+            "rate": 0.5
+          },
+          {
+            "route": [
+              "q1",
+              "q2",
+              "q3",
+              "dep"
+            ],
+            "kind": "heavy",
+            "rate": 0.35
+          }
+        ]
+      }
+    },
+    {
+      "short": "Blue-green",
+      "chapter": "technique",
+      "title": "Blue-green: two fleets and a switch",
+      "body": [
+        "In a <span class=\"term\">blue-green deployment</span> there are two identical fleets. The new version goes to the idle one, gets smoke-tested, and then the load balancer flips all traffic over at once.",
+        "Rollback is flipping back, which takes seconds. The costs: double the servers during a release, and every shopper moves at the same instant, so a bug that only shows under real load still hits everyone."
+      ],
+      "changes": [
+        "~ Fleet split into blue (v43) and green (v44)",
+        "~ Load balancer now sends all traffic to green",
+        "~ Blue kept warm for instant rollback"
+      ],
+      "metrics": {
+        "deploys": "5",
+        "leadTime": "4 hours",
+        "failRate": "8%",
+        "restore": "1 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below",
+            "tags": [
+              {
+                "text": "flip: blue → green",
+                "tone": "green",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v43",
+            "dim": 0.5
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v43",
+            "dim": 0.5
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "blue": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 0,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "BLUE · v43 · STANDBY"
+          },
+          "green": {
+            "type": "zone",
+            "x0": 0,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "GREEN · v44 · LIVE"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "style": "off"
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "style": "off"
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "deploy idle color"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l3",
+                "l4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "q1",
+              "q2",
+              "q3",
+              "dep"
+            ],
+            "kind": "heavy",
+            "rate": 0.35
+          }
+        ]
+      }
+    },
+    {
+      "short": "Canary",
+      "chapter": "technique",
+      "title": "Canary: let a few go first",
+      "body": [
+        "A <span class=\"term\">canary release</span> puts the new version on one server and sends it a small slice of traffic (here about 5%).",
+        "An automated <b>canary judge</b> compares the canary with a <i>baseline</i> server running the old version over the same minutes: error rate, p95 latency, saturation. Comparing against the same moment avoids blaming the canary for a normal evening peak.",
+        "If the numbers stay close for 15 minutes, the rollout widens step by step: 5% → 25% → 100%."
+      ],
+      "changes": [
+        "~ One server runs v45 as the canary",
+        "+ Canary judge watches canary vs baseline",
+        "~ Load balancer weights ≈ 19 : 1"
+      ],
+      "metrics": {
+        "deploys": "8",
+        "leadTime": "2 hours",
+        "failRate": "8%",
+        "restore": "1 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44",
+            "tags": [
+              {
+                "text": "baseline",
+                "tone": "paper",
+                "icon": "flag"
+              }
+            ]
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v45 canary"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "STABLE v44 · CANARY v45"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "judge": {
+            "type": "block",
+            "x": 9,
+            "y": 10,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Canary",
+              "judge"
+            ],
+            "pills": "below"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Canary vs baseline · 15 min",
+            "icon": "gauge",
+            "lines": [
+              "# 5% of traffic on v45"
+            ],
+            "chart": "bars",
+            "w": 240,
+            "bars": [
+              {
+                "label": "Errors · baseline",
+                "note": "0.3%",
+                "to": 0.08,
+                "tone": "green"
+              },
+              {
+                "label": "Errors · canary",
+                "note": "0.3%",
+                "to": 0.08,
+                "tone": "green",
+                "bold": true
+              },
+              {
+                "label": "p95 · baseline",
+                "note": "210 ms",
+                "to": 0.42,
+                "tone": "green"
+              },
+              {
+                "label": "p95 · canary",
+                "note": "220 ms",
+                "to": 0.44,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "v45 → 1 server"
+          },
+          "j3": {
+            "from": "judge",
+            "to": "s3",
+            "pts": [
+              "judge",
+              "s3"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "j4": {
+            "from": "judge",
+            "to": "s4",
+            "pts": [
+              "judge",
+              "s4"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              6,
+              6,
+              6,
+              1
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "j3"
+                ]
+              },
+              {
+                "path": [
+                  "j4"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Bad canary",
+      "chapter": "problem",
+      "title": "The canary coughs",
+      "body": [
+        "Six minutes in, v45's error rate climbs to <b>4.1%</b> while the baseline sits at 0.3%. A missing database index makes one checkout query time out under real data.",
+        "No human is watching a dashboard at that moment, and none needs to: the judge's thresholds were agreed in advance, so it fires the rollback on its own."
+      ],
+      "changes": [
+        "~ Canary error rate 4.1%",
+        "~ Judge triggers a rollback"
+      ],
+      "metrics": {
+        "deploys": "8",
+        "leadTime": "2 hours",
+        "failRate": "8%",
+        "restore": "1 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44",
+            "tags": [
+              {
+                "text": "baseline",
+                "tone": "paper",
+                "icon": "flag"
+              }
+            ]
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": 0.96,
+            "h": 40,
+            "sub": "v45 canary",
+            "heat": 1,
+            "tags": [
+              {
+                "text": "errors 4.1%",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "STABLE v44 · CANARY v45"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "judge": {
+            "type": "block",
+            "x": 9,
+            "y": 10,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Canary",
+              "judge"
+            ],
+            "pills": "below",
+            "tags": [
+              {
+                "text": "4.1% vs 0.3% → roll back",
+                "tone": "red",
+                "icon": "siren"
+              }
+            ],
+            "heat": 0.4
+          },
+          "card": {
+            "type": "panel",
+            "title": "Canary vs baseline · 6 min",
+            "icon": "gauge",
+            "lines": [
+              "! canary breaches the error budget"
+            ],
+            "chart": "bars",
+            "w": 240,
+            "bars": [
+              {
+                "label": "Errors · baseline",
+                "note": "0.3%",
+                "to": 0.08,
+                "tone": "green"
+              },
+              {
+                "label": "Errors · canary",
+                "note": "4.1%",
+                "to": 0.9,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "p95 · baseline",
+                "note": "210 ms",
+                "to": 0.42,
+                "tone": "green"
+              },
+              {
+                "label": "p95 · canary",
+                "note": "380 ms",
+                "to": 0.76,
+                "tone": "amber",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ],
+            "fail": 0.45
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "v45 → 1 server"
+          },
+          "j3": {
+            "from": "judge",
+            "to": "s3",
+            "pts": [
+              "judge",
+              "s3"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "j4": {
+            "from": "judge",
+            "to": "s4",
+            "pts": [
+              "judge",
+              "s4"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              3,
+              3,
+              3,
+              1
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "j3"
+                ]
+              },
+              {
+                "path": [
+                  "j4"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "rate": 1
+          },
+          {
+            "route": [
+              "j4"
+            ],
+            "kind": "kill",
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Auto rollback",
+      "chapter": "solution",
+      "title": "Automatic rollback",
+      "body": [
+        "The canary goes back to v44 within <b>90 seconds</b> and the pipeline blocks v45 from going any further. About 5% of shoppers saw errors for a minute and a half.",
+        "Compare that with the v42 release: every shopper, for four hours. Same kind of bug, very different <span class=\"term\">blast radius</span>."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "You cannot stop every bad change from shipping. You <em>can</em> decide how many people it touches and for how long."
+      },
+      "changes": [
+        "~ Canary back on v44",
+        "~ v45 halted in the pipeline"
+      ],
+      "metrics": {
+        "deploys": "8",
+        "leadTime": "2 hours",
+        "failRate": "5%",
+        "restore": "2 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44",
+            "tags": []
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v44",
+            "tags": [
+              {
+                "text": "rolled back · 90 s",
+                "tone": "green",
+                "icon": "undo"
+              }
+            ]
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "ALL ON v44 · v45 BLOCKED"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "v45 halted",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ]
+          },
+          "judge": {
+            "type": "block",
+            "x": 9,
+            "y": 10,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Canary",
+              "judge"
+            ],
+            "pills": "below",
+            "tags": [
+              {
+                "text": "v45 blocked",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "halted",
+            "style": "dashed"
+          },
+          "j3": {
+            "from": "judge",
+            "to": "s3",
+            "pts": [
+              "judge",
+              "s3"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "j4": {
+            "from": "judge",
+            "to": "s4",
+            "pts": [
+              "judge",
+              "s4"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "j3"
+                ]
+              },
+              {
+                "path": [
+                  "j4"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Migrations",
+      "chapter": "tradeoff",
+      "title": "Code rolls back. Data doesn't.",
+      "body": [
+        "During any canary or blue-green release, old and new code run <em>at the same time</em> against <b>one</b> database. Renaming a column in one go breaks whichever version expects the old name, and you cannot roll that back by redeploying.",
+        "So schema changes follow <span class=\"term\">expand/contract</span>: first add the new shape alongside the old, move code and data over in separate deploys, and remove the old shape only once nothing uses it."
+      ],
+      "changes": [
+        "+ Postgres shared by both versions",
+        "~ Schema holds zip and postal_code together"
+      ],
+      "metrics": {
+        "deploys": "12",
+        "leadTime": "1 hour",
+        "failRate": "5%",
+        "restore": "2 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v45"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v45"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v45",
+            "tags": []
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v46 canary"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "v45 + v46 SHARE ONE SCHEMA"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "image a3f9c1",
+                "tone": "paper",
+                "icon": "package"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "db": {
+            "type": "db",
+            "x": 10,
+            "y": 11,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "zip + postal_code",
+                "tone": "amber",
+                "icon": "database"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Expand → contract",
+            "icon": "database",
+            "lines": [
+              "1 expand: ADD postal_code (nullable)",
+              "2 code writes both, reads zip",
+              "3 backfill old rows in batches",
+              "4 code reads postal_code",
+              "5 contract: stop writing zip, DROP it",
+              "= every step can be rolled back alone"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "v45 → 1 server"
+          },
+          "fd3": {
+            "from": "s3",
+            "to": "db",
+            "pts": [
+              "s3",
+              "db"
+            ],
+            "label": "v45 writes"
+          },
+          "fd4": {
+            "from": "s4",
+            "to": "db",
+            "pts": [
+              "s4",
+              "db"
+            ],
+            "label": "v46 writes"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              6,
+              6,
+              6,
+              1
+            ],
+            "bounce": true,
+            "rate": 2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "fd3"
+                ]
+              },
+              {
+                "path": [
+                  "fd4"
+                ]
+              }
+            ],
+            "kind": "write",
+            "rate": 1.4,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App fleet",
+            "sub": "4 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Small batches",
+      "chapter": "insight",
+      "title": "Smaller, more often, safer",
+      "body": [
+        "Ferncart now ships about <b>20 times a day</b>, two commits at a time. That sounds riskier, but it is the opposite: a small change is easy to review, easy to judge on a canary, and obvious to revert.",
+        "The four numbers in the HUD are the classic delivery health metrics: how often you deploy, how long a commit takes to reach users, how often a deploy fails, and how fast you recover."
+      ],
+      "changes": [
+        "~ 2 commits per deploy",
+        "~ 20 deploys a day"
+      ],
+      "metrics": {
+        "deploys": "20",
+        "leadTime": "45 min",
+        "failRate": "4%",
+        "restore": "2 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v58"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v58"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v58",
+            "tags": []
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v59 canary"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "20 SMALL DEPLOYS A DAY"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "2 commits",
+                "tone": "green",
+                "icon": "gitCommit"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "judge": {
+            "type": "block",
+            "x": 9,
+            "y": 10,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Canary",
+              "judge"
+            ],
+            "pills": "below"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Ferncart, before → after",
+            "icon": "rocket",
+            "lines": [
+              "deploys: 1 per 2 weeks → **20 a day**",
+              "commits per deploy: 40 → **2**",
+              "deploys that fail: 30% → **4%**",
+              "= time to restore: 4 hours → 2 min"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "v59"
+          },
+          "j3": {
+            "from": "judge",
+            "to": "s3",
+            "pts": [
+              "judge",
+              "s3"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "j4": {
+            "from": "judge",
+            "to": "s4",
+            "pts": [
+              "judge",
+              "s4"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              6,
+              6,
+              6,
+              1
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "q1",
+              "q2",
+              "q3",
+              "dep"
+            ],
+            "kind": "heavy",
+            "rate": 0.35
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "j3"
+                ]
+              },
+              {
+                "path": [
+                  "j4"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Ship it safely",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Pipeline</b>: build once, promote the same artifact through every stage.</li><li><b>Feature flags</b>: deploy dark, release gradually, kill switch in seconds.</li><li><b>Blue-green</b>: instant switch and rollback, but everyone moves at once.</li><li><b>Canary</b>: a small slice first, judged automatically against a baseline, rolled back without a human.</li><li><b>Expand/contract</b>: every schema change must work for old and new code at once.</li><li>Small, frequent deploys shrink both risk and recovery time.</li></ul>"
+      ],
+      "metrics": {
+        "deploys": "20",
+        "leadTime": "45 min",
+        "failRate": "4%",
+        "restore": "2 min"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 14,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "s1": {
+            "type": "block",
+            "x": -9,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v58"
+          },
+          "s2": {
+            "type": "block",
+            "x": -3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v58"
+          },
+          "s3": {
+            "type": "block",
+            "x": 3,
+            "y": -2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v58",
+            "tags": []
+          },
+          "s4": {
+            "type": "block",
+            "x": 9,
+            "y": -2,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "server",
+            "label": [
+              "App"
+            ],
+            "cpu": -1,
+            "h": 40,
+            "sub": "v59 canary"
+          },
+          "fleet": {
+            "type": "zone",
+            "x0": -12,
+            "x1": 12,
+            "y0": -5.5,
+            "y1": 1.5,
+            "label": "20 SMALL DEPLOYS A DAY"
+          },
+          "p1": {
+            "type": "block",
+            "x": 18,
+            "y": -27,
+            "s": 3.2,
+            "color": "slab",
+            "glyph": "gitCommit",
+            "label": [
+              "Commit"
+            ],
+            "h": 34
+          },
+          "p2": {
+            "type": "block",
+            "x": 18,
+            "y": -19.5,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "package",
+            "label": [
+              "Build"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "2 commits",
+                "tone": "green",
+                "icon": "gitCommit"
+              }
+            ]
+          },
+          "p3": {
+            "type": "block",
+            "x": 18,
+            "y": -12,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "flask",
+            "label": [
+              "Test"
+            ],
+            "h": 34
+          },
+          "p4": {
+            "type": "block",
+            "x": 18,
+            "y": -4.5,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "rocket",
+            "label": [
+              "Deploy"
+            ],
+            "h": 34
+          },
+          "judge": {
+            "type": "block",
+            "x": 9,
+            "y": 10,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Canary",
+              "judge"
+            ],
+            "pills": "below"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS"
+          },
+          "l1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ]
+          },
+          "l2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ]
+          },
+          "l3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ]
+          },
+          "l4": {
+            "from": "lb",
+            "to": "s4",
+            "pts": [
+              "lb",
+              "s4"
+            ]
+          },
+          "q1": {
+            "from": "p1",
+            "to": "p2",
+            "pts": [
+              "p1",
+              "p2"
+            ]
+          },
+          "q2": {
+            "from": "p2",
+            "to": "p3",
+            "pts": [
+              "p2",
+              "p3"
+            ]
+          },
+          "q3": {
+            "from": "p3",
+            "to": "p4",
+            "pts": [
+              "p3",
+              "p4"
+            ]
+          },
+          "dep": {
+            "from": "p4",
+            "to": "s4",
+            "pts": [
+              "p4",
+              "s4"
+            ],
+            "label": "v59"
+          },
+          "j3": {
+            "from": "judge",
+            "to": "s3",
+            "pts": [
+              "judge",
+              "s3"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "j4": {
+            "from": "judge",
+            "to": "s4",
+            "pts": [
+              "judge",
+              "s4"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "l1",
+                "l2",
+                "l3",
+                "l4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              6,
+              6,
+              6,
+              1
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "q1",
+              "q2",
+              "q3",
+              "dep"
+            ],
+            "kind": "heavy",
+            "rate": 0.35
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "j3"
+                ]
+              },
+              {
+                "path": [
+                  "j4"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "rate": 0.8
+          }
+        ]
+      }
+    }
+  ]
+}

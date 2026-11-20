@@ -1,0 +1,2462 @@
+{
+  "id": "tables-or-documents",
+  "title": "Tables or Documents",
+  "summary": "Larder, a meal-kit app, has orders, recipes, sessions and van GPS pings. One database shape doesn't fit them all — learn the four families and what each trades away.",
+  "minutes": 11,
+  "level": "beginner",
+  "metrics": [
+    "joins",
+    "tx",
+    "schema",
+    "scaleOut"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "write",
+    "slow",
+    [
+      "ping",
+      "row lookup"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Model data as tables linked by keys, and query it with joins",
+      "step": 1
+    },
+    {
+      "text": "See why multi-table transactions matter for money",
+      "step": 3
+    },
+    {
+      "text": "Recognise when a document fits better than six tables",
+      "step": 5
+    },
+    {
+      "text": "Know what key-value and wide-column stores are for",
+      "step": 6
+    },
+    {
+      "text": "Pick a store per access pattern, not per fashion",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "The data",
+      "chapter": "setup",
+      "title": "Where should Larder's data live?",
+      "body": [
+        "<b>Larder</b> ships meal kits. Its API juggles four very different kinds of data: <b>orders</b> (money!), <b>recipes</b> (rich, nested content), <b>sessions</b> (tiny, hot, short-lived) and <b>GPS pings</b> from delivery vans (endless append-only stream).",
+        "Before picking a database, ask what shape the data has and how it will be read and written. Databases differ mostly in what they make <em>easy</em> — and what they make you do yourself."
+      ],
+      "metrics": {
+        "joins": "?",
+        "tx": "?",
+        "schema": "?",
+        "scaleOut": "?"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "q": {
+            "type": "ghost",
+            "x": 0,
+            "y": 6,
+            "s": 5,
+            "h": 70,
+            "label": "which store?"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /orders"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Tables",
+      "chapter": "technique",
+      "title": "Relational: rows, columns and keys",
+      "body": [
+        "A <span class=\"term\">relational database</span> stores data in tables with a fixed set of typed columns. Each row has a <span class=\"term\">primary key</span>; rows point at other rows through <span class=\"term\">foreign keys</span> — an order row stores <code>customer_id</code>, an order item stores <code>order_id</code>.",
+        "Each fact lives in exactly one place (<em>normalised</em>): change a customer's email once and every order sees it. The database enforces the schema, so bad data is rejected at the door."
+      ],
+      "changes": [
+        "+ Postgres with customers, orders, order_items, inventory",
+        "+ Foreign keys link the tables"
+      ],
+      "metrics": {
+        "joins": "yes",
+        "tx": "yes",
+        "schema": "fixed",
+        "scaleOut": "hard"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "tCust": {
+            "type": "block",
+            "x": -15,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "customers"
+            ]
+          },
+          "tOrd": {
+            "type": "block",
+            "x": -5,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "orders"
+            ]
+          },
+          "tItem": {
+            "type": "block",
+            "x": 5,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "order",
+              "items"
+            ]
+          },
+          "tInv": {
+            "type": "block",
+            "x": 15,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "inventory"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /orders"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "SQL"
+          },
+          "d1": {
+            "from": "pg",
+            "to": "tCust",
+            "pts": [
+              "pg",
+              "tCust"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d2": {
+            "from": "pg",
+            "to": "tOrd",
+            "pts": [
+              "pg",
+              "tOrd"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d3": {
+            "from": "pg",
+            "to": "tItem",
+            "pts": [
+              "pg",
+              "tItem"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d4": {
+            "from": "pg",
+            "to": "tInv",
+            "pts": [
+              "pg",
+              "tInv"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "k1": {
+            "from": "tCust",
+            "to": "tOrd",
+            "pts": [
+              "tCust",
+              "tOrd"
+            ],
+            "label": "customer_id",
+            "heads": "none",
+            "style": "dashed"
+          },
+          "k2": {
+            "from": "tOrd",
+            "to": "tItem",
+            "pts": [
+              "tOrd",
+              "tItem"
+            ],
+            "label": "order_id",
+            "heads": "none",
+            "style": "dashed"
+          },
+          "k3": {
+            "from": "tItem",
+            "to": "tInv",
+            "pts": [
+              "tItem",
+              "tInv"
+            ],
+            "label": "sku",
+            "heads": "none",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "customers · orders · items"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Joins",
+      "chapter": "technique",
+      "title": "Joins reassemble the picture",
+      "body": [
+        "Because facts are split across tables, reads put them back together with a <span class=\"term\">join</span>: one SQL statement matches orders to their customer and items using the keys.",
+        "You can ask questions nobody planned for — “revenue per city last week” — without changing how data is stored. That flexibility at <em>query</em> time is the relational model's superpower."
+      ],
+      "metrics": {
+        "joins": "yes",
+        "tx": "yes",
+        "schema": "fixed",
+        "scaleOut": "hard"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "tCust": {
+            "type": "block",
+            "x": -15,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "customers"
+            ]
+          },
+          "tOrd": {
+            "type": "block",
+            "x": -5,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "orders"
+            ]
+          },
+          "tItem": {
+            "type": "block",
+            "x": 5,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "order",
+              "items"
+            ]
+          },
+          "tInv": {
+            "type": "block",
+            "x": 15,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "inventory"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "One query, three tables",
+            "icon": "network",
+            "lines": [
+              "SELECT c.name, o.placed_at, i.sku",
+              "FROM orders o",
+              "JOIN customers c ON c.id = o.customer_id",
+              "JOIN order_items i ON i.order_id = o.id",
+              "= one round trip, one consistent answer"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /orders"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "SQL"
+          },
+          "d1": {
+            "from": "pg",
+            "to": "tCust",
+            "pts": [
+              "pg",
+              "tCust"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d2": {
+            "from": "pg",
+            "to": "tOrd",
+            "pts": [
+              "pg",
+              "tOrd"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d3": {
+            "from": "pg",
+            "to": "tItem",
+            "pts": [
+              "pg",
+              "tItem"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d4": {
+            "from": "pg",
+            "to": "tInv",
+            "pts": [
+              "pg",
+              "tInv"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "k1": {
+            "from": "tCust",
+            "to": "tOrd",
+            "pts": [
+              "tCust",
+              "tOrd"
+            ],
+            "label": "customer_id",
+            "heads": "none",
+            "style": "dashed"
+          },
+          "k2": {
+            "from": "tOrd",
+            "to": "tItem",
+            "pts": [
+              "tOrd",
+              "tItem"
+            ],
+            "label": "order_id",
+            "heads": "none",
+            "style": "dashed"
+          },
+          "k3": {
+            "from": "tItem",
+            "to": "tInv",
+            "pts": [
+              "tItem",
+              "tInv"
+            ],
+            "label": "sku",
+            "heads": "none",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 1.2,
+            "hold": 0.5
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "d3"
+                ]
+              }
+            ],
+            "fanout": true,
+            "bounce": true,
+            "rate": 0.9,
+            "kind": "ping"
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "customers · orders · items"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Transactions",
+      "chapter": "technique",
+      "title": "All-or-nothing checkout",
+      "body": [
+        "Checkout touches three tables: decrement stock, insert the order, insert its items. A <span class=\"term\">transaction</span> wraps them so they commit together or not at all — a crash halfway can't leave stock taken with no order.",
+        "This is <b>ACID</b>: Atomic, Consistent (constraints hold), Isolated (concurrent checkouts don't see each other's half-done work), Durable (committed means on disk)."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "For money, inventory and anything with invariants, multi-row transactions are worth a lot. Rebuilding them in application code is hard and error-prone."
+      },
+      "changes": [
+        "~ Checkout writes 4 rows in one transaction"
+      ],
+      "metrics": {
+        "joins": "yes",
+        "tx": "yes",
+        "schema": "fixed",
+        "scaleOut": "hard"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              },
+              {
+                "text": "ACID",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "tCust": {
+            "type": "block",
+            "x": -15,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "customers"
+            ]
+          },
+          "tOrd": {
+            "type": "block",
+            "x": -5,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "orders"
+            ],
+            "tags": [
+              {
+                "text": "+1 row",
+                "tone": "green"
+              }
+            ]
+          },
+          "tItem": {
+            "type": "block",
+            "x": 5,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "order",
+              "items"
+            ],
+            "tags": [
+              {
+                "text": "+3 rows",
+                "tone": "green"
+              }
+            ]
+          },
+          "tInv": {
+            "type": "block",
+            "x": 15,
+            "y": 17,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "inventory"
+            ],
+            "tags": [
+              {
+                "text": "stock −3",
+                "tone": "amber"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Checkout = one transaction",
+            "icon": "lock",
+            "lines": [
+              "BEGIN",
+              "UPDATE inventory SET stock = stock − 1 …",
+              "INSERT INTO orders …",
+              "INSERT INTO order_items … (×3)",
+              "COMMIT",
+              "= all four changes land, or none do"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /checkout"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "BEGIN … COMMIT"
+          },
+          "d1": {
+            "from": "pg",
+            "to": "tCust",
+            "pts": [
+              "pg",
+              "tCust"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d2": {
+            "from": "pg",
+            "to": "tOrd",
+            "pts": [
+              "pg",
+              "tOrd"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d3": {
+            "from": "pg",
+            "to": "tItem",
+            "pts": [
+              "pg",
+              "tItem"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "d4": {
+            "from": "pg",
+            "to": "tInv",
+            "pts": [
+              "pg",
+              "tInv"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "k1": {
+            "from": "tCust",
+            "to": "tOrd",
+            "pts": [
+              "tCust",
+              "tOrd"
+            ],
+            "label": "customer_id",
+            "heads": "none",
+            "style": "dashed"
+          },
+          "k2": {
+            "from": "tOrd",
+            "to": "tItem",
+            "pts": [
+              "tOrd",
+              "tItem"
+            ],
+            "label": "order_id",
+            "heads": "none",
+            "style": "dashed"
+          },
+          "k3": {
+            "from": "tItem",
+            "to": "tInv",
+            "pts": [
+              "tItem",
+              "tInv"
+            ],
+            "label": "sku",
+            "heads": "none",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 1.1
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "d3"
+                ]
+              },
+              {
+                "path": [
+                  "d4"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "customers · orders · items"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shape clash",
+      "chapter": "problem",
+      "title": "Recipes don't want to be tables",
+      "body": [
+        "A recipe is one nested thing: a title, an ordered list of steps, ingredients with quantities, nutrition, tags, photos. Normalised, it becomes <b>six tables</b> — and every recipe page is a six-way join stitching ~60 rows back together.",
+        "Worse, the content team adds fields every week (“allergens”, “wine pairing”). Each one is a schema migration on a growing table. The data's shape fights the model."
+      ],
+      "changes": [
+        "- Shop tables (off screen)",
+        "+ Six tables for one recipe",
+        "~ Postgres busier stitching rows"
+      ],
+      "metrics": {
+        "joins": "yes",
+        "tx": "yes",
+        "schema": "rigid",
+        "scaleOut": "hard"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 6,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "r1": {
+            "type": "block",
+            "x": -10,
+            "y": 16,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "recipes"
+            ]
+          },
+          "r2": {
+            "type": "block",
+            "x": 0,
+            "y": 16,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "steps"
+            ]
+          },
+          "r3": {
+            "type": "block",
+            "x": 10,
+            "y": 16,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "ingredients"
+            ]
+          },
+          "r4": {
+            "type": "block",
+            "x": -10,
+            "y": 25,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "nutrition"
+            ]
+          },
+          "r5": {
+            "type": "block",
+            "x": 0,
+            "y": 25,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "tags"
+            ]
+          },
+          "r6": {
+            "type": "block",
+            "x": 10,
+            "y": 25,
+            "s": 3.6,
+            "h": 26,
+            "color": "slab",
+            "glyph": "sheets",
+            "label": [
+              "photos"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Showing one recipe",
+            "icon": "sheets",
+            "lines": [
+              "# a recipe is one nested thing, stored as six tables"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Tables touched",
+                "note": "6",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "Rows stitched",
+                "note": "~60",
+                "to": 0.8,
+                "tone": "amber"
+              },
+              {
+                "label": "Migrations / month",
+                "note": "4",
+                "to": 0.55,
+                "tone": "amber"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /recipe/812"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "6-way JOIN"
+          },
+          "q1": {
+            "from": "pg",
+            "to": "r1",
+            "pts": [
+              "pg",
+              "r1"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "q2": {
+            "from": "pg",
+            "to": "r2",
+            "pts": [
+              "pg",
+              "r2"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "q3": {
+            "from": "pg",
+            "to": "r3",
+            "pts": [
+              "pg",
+              "r3"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "q4": {
+            "from": "pg",
+            "to": "r4",
+            "pts": [
+              "pg",
+              "r4"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "q5": {
+            "from": "pg",
+            "to": "r5",
+            "pts": [
+              "pg",
+              "r5"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "q6": {
+            "from": "pg",
+            "to": "r6",
+            "pts": [
+              "pg",
+              "r6"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1,
+            "hold": 0.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "q1"
+                ]
+              },
+              {
+                "path": [
+                  "q2"
+                ]
+              },
+              {
+                "path": [
+                  "q3"
+                ]
+              },
+              {
+                "path": [
+                  "q4"
+                ]
+              },
+              {
+                "path": [
+                  "q5"
+                ]
+              },
+              {
+                "path": [
+                  "q6"
+                ]
+              }
+            ],
+            "fanout": true,
+            "bounce": true,
+            "rate": 0.7,
+            "kind": "ping"
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "customers · orders · items",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Documents",
+      "chapter": "solution",
+      "title": "Document store: keep it together",
+      "body": [
+        "A <span class=\"term\">document database</span> stores each recipe as one JSON-like document, nested lists and all. Reading a recipe is a single lookup by id — the data is already in the shape the page needs.",
+        "The schema is flexible: a new field is just a new key in new documents. Because each document is self-contained, the store can spread documents across many machines more easily.",
+        "The cost: joins across documents are limited, and atomic updates are usually per document. That's fine for recipes — and exactly why orders stay in Postgres."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "“Schemaless” means the schema lives in your code instead. Old documents keep old shapes — readers must handle both."
+      },
+      "changes": [
+        "+ Document store holding recipe documents",
+        "~ Postgres keeps orders only"
+      ],
+      "metrics": {
+        "joins": "limited",
+        "tx": "per doc",
+        "schema": "flexible",
+        "scaleOut": "medium"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": -15.5,
+            "y": -9.5,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              }
+            ],
+            "cpu": -1
+          },
+          "doc": {
+            "type": "db",
+            "x": -7.5,
+            "y": -1.5,
+            "label": "Documents",
+            "tags": [
+              {
+                "text": "JSON docs",
+                "tone": "paper",
+                "icon": "braces"
+              }
+            ],
+            "glyph": "braces"
+          },
+          "docEx": {
+            "type": "block",
+            "x": -14.5,
+            "y": 5.5,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "braces",
+            "label": [
+              "recipe",
+              "#812"
+            ],
+            "sub": "nested JSON"
+          },
+          "card": {
+            "type": "panel",
+            "title": "One recipe = one document",
+            "icon": "braces",
+            "lines": [
+              "{ id: 812, title: \"Miso salmon\",",
+              "  steps: [ … ], ingredients: [ … ],",
+              "  tags: [\"quick\", \"fish\"], photos: [ … ] }",
+              "= one read, no joins",
+              "# a new field is just a new key — no migration"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /recipe/812"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "orders"
+          },
+          "e3": {
+            "from": "api",
+            "to": "doc",
+            "pts": [
+              "api",
+              "doc"
+            ],
+            "label": "find by id"
+          },
+          "x1": {
+            "from": "doc",
+            "to": "docEx",
+            "pts": [
+              "doc",
+              "docEx"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e3",
+              "x1"
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 1500,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "orders"
+          },
+          {
+            "id": "doc",
+            "kind": "mongodb",
+            "label": "Document store",
+            "sub": "recipes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          },
+          {
+            "from": "api",
+            "to": "doc"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Key-value",
+      "chapter": "technique",
+      "title": "Key-value: fastest when you know the key",
+      "body": [
+        "Sessions and carts are read on <em>every</em> request, always by their id. A <span class=\"term\">key-value store</span> is a distributed hash map: <code>put(key, value)</code>, <code>get(key)</code>, done. Lookups take about a millisecond and capacity grows by adding nodes.",
+        "The value is opaque to the store. You can't ask “which carts contain salmon?” — if you need that question, you need a different store (or a second copy of the data)."
+      ],
+      "changes": [
+        "+ Key-value store for sessions & carts"
+      ],
+      "metrics": {
+        "joins": "no",
+        "tx": "per key",
+        "schema": "none",
+        "scaleOut": "easy"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": -15.5,
+            "y": -9.5,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              }
+            ],
+            "cpu": -1
+          },
+          "doc": {
+            "type": "db",
+            "x": -7.5,
+            "y": -1.5,
+            "label": "Documents",
+            "tags": [
+              {
+                "text": "JSON docs",
+                "tone": "paper",
+                "icon": "braces"
+              }
+            ],
+            "glyph": "braces"
+          },
+          "docEx": {
+            "type": "block",
+            "x": -14.5,
+            "y": 5.5,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "braces",
+            "label": [
+              "recipe",
+              "#812"
+            ],
+            "sub": "nested JSON"
+          },
+          "kv": {
+            "type": "db",
+            "x": 0.5,
+            "y": 6.5,
+            "label": "Key-value",
+            "tags": [
+              {
+                "text": "get / put by key",
+                "tone": "paper",
+                "icon": "key"
+              }
+            ],
+            "glyph": "key"
+          },
+          "session": {
+            "type": "block",
+            "x": -6.5,
+            "y": 13.5,
+            "s": 4,
+            "h": 30,
+            "color": "orange",
+            "glyph": "key",
+            "label": [
+              "sess:9f3a"
+            ],
+            "sub": "→ cart blob"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Key-value: a giant hash map",
+            "icon": "key",
+            "lines": [
+              "put(\"sess:9f3a\", cart)   get(\"sess:9f3a\")",
+              "= ~1 ms, scales by adding nodes",
+              "! no “find sessions where cart > $50”",
+              "# the store can't look inside the value"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /recipe/812"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "orders"
+          },
+          "e3": {
+            "from": "api",
+            "to": "doc",
+            "pts": [
+              "api",
+              "doc"
+            ],
+            "label": "find by id"
+          },
+          "x1": {
+            "from": "doc",
+            "to": "docEx",
+            "pts": [
+              "doc",
+              "docEx"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "e4": {
+            "from": "api",
+            "to": "kv",
+            "pts": [
+              "api",
+              "kv"
+            ],
+            "label": "GET sess:9f3a"
+          },
+          "x2": {
+            "from": "kv",
+            "to": "session",
+            "pts": [
+              "kv",
+              "session"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e4",
+              "x2"
+            ],
+            "bounce": true,
+            "rate": 2.6,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "bounce": true,
+            "rate": 0.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Wide-column",
+      "chapter": "technique",
+      "title": "Wide-column: built for floods of writes",
+      "body": [
+        "Each van reports its position every 10 seconds — millions of small writes a day that are only ever read as “the trail of delivery X”. A <span class=\"term\">wide-column store</span> groups rows by a <b>partition key</b> (<code>order_id</code>) and keeps them sorted by a <b>clustering key</b> (<code>event_time</code>).",
+        "Writes spread evenly over many nodes and are cheap appends. The price: you design each table around one query up front, and joins and cross-partition transactions are essentially off the table."
+      ],
+      "changes": [
+        "+ Wide-column store fed by delivery vans"
+      ],
+      "metrics": {
+        "joins": "no",
+        "tx": "limited",
+        "schema": "per query",
+        "scaleOut": "easy"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": -15.5,
+            "y": -9.5,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "relational",
+                "tone": "paper",
+                "icon": "sheets"
+              }
+            ],
+            "cpu": -1
+          },
+          "doc": {
+            "type": "db",
+            "x": -7.5,
+            "y": -1.5,
+            "label": "Documents",
+            "tags": [
+              {
+                "text": "JSON docs",
+                "tone": "paper",
+                "icon": "braces"
+              }
+            ],
+            "glyph": "braces"
+          },
+          "docEx": {
+            "type": "block",
+            "x": -14.5,
+            "y": 5.5,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "braces",
+            "label": [
+              "recipe",
+              "#812"
+            ],
+            "sub": "nested JSON"
+          },
+          "kv": {
+            "type": "db",
+            "x": 0.5,
+            "y": 6.5,
+            "label": "Key-value",
+            "tags": [
+              {
+                "text": "get / put by key",
+                "tone": "paper",
+                "icon": "key"
+              }
+            ],
+            "glyph": "key"
+          },
+          "session": {
+            "type": "block",
+            "x": -6.5,
+            "y": 13.5,
+            "s": 4,
+            "h": 30,
+            "color": "orange",
+            "glyph": "key",
+            "label": [
+              "sess:9f3a"
+            ],
+            "sub": "→ cart blob"
+          },
+          "wide": {
+            "type": "db",
+            "x": 8.5,
+            "y": 14.5,
+            "label": "Wide-column",
+            "tags": [
+              {
+                "text": "partition key",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "glyph": "layers"
+          },
+          "vans": {
+            "type": "block",
+            "x": 16.5,
+            "y": 6.5,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "car",
+            "label": [
+              "Delivery",
+              "vans"
+            ],
+            "sub": "GPS ping / 10 s"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Wide-column: rows grouped by key",
+            "icon": "layers",
+            "lines": [
+              "partition: order_id  →  all events of one delivery",
+              "clustering: event_time  →  kept sorted on disk",
+              "= huge write volume, spread over many nodes",
+              "! design tables around the queries you'll run"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /recipe/812"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "orders"
+          },
+          "e3": {
+            "from": "api",
+            "to": "doc",
+            "pts": [
+              "api",
+              "doc"
+            ],
+            "label": "find by id"
+          },
+          "x1": {
+            "from": "doc",
+            "to": "docEx",
+            "pts": [
+              "doc",
+              "docEx"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "e4": {
+            "from": "api",
+            "to": "kv",
+            "pts": [
+              "api",
+              "kv"
+            ],
+            "label": "GET sess:9f3a"
+          },
+          "x2": {
+            "from": "kv",
+            "to": "session",
+            "pts": [
+              "kv",
+              "session"
+            ],
+            "style": "dashed",
+            "heads": "none"
+          },
+          "e5": {
+            "from": "vans",
+            "to": "wide",
+            "pts": [
+              "vans",
+              "wide"
+            ],
+            "label": "append event"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e5"
+            ],
+            "kind": "write",
+            "rate": 3,
+            "speed": 1.2
+          },
+          {
+            "route": [
+              "e1",
+              "e3"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Trade-offs",
+      "chapter": "tradeoff",
+      "title": "Every store gives something up",
+      "body": [
+        "<table class=\"compare\"><tbody><tr><th></th><th>Relational</th><th>Document</th><th>Key-value</th><th>Wide-column</th></tr><tr><td>Joins</td><td>yes</td><td>limited</td><td>no</td><td>no</td></tr><tr><td>Transactions</td><td>multi-row</td><td>per document</td><td>per key</td><td>per partition</td></tr><tr><td>Schema</td><td>enforced</td><td>flexible</td><td>none</td><td>per table</td></tr><tr><td>Scale writes out</td><td>hard</td><td>medium</td><td>easy</td><td>easy</td></tr></tbody></table>",
+        "Larder now runs four stores — and pays for it: four things to operate, back up and monitor, plus data that must be kept in sync between them."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Polyglot persistence multiplies operational work. Each extra store must earn its place with a real access pattern."
+      },
+      "changes": [
+        "~ Each store owns one kind of data"
+      ],
+      "metrics": {
+        "joins": "where needed",
+        "tx": "where needed",
+        "schema": "per store",
+        "scaleOut": "per store"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": -15.5,
+            "y": -9.5,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "orders · payments",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ],
+            "cpu": -1
+          },
+          "doc": {
+            "type": "db",
+            "x": -7.5,
+            "y": -1.5,
+            "label": "Documents",
+            "tags": [
+              {
+                "text": "recipes",
+                "tone": "green",
+                "icon": "braces"
+              }
+            ],
+            "glyph": "braces"
+          },
+          "kv": {
+            "type": "db",
+            "x": 0.5,
+            "y": 6.5,
+            "label": "Key-value",
+            "tags": [
+              {
+                "text": "sessions · carts",
+                "tone": "green",
+                "icon": "key"
+              }
+            ],
+            "glyph": "key"
+          },
+          "wide": {
+            "type": "db",
+            "x": 8.5,
+            "y": 14.5,
+            "label": "Wide-column",
+            "tags": [
+              {
+                "text": "van tracking",
+                "tone": "green",
+                "icon": "layers"
+              }
+            ],
+            "glyph": "layers"
+          },
+          "vans": {
+            "type": "block",
+            "x": 16.5,
+            "y": 6.5,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "car",
+            "label": [
+              "Delivery",
+              "vans"
+            ],
+            "sub": "GPS ping / 10 s"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /recipe/812"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "checkout"
+          },
+          "e3": {
+            "from": "api",
+            "to": "doc",
+            "pts": [
+              "api",
+              "doc"
+            ],
+            "label": "find by id"
+          },
+          "e4": {
+            "from": "api",
+            "to": "kv",
+            "pts": [
+              "api",
+              "kv"
+            ],
+            "label": "GET sess:9f3a"
+          },
+          "e5": {
+            "from": "vans",
+            "to": "wide",
+            "pts": [
+              "vans",
+              "wide"
+            ],
+            "label": "append event"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e3"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "e4"
+                ],
+                "weight": 3
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "e5"
+            ],
+            "kind": "write",
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 2400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "orders · payments"
+          },
+          {
+            "id": "doc",
+            "kind": "mongodb",
+            "label": "Document store",
+            "sub": "recipes"
+          },
+          {
+            "id": "kv",
+            "kind": "dynamodb",
+            "label": "Key-value store",
+            "sub": "sessions"
+          },
+          {
+            "id": "wide",
+            "kind": "cassandra",
+            "label": "Wide-column",
+            "sub": "van tracking"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          },
+          {
+            "from": "api",
+            "to": "doc"
+          },
+          {
+            "from": "api",
+            "to": "kv"
+          },
+          {
+            "from": "api",
+            "to": "wide"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Shape and access pattern decide",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Relational</b>: normalised tables, joins, multi-row ACID transactions. The safe default.</li><li><b>Document</b>: self-contained nested records read whole; flexible schema, weaker joins.</li><li><b>Key-value</b>: get/put by key at huge rates; no queries on the value.</li><li><b>Wide-column</b>: write-heavy data partitioned by key, tables designed per query.</li></ul>",
+        "Start with one relational database. Add a specialised store only when a concrete workload outgrows it."
+      ],
+      "metrics": {
+        "joins": "where needed",
+        "tx": "where needed",
+        "schema": "per store",
+        "scaleOut": "per store"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 10,
+            "label": "Larder shoppers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Larder",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "pg": {
+            "type": "db",
+            "x": -15.5,
+            "y": -9.5,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "orders · payments",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ],
+            "cpu": -1
+          },
+          "doc": {
+            "type": "db",
+            "x": -7.5,
+            "y": -1.5,
+            "label": "Documents",
+            "tags": [
+              {
+                "text": "recipes",
+                "tone": "green",
+                "icon": "braces"
+              }
+            ],
+            "glyph": "braces"
+          },
+          "kv": {
+            "type": "db",
+            "x": 0.5,
+            "y": 6.5,
+            "label": "Key-value",
+            "tags": [
+              {
+                "text": "sessions · carts",
+                "tone": "green",
+                "icon": "key"
+              }
+            ],
+            "glyph": "key"
+          },
+          "wide": {
+            "type": "db",
+            "x": 8.5,
+            "y": 14.5,
+            "label": "Wide-column",
+            "tags": [
+              {
+                "text": "van tracking",
+                "tone": "green",
+                "icon": "layers"
+              }
+            ],
+            "glyph": "layers"
+          },
+          "vans": {
+            "type": "block",
+            "x": 16.5,
+            "y": 6.5,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "car",
+            "label": [
+              "Delivery",
+              "vans"
+            ],
+            "sub": "GPS ping / 10 s"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Choose by access pattern",
+            "icon": "listChecks",
+            "lines": [
+              "money, relations, invariants → **relational**",
+              "self-contained nested records → **document**",
+              "lookups by one key, huge rate → **key-value**",
+              "append-heavy, query by partition → **wide-column**",
+              "= default to relational; add others for a reason"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /recipe/812"
+          },
+          "e2": {
+            "from": "api",
+            "to": "pg",
+            "pts": [
+              "api",
+              "pg"
+            ],
+            "label": "checkout"
+          },
+          "e3": {
+            "from": "api",
+            "to": "doc",
+            "pts": [
+              "api",
+              "doc"
+            ],
+            "label": "find by id"
+          },
+          "e4": {
+            "from": "api",
+            "to": "kv",
+            "pts": [
+              "api",
+              "kv"
+            ],
+            "label": "GET sess:9f3a"
+          },
+          "e5": {
+            "from": "vans",
+            "to": "wide",
+            "pts": [
+              "vans",
+              "wide"
+            ],
+            "label": "append event"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2"
+                ],
+                "weight": 1
+              },
+              {
+                "path": [
+                  "e1",
+                  "e3"
+                ],
+                "weight": 2
+              },
+              {
+                "path": [
+                  "e1",
+                  "e4"
+                ],
+                "weight": 3
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "e5"
+            ],
+            "kind": "write",
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 2400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Larder API"
+          },
+          {
+            "id": "pg",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "orders · payments"
+          },
+          {
+            "id": "doc",
+            "kind": "mongodb",
+            "label": "Document store",
+            "sub": "recipes"
+          },
+          {
+            "id": "kv",
+            "kind": "dynamodb",
+            "label": "Key-value store",
+            "sub": "sessions"
+          },
+          {
+            "id": "wide",
+            "kind": "cassandra",
+            "label": "Wide-column",
+            "sub": "van tracking"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "pg"
+          },
+          {
+            "from": "api",
+            "to": "doc"
+          },
+          {
+            "from": "api",
+            "to": "kv"
+          },
+          {
+            "from": "api",
+            "to": "wide"
+          }
+        ]
+      }
+    }
+  ]
+}

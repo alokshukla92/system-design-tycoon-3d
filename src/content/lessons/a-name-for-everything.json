@@ -1,0 +1,2597 @@
+{
+  "id": "a-name-for-everything",
+  "title": "A Name for Everything",
+  "summary": "Loopline tracks millions of parcels across sharded databases. Every one of them needs an id that no other parcel will ever get.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "wps",
+    "collide",
+    "idSize",
+    "sortable",
+    "idDep"
+  ],
+  "legend": [
+    [
+      "write",
+      "insert"
+    ],
+    "res",
+    [
+      "slow",
+      "waiting for an id"
+    ],
+    [
+      "ping",
+      "range lease"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why per-database counters collide once you shard",
+      "step": 1
+    },
+    {
+      "text": "Weigh a central counter against random UUIDs",
+      "step": 2
+    },
+    {
+      "text": "Lease id ranges from a ticket server",
+      "step": 5
+    },
+    {
+      "text": "Build time-sortable ids from time, worker and sequence",
+      "step": 6
+    },
+    {
+      "text": "Guard a generator against clocks that jump back",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "One counter",
+      "chapter": "setup",
+      "title": "Every parcel needs a number",
+      "body": [
+        "<b>Loopline</b> tracks parcels for 3,000 local shops. Every label printed and every parcel registered creates a row, and every row needs an <span class=\"term\">id</span> that no other row will ever have.",
+        "Today that's easy. The parcels table has an <code>id BIGSERIAL</code> column and the single Postgres database hands out 1, 2, 3… Because only one machine is counting, two rows can never receive the same number."
+      ],
+      "metrics": {
+        "wps": "2,000",
+        "collide": "no",
+        "idSize": "8 bytes",
+        "sortable": "yes",
+        "idDep": "one DB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A"
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 8,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "id BIGSERIAL"
+              },
+              {
+                "text": "next id 4,180,221",
+                "tone": "violet",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "db",
+            "pts": [
+              "apiA",
+              "db"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "db",
+            "pts": [
+              "apiB",
+              "db"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Two counters",
+      "chapter": "problem",
+      "title": "Two databases, two counters",
+      "body": [
+        "Write traffic outgrew one machine, so the parcels table was split across two <span class=\"term\">shards</span>. Each shard kept its own <code>BIGSERIAL</code> — and each counter is counting on its own.",
+        "So shard A gives parcel <b>#9,014</b> to a florist in Leeds, and shard B gives <b>#9,014</b> to a bike shop in Porto a second later. A courier scans the label and the tracking page has two candidates."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "An auto-increment counter is only unique inside the one database that owns it."
+      },
+      "changes": [
+        "- Single Postgres",
+        "+ Shard A and shard B, each with its own counter"
+      ],
+      "metrics": {
+        "wps": "12,000",
+        "collide": "yes",
+        "idSize": "8 bytes",
+        "sortable": "per shard",
+        "idDep": "own shard"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A"
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B"
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "next id 9,014",
+                "tone": "violet",
+                "icon": "hash"
+              },
+              {
+                "text": "dup!",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "next id 9,014",
+                "tone": "violet",
+                "icon": "hash"
+              },
+              {
+                "text": "dup!",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Same number, two parcels",
+            "icon": "alert",
+            "lines": [
+              "Shard A → **#9,014** · florist, Leeds",
+              "Shard B → **#9,014** · bike shop, Porto",
+              "! one tracking number, two parcels"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 12000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "One sequence",
+      "chapter": "problem",
+      "title": "Ask one central counter?",
+      "body": [
+        "The obvious fix: keep a single <span class=\"term\">sequence</span> in one place and have every insert ask it for the next number first. Ids are unique again — but every write now pays an extra round trip to the same box.",
+        "That box is a <b>bottleneck</b> and a <b>single point of failure</b>. At peak it caps the whole system at what one machine can count, and when it restarts nobody anywhere can register a parcel."
+      ],
+      "changes": [
+        "+ Central id counter",
+        "~ Every insert waits for a number first"
+      ],
+      "metrics": {
+        "wps": "7k of 30k",
+        "collide": "no",
+        "idSize": "8 bytes",
+        "sortable": "yes",
+        "idDep": "every insert"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "server A",
+            "heat": 0.35
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "server B",
+            "heat": 0.35
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "ctr": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.2,
+            "color": "orange",
+            "glyph": "hash",
+            "label": [
+              "Id",
+              "counter"
+            ],
+            "h": 34,
+            "heat": 1,
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "every insert",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          },
+          "ca": {
+            "from": "apiA",
+            "to": "ctr",
+            "pts": [
+              "apiA",
+              "ctr"
+            ],
+            "label": "next id?",
+            "fail": 0.2
+          },
+          "cb": {
+            "from": "apiB",
+            "to": "ctr",
+            "pts": [
+              "apiB",
+              "ctr"
+            ],
+            "label": "next id?",
+            "fail": 0.2
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "ca"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "cb"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          },
+          {
+            "id": "ctr",
+            "kind": "redis",
+            "label": "Id counter",
+            "sub": "every insert",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          },
+          {
+            "from": "api",
+            "to": "ctr"
+          }
+        ]
+      }
+    },
+    {
+      "short": "UUIDv4",
+      "chapter": "technique",
+      "title": "Pick a number nobody else will pick",
+      "body": [
+        "A <span class=\"term\">UUIDv4</span> skips coordination entirely: the server fills 122 bits with randomness and that's the id. No counter, no round trip, no shared state — any server, any shard, even a phone that's offline can mint one.",
+        "Duplicates are possible in principle and irrelevant in practice: with 2¹²² possible values, Loopline could mint ids at full speed for a year and the chance of a single repeat would be around one in ten trillion."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "A UUID is 16 bytes — twice a BIGINT — and it's copied into every index and foreign key that references the row."
+      },
+      "changes": [
+        "- Central id counter",
+        "~ Each API server generates ids locally"
+      ],
+      "metrics": {
+        "wps": "30,000",
+        "collide": "no",
+        "idSize": "16 bytes",
+        "sortable": "no",
+        "idDep": "nothing"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "uuid4()",
+                "tone": "green",
+                "icon": "sparkles"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "uuid4()",
+                "tone": "green",
+                "icon": "sparkles"
+              }
+            ]
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "UUID keys"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "UUID keys"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "122 random bits",
+            "icon": "sparkles",
+            "lines": [
+              "2¹²² ≈ 5 × 10³⁶ possible ids",
+              "1 year at 30,000 / s ≈ 10¹² ids",
+              "= chance of any repeat ≈ 1 in 10¹³"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Index pain",
+      "chapter": "tradeoff",
+      "title": "Random keys, scattered writes",
+      "body": [
+        "The database keeps the primary key in a <span class=\"term\">B-tree</span> sorted by id. Counter ids always land at the right-hand edge, so the same few pages stay hot in memory. Random UUIDs land on <em>any</em> page: inserts touch cold pages, split full ones, and push each other out of the cache.",
+        "Once the index is much bigger than RAM, insert throughput sags. And the ids are useless for ordering — <code>ORDER BY id</code> returns parcels in random order, so you need a separate timestamp index too."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Random primary keys hurt most exactly when the table is far bigger than memory."
+      },
+      "changes": [
+        "~ Shard indexes: inserts scattered across all pages"
+      ],
+      "metrics": {
+        "wps": "22k of 30k",
+        "collide": "no",
+        "idSize": "16 bytes",
+        "sortable": "no",
+        "idDep": "nothing"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "uuid4()",
+                "tone": "green",
+                "icon": "sparkles"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "uuid4()",
+                "tone": "green",
+                "icon": "sparkles"
+              }
+            ]
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "UUID keys"
+              },
+              {
+                "text": "page splits",
+                "tone": "amber",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "UUID keys"
+              },
+              {
+                "text": "page splits",
+                "tone": "amber",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.78,
+            "heat": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Where new rows land in the index",
+            "icon": "layers",
+            "lines": [
+              "# the key's B-tree, from smallest to largest id"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Counter ids",
+                "note": "always the right edge",
+                "from": 0.9,
+                "to": 1,
+                "tone": "green"
+              },
+              {
+                "label": "Random UUIDs",
+                "note": "any page, any time",
+                "from": 0,
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 3,
+            "pattern": [
+              "write",
+              "write",
+              "slow"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A",
+            "status": "warn"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Ticket ranges",
+      "chapter": "technique",
+      "title": "Hand out ids in batches",
+      "body": [
+        "A middle ground keeps compact 64-bit numbers without asking on every insert. A <span class=\"term\">ticket server</span> leases each API server a whole <b>range</b> — say 9,001 to 10,000 — and the server spends it from memory, asking again only when it runs out.",
+        "One call per thousand inserts takes the counter off the hot path. Run two ticket servers, one leasing odd-numbered ranges and one even, so either can restart without stopping registrations."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Ranges leave gaps: if a server crashes holding 9,001–10,000, the unused numbers are simply skipped. Ids must be unique, never gapless."
+      },
+      "changes": [
+        "+ Ticket server leasing ranges of 1,000",
+        "~ API servers spend their range from memory"
+      ],
+      "metrics": {
+        "wps": "30,000",
+        "collide": "no",
+        "idSize": "8 bytes",
+        "sortable": "roughly",
+        "idDep": "ticket server"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "9,001–10,000",
+                "tone": "violet",
+                "icon": "hash"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "10,001–11,000",
+                "tone": "violet",
+                "icon": "hash"
+              }
+            ]
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "tick": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.2,
+            "color": "yellow",
+            "glyph": "ticket",
+            "label": [
+              "Ticket",
+              "server"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "odd / even pair",
+                "tone": "gray",
+                "icon": "layers"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          },
+          "ta": {
+            "from": "apiA",
+            "to": "tick",
+            "pts": [
+              "apiA",
+              "tick"
+            ],
+            "label": "lease 1,000",
+            "style": "dashed"
+          },
+          "tb": {
+            "from": "apiB",
+            "to": "tick",
+            "pts": [
+              "apiB",
+              "tick"
+            ],
+            "label": "lease 1,000",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ta"
+                ]
+              },
+              {
+                "path": [
+                  "tb"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.35
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          },
+          {
+            "id": "tick",
+            "kind": "mysql",
+            "label": "Ticket server",
+            "sub": "leases ranges"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          },
+          {
+            "from": "api",
+            "to": "tick"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Time + worker",
+      "chapter": "technique",
+      "title": "Time, machine, sequence",
+      "body": [
+        "A <span class=\"term\">Snowflake-style id</span> packs three things into one 64-bit number: the <b>milliseconds</b> since a chosen epoch, a <b>worker id</b> unique to each generator, and a <b>sequence</b> that counts ids within the current millisecond.",
+        "Each server builds ids from its own clock and its own worker number — no network call at all. Two servers can't collide because their worker ids differ; one server can't repeat itself because its sequence only resets when the millisecond changes."
+      ],
+      "changes": [
+        "- Ticket server",
+        "~ Each API server gets a worker id and builds ids locally"
+      ],
+      "metrics": {
+        "wps": "30,000",
+        "collide": "no",
+        "idSize": "8 bytes",
+        "sortable": "yes",
+        "idDep": "local clock"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "worker 17",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "worker 18",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "64-bit id layout",
+            "icon": "hash",
+            "lines": [
+              "# each bar is its share of the 64 bits"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "sign",
+                "note": "1 bit",
+                "from": 0,
+                "to": 0.02,
+                "tone": "gray"
+              },
+              {
+                "label": "timestamp",
+                "note": "41 bits · ~69 years of ms",
+                "from": 0.02,
+                "to": 0.66,
+                "tone": "violet",
+                "bold": true
+              },
+              {
+                "label": "worker id",
+                "note": "10 bits · 1,024 workers",
+                "from": 0.66,
+                "to": 0.81,
+                "tone": "blue"
+              },
+              {
+                "label": "sequence",
+                "note": "12 bits · 4,096 per ms",
+                "from": 0.81,
+                "to": 1,
+                "tone": "green"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sortable",
+      "chapter": "insight",
+      "title": "Ids that sort by time",
+      "body": [
+        "Because the timestamp sits in the high bits, newer ids are bigger numbers. <code>ORDER BY id DESC</code> now means newest first, inserts append at the right edge of the B-tree again, and you can read a parcel's creation time straight out of its id.",
+        "The 128-bit world borrowed the same trick: <span class=\"term\">UUIDv7</span> and ULID put a millisecond timestamp in front of random bits, so you keep coordination-free generation <em>and</em> index-friendly ordering."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A good id scheme is unique without coordination and roughly ordered by time. You rarely have to give up either."
+      },
+      "changes": [
+        "~ Shard indexes: inserts append at the end again"
+      ],
+      "metrics": {
+        "wps": "30,000",
+        "collide": "no",
+        "idSize": "8 bytes",
+        "sortable": "yes",
+        "idDep": "local clock"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "worker 17",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "worker 18",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              },
+              {
+                "text": "appends at end",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              },
+              {
+                "text": "appends at end",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Reading an id",
+            "icon": "clock",
+            "lines": [
+              "id = (ms << 22) | (worker << 12) | seq",
+              "bigger id ⇒ created later",
+              "= creation time = id >> 22 (+ epoch)"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Clock skew",
+      "chapter": "tradeoff",
+      "title": "When the clock jumps back",
+      "body": [
+        "Time-based ids trust the clock. If a time sync steps worker 18's clock <b>back by 4 ms</b>, it re-enters milliseconds it already used and could mint ids it already handed out.",
+        "Generators defend themselves: remember the last timestamp used, and if the clock reads earlier than that, wait until it catches up (or refuse to issue ids). Worker ids need the same care — lease them from a coordination service at startup instead of hard-coding them in config files."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Two servers that accidentally share a worker id will produce duplicates silently, at full speed."
+      },
+      "changes": [
+        "~ Worker 18's clock steps back 4 ms",
+        "~ Its generator pauses until time passes the last id"
+      ],
+      "metrics": {
+        "wps": "30,000",
+        "collide": "if unsafe",
+        "idSize": "8 bytes",
+        "sortable": "roughly",
+        "idDep": "local clock"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "worker 17",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "worker 18",
+                "tone": "violet",
+                "icon": "idCard"
+              },
+              {
+                "text": "clock −4 ms",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "heat": 0.35
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              },
+              {
+                "text": "appends at end",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              },
+              {
+                "text": "appends at end",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "waits 4 ms",
+            "labelTone": "amber"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ],
+                "kind": "slow"
+              }
+            ],
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Choosing an id scheme",
+      "body": [
+        "<table class=\"compare\"><tbody><tr><th>Scheme</th><th>Size</th><th>Sorted</th><th>Coordination</th></tr><tr><td>Auto-increment</td><td>8 B</td><td>yes</td><td>one DB, every insert</td></tr><tr><td>UUIDv4</td><td>16 B</td><td>no</td><td>none</td></tr><tr><td>Ticket ranges</td><td>8 B</td><td>roughly</td><td>one call per range</td></tr><tr><td>Time + worker + seq</td><td>8 B</td><td>yes</td><td>unique worker ids</td></tr><tr><td>UUIDv7 / ULID</td><td>16 B</td><td>yes</td><td>none</td></tr></tbody></table>",
+        "<ul class=\"takeaways\"><li>Per-database counters stop being unique the moment you shard.</li><li>Random ids remove coordination but scatter index writes.</li><li>Time-prefixed ids give uniqueness, ordering and compact indexes — as long as clocks and worker ids are guarded.</li></ul>"
+      ],
+      "metrics": {
+        "wps": "30,000",
+        "collide": "no",
+        "idSize": "8 bytes",
+        "sortable": "yes",
+        "idDep": "local clock"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -30,
+            "y1": -24,
+            "count": 10,
+            "label": "Shops & couriers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "apiA": {
+            "type": "block",
+            "x": -8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server A",
+            "tags": [
+              {
+                "text": "worker 17",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "apiB": {
+            "type": "block",
+            "x": 8,
+            "y": -6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "server B",
+            "tags": [
+              {
+                "text": "worker 18",
+                "tone": "violet",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "sA": {
+            "type": "db",
+            "x": -8,
+            "y": 8,
+            "label": "Shard A",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              },
+              {
+                "text": "appends at end",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "sB": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "Shard B",
+            "tags": [
+              {
+                "text": "BIGINT ids"
+              },
+              {
+                "text": "appends at end",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /parcels"
+          },
+          "la": {
+            "from": "lb",
+            "to": "apiA",
+            "pts": [
+              "lb",
+              "apiA"
+            ]
+          },
+          "lb2": {
+            "from": "lb",
+            "to": "apiB",
+            "pts": [
+              "lb",
+              "apiB"
+            ]
+          },
+          "wa": {
+            "from": "apiA",
+            "to": "sA",
+            "pts": [
+              "apiA",
+              "sA"
+            ],
+            "label": "INSERT"
+          },
+          "wb": {
+            "from": "apiB",
+            "to": "sB",
+            "pts": [
+              "apiB",
+              "sB"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "la",
+                  "wa"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "lb2",
+                  "wb"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shops & couriers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 servers"
+          },
+          {
+            "id": "sA",
+            "kind": "postgres",
+            "label": "Shard A"
+          },
+          {
+            "id": "sB",
+            "kind": "postgres",
+            "label": "Shard B"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "sA"
+          },
+          {
+            "from": "api",
+            "to": "sB"
+          }
+        ]
+      }
+    }
+  ]
+}

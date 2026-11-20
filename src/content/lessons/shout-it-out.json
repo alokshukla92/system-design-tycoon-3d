@@ -1,0 +1,3012 @@
+{
+  "id": "shout-it-out",
+  "title": "Shout It Out",
+  "summary": "Publish an event once and let any number of services react — fan-out, decoupling, replayable logs, ordering per key and consumer groups.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "checkout",
+    "knows",
+    "breaks",
+    "subs"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "msg",
+    [
+      "mine",
+      "order 881's events"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See how direct calls couple a service to everything downstream",
+      "step": 1
+    },
+    {
+      "text": "Fan out events to independent subscribers",
+      "step": 3
+    },
+    {
+      "text": "Replay history from an event log",
+      "step": 6
+    },
+    {
+      "text": "Keep per-key order with partitions",
+      "step": 7
+    },
+    {
+      "text": "Share work with consumer groups",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Call chain",
+      "chapter": "setup",
+      "title": "Checkout calls everyone",
+      "body": [
+        "<b>Bramble</b> sells houseplants online. When a shopper checks out, the Orders service charges the card and then, one by one, asks Email to send a receipt, Inventory to reserve stock, Analytics to record the sale and Loyalty to add points.",
+        "Each call is quick on its own, but they add up: the shopper stares at a spinner for over a second while Orders runs errands."
+      ],
+      "metrics": {
+        "checkout": 1250,
+        "knows": 5,
+        "breaks": "yes",
+        "subs": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Inside one checkout",
+            "icon": "cart",
+            "lines": [
+              "charge card        180 ms",
+              "send receipt email 420 ms",
+              "reserve stock      150 ms",
+              "record analytics   260 ms",
+              "add loyalty points 240 ms",
+              "= 1.25 s before “Thanks!”"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "demail": {
+            "from": "orders",
+            "to": "email",
+            "pts": [
+              "orders",
+              "email"
+            ],
+            "heads": "both"
+          },
+          "dinv": {
+            "from": "orders",
+            "to": "inv",
+            "pts": [
+              "orders",
+              "inv"
+            ],
+            "heads": "both"
+          },
+          "dana": {
+            "from": "orders",
+            "to": "ana",
+            "pts": [
+              "orders",
+              "ana"
+            ],
+            "heads": "both"
+          },
+          "dloy": {
+            "from": "orders",
+            "to": "loy",
+            "pts": [
+              "orders",
+              "loy"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 0.6,
+            "hold": 1.4,
+            "speed": 0.8
+          },
+          {
+            "route": [
+              [
+                "pp",
+                "demail",
+                "dinv",
+                "dana",
+                "dloy"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders",
+            "sub": "calls 5 services in a row"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Orders DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Email down",
+      "chapter": "problem",
+      "title": "A receipt takes down checkout",
+      "body": [
+        "The email provider has an outage. Orders waits for its 5-second timeout, then treats the whole checkout as failed. Shoppers with full baskets and valid cards can't buy anything.",
+        "This is <span class=\"term\">temporal coupling</span>: Orders can only succeed when every service it calls is up at that same moment. The more services in the chain, the more often one of them isn't."
+      ],
+      "changes": [
+        "- Email provider down",
+        "~ Checkout fails after 5 s"
+      ],
+      "metrics": {
+        "checkout": 5000,
+        "knows": 5,
+        "breaks": "yes",
+        "subs": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.8,
+            "heat": 0.7,
+            "tags": [
+              {
+                "text": "waiting on Email",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40,
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Email is down",
+            "icon": "mail",
+            "lines": [
+              "the email provider times out after 5 s",
+              "Orders waits, then gives up",
+              "! the order fails — the plants were in stock",
+              "# a receipt took down revenue"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "demail": {
+            "from": "orders",
+            "to": "email",
+            "pts": [
+              "orders",
+              "email"
+            ],
+            "heads": "both",
+            "style": "cut",
+            "fail": 1
+          },
+          "dinv": {
+            "from": "orders",
+            "to": "inv",
+            "pts": [
+              "orders",
+              "inv"
+            ],
+            "heads": "both"
+          },
+          "dana": {
+            "from": "orders",
+            "to": "ana",
+            "pts": [
+              "orders",
+              "ana"
+            ],
+            "heads": "both"
+          },
+          "dloy": {
+            "from": "orders",
+            "to": "loy",
+            "pts": [
+              "orders",
+              "loy"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 0.6,
+            "hold": 1.4,
+            "speed": 0.8,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              [
+                "pp",
+                "demail",
+                "dinv",
+                "dana",
+                "dloy"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders",
+            "sub": "calls 5 services in a row",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Orders DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "New feature",
+      "chapter": "problem",
+      "title": "Everyone's changes land in Orders",
+      "body": [
+        "Marketing wants a free gift on a customer's first order. That's a new service — and, with direct calls, another change to Orders: new client code, new error handling, another redeploy of the most critical service in the company.",
+        "Orders has become the place where every team's feature has to be wired in."
+      ],
+      "changes": [
+        "+ Planned Gift service",
+        "~ Orders would make a 6th call"
+      ],
+      "metrics": {
+        "checkout": 1400,
+        "knows": 6,
+        "breaks": "yes",
+        "subs": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "4th redeploy this month",
+                "tone": "amber",
+                "icon": "rocket"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Every new idea edits Orders",
+            "icon": "gitBranch",
+            "lines": [
+              "marketing: “free gift on first order”",
+              "→ Orders team adds a 6th call",
+              "→ test, review, redeploy checkout",
+              "! Orders knows everyone downstream"
+            ]
+          },
+          "gift": {
+            "type": "ghost",
+            "x": 17.5,
+            "y": 6,
+            "s": 3.6,
+            "h": 40,
+            "label": "Gift box?"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "demail": {
+            "from": "orders",
+            "to": "email",
+            "pts": [
+              "orders",
+              "email"
+            ],
+            "heads": "both"
+          },
+          "dinv": {
+            "from": "orders",
+            "to": "inv",
+            "pts": [
+              "orders",
+              "inv"
+            ],
+            "heads": "both"
+          },
+          "dana": {
+            "from": "orders",
+            "to": "ana",
+            "pts": [
+              "orders",
+              "ana"
+            ],
+            "heads": "both"
+          },
+          "dloy": {
+            "from": "orders",
+            "to": "loy",
+            "pts": [
+              "orders",
+              "loy"
+            ],
+            "heads": "both"
+          },
+          "dgift": {
+            "from": "orders",
+            "to": "gift",
+            "pts": [
+              "orders",
+              "gift"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 0.6,
+            "hold": 1.4,
+            "speed": 0.8
+          },
+          {
+            "route": [
+              [
+                "pp",
+                "demail",
+                "dinv",
+                "dana",
+                "dloy"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Publish",
+      "chapter": "solution",
+      "title": "Announce it, don't arrange it",
+      "body": [
+        "Flip the arrows. Orders still charges the card synchronously (it must know the payment worked), then publishes one <span class=\"term\">event</span> — <code>OrderPlaced</code> — to a <span class=\"term\">topic</span> and replies to the shopper.",
+        "Every interested service <span class=\"term\">subscribes</span> to the topic and gets its own copy. This is <span class=\"term\">publish/subscribe</span>: the publisher states a fact; subscribers decide what to do about it."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "An event is a fact in the past tense (“order placed”), not a command (“send email”). The publisher doesn't care who reacts."
+      },
+      "changes": [
+        "+ order-events topic",
+        "~ Orders publishes one event",
+        "~ Subscribers react on their own"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 4
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "topic": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "radio",
+            "label": [
+              "order",
+              "events"
+            ],
+            "h": 34,
+            "sub": "topic"
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Orders only announces",
+            "icon": "radio",
+            "lines": [
+              "OrderPlaced { id 881, items, total }",
+              "Email, Inventory, Analytics, Loyalty",
+              "each subscribed on their own",
+              "= Orders doesn't know who listens"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pub": {
+            "from": "orders",
+            "to": "topic",
+            "pts": [
+              "orders",
+              "topic"
+            ],
+            "label": "publish OrderPlaced"
+          },
+          "temail": {
+            "from": "topic",
+            "to": "email",
+            "pts": [
+              "topic",
+              "email"
+            ]
+          },
+          "tinv": {
+            "from": "topic",
+            "to": "inv",
+            "pts": [
+              "topic",
+              "inv"
+            ]
+          },
+          "tana": {
+            "from": "topic",
+            "to": "ana",
+            "pts": [
+              "topic",
+              "ana"
+            ]
+          },
+          "tloy": {
+            "from": "topic",
+            "to": "loy",
+            "pts": [
+              "topic",
+              "loy"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 1.1
+          },
+          {
+            "route": [
+              "pub"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "temail"
+                ]
+              },
+              {
+                "path": [
+                  "tinv"
+                ]
+              },
+              {
+                "path": [
+                  "tana"
+                ]
+              },
+              {
+                "path": [
+                  "tloy"
+                ]
+              }
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "topic",
+            "kind": "kafka",
+            "label": "order events",
+            "sub": "4 subscribers"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Subscribers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Orders DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "db"
+          },
+          {
+            "from": "orders",
+            "to": "topic"
+          },
+          {
+            "from": "topic",
+            "to": "w"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fan-out",
+      "chapter": "technique",
+      "title": "New listener, zero changes",
+      "body": [
+        "The Gift team creates their own subscription and starts receiving <code>OrderPlaced</code> events. Orders isn't touched or redeployed. This <span class=\"term\">fan-out</span> is the payoff of decoupling: adding a consumer costs the publisher nothing."
+      ],
+      "changes": [
+        "+ Gift service subscribes",
+        "~ Orders unchanged"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "no change",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "topic": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "radio",
+            "label": [
+              "order",
+              "events"
+            ],
+            "h": 34,
+            "sub": "topic"
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "gift": {
+            "type": "block",
+            "x": 17.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "gift",
+            "label": [
+              "Gift",
+              "box"
+            ],
+            "h": 40
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pub": {
+            "from": "orders",
+            "to": "topic",
+            "pts": [
+              "orders",
+              "topic"
+            ],
+            "label": "publish OrderPlaced"
+          },
+          "temail": {
+            "from": "topic",
+            "to": "email",
+            "pts": [
+              "topic",
+              "email"
+            ]
+          },
+          "tinv": {
+            "from": "topic",
+            "to": "inv",
+            "pts": [
+              "topic",
+              "inv"
+            ]
+          },
+          "tana": {
+            "from": "topic",
+            "to": "ana",
+            "pts": [
+              "topic",
+              "ana"
+            ]
+          },
+          "tloy": {
+            "from": "topic",
+            "to": "loy",
+            "pts": [
+              "topic",
+              "loy"
+            ]
+          },
+          "tgift": {
+            "from": "topic",
+            "to": "gift",
+            "pts": [
+              "topic",
+              "gift"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 1.1
+          },
+          {
+            "route": [
+              "pub"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "temail"
+                ]
+              },
+              {
+                "path": [
+                  "tinv"
+                ]
+              },
+              {
+                "path": [
+                  "tana"
+                ]
+              },
+              {
+                "path": [
+                  "tloy"
+                ]
+              },
+              {
+                "path": [
+                  "tgift"
+                ]
+              }
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "topic",
+            "kind": "kafka",
+            "label": "order events",
+            "sub": "5 subscribers"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Subscribers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Orders DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "db"
+          },
+          {
+            "from": "orders",
+            "to": "topic"
+          },
+          {
+            "from": "topic",
+            "to": "w"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fail apart",
+      "chapter": "insight",
+      "title": "One subscriber down, nobody else cares",
+      "body": [
+        "The email provider fails again. This time checkout doesn't notice: Email's subscription simply keeps collecting events — 1,200 receipts waiting — while Inventory, Analytics, Loyalty and Gift carry on.",
+        "When Email recovers it works through the pile. Receipts arrive late, but none are lost and no sale was refused."
+      ],
+      "changes": [
+        "- Email down",
+        "+ Email's copies pile up in its subscription"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "topic": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "radio",
+            "label": [
+              "order",
+              "events"
+            ],
+            "h": 34,
+            "sub": "topic"
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40,
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "gift": {
+            "type": "block",
+            "x": 17.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "gift",
+            "label": [
+              "Gift",
+              "box"
+            ],
+            "h": 40
+          },
+          "eq": {
+            "type": "queue",
+            "x": -13.7,
+            "y": 2.4,
+            "n": 9,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Failures stay local",
+            "icon": "shield",
+            "lines": [
+              "Email's subscription keeps its copies",
+              "1,200 receipts waiting, none lost",
+              "everyone else carries on",
+              "= checkout never noticed"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pub": {
+            "from": "orders",
+            "to": "topic",
+            "pts": [
+              "orders",
+              "topic"
+            ],
+            "label": "publish OrderPlaced"
+          },
+          "temail": {
+            "from": "topic",
+            "to": "email",
+            "pts": [
+              "topic",
+              "email"
+            ],
+            "style": "dashed"
+          },
+          "tinv": {
+            "from": "topic",
+            "to": "inv",
+            "pts": [
+              "topic",
+              "inv"
+            ]
+          },
+          "tana": {
+            "from": "topic",
+            "to": "ana",
+            "pts": [
+              "topic",
+              "ana"
+            ]
+          },
+          "tloy": {
+            "from": "topic",
+            "to": "loy",
+            "pts": [
+              "topic",
+              "loy"
+            ]
+          },
+          "tgift": {
+            "from": "topic",
+            "to": "gift",
+            "pts": [
+              "topic",
+              "gift"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 1.1
+          },
+          {
+            "route": [
+              "pub"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "tinv"
+                ]
+              },
+              {
+                "path": [
+                  "tana"
+                ]
+              },
+              {
+                "path": [
+                  "tloy"
+                ]
+              },
+              {
+                "path": [
+                  "tgift"
+                ]
+              }
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Event log",
+      "chapter": "technique",
+      "title": "Keep the events, rewind at will",
+      "body": [
+        "Many systems store events in an append-only <span class=\"term\">event log</span> kept for days or forever. Consumers don't remove events; each one tracks an <span class=\"term\">offset</span> — how far it has read.",
+        "That makes history reusable: a brand-new Analytics v2 can start at offset 0 and rebuild its numbers from every order ever placed, while Email catches up from where it stopped."
+      ],
+      "changes": [
+        "~ Topic is now a 7-day log",
+        "~ Analytics v2 replays from the start"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "topic": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "radio",
+            "label": [
+              "event",
+              "log"
+            ],
+            "h": 34,
+            "sub": "",
+            "tags": [
+              {
+                "text": "kept 7 days",
+                "tone": "violet",
+                "icon": "clock"
+              }
+            ]
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40,
+            "tags": [
+              {
+                "text": "catching up",
+                "tone": "amber",
+                "icon": "replay"
+              }
+            ]
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40,
+            "tags": [
+              {
+                "text": "v2: replay from #0",
+                "tone": "violet",
+                "icon": "replay"
+              }
+            ]
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "gift": {
+            "type": "block",
+            "x": 17.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "gift",
+            "label": [
+              "Gift",
+              "box"
+            ],
+            "h": 40
+          },
+          "eq": {
+            "type": "queue",
+            "x": -13.7,
+            "y": 2.4,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "card": {
+            "type": "panel",
+            "title": "A log, not a mailbox",
+            "icon": "listOrdered",
+            "lines": [
+              "events appended in order: #1, #2, … #98,412",
+              "each reader keeps its own bookmark",
+              "inventory  at #98,412",
+              "email      at #96,100  (catching up)",
+              "analytics v2 starts at #0 → rebuilds",
+              "# reading never deletes"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pub": {
+            "from": "orders",
+            "to": "topic",
+            "pts": [
+              "orders",
+              "topic"
+            ],
+            "label": "publish OrderPlaced"
+          },
+          "temail": {
+            "from": "topic",
+            "to": "email",
+            "pts": [
+              "topic",
+              "email"
+            ]
+          },
+          "tinv": {
+            "from": "topic",
+            "to": "inv",
+            "pts": [
+              "topic",
+              "inv"
+            ]
+          },
+          "tana": {
+            "from": "topic",
+            "to": "ana",
+            "pts": [
+              "topic",
+              "ana"
+            ]
+          },
+          "tloy": {
+            "from": "topic",
+            "to": "loy",
+            "pts": [
+              "topic",
+              "loy"
+            ]
+          },
+          "tgift": {
+            "from": "topic",
+            "to": "gift",
+            "pts": [
+              "topic",
+              "gift"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 1.1
+          },
+          {
+            "route": [
+              "pub"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "temail"
+                ]
+              },
+              {
+                "path": [
+                  "tinv"
+                ]
+              },
+              {
+                "path": [
+                  "tana"
+                ]
+              },
+              {
+                "path": [
+                  "tloy"
+                ]
+              },
+              {
+                "path": [
+                  "tgift"
+                ]
+              }
+            ],
+            "rate": 1.4,
+            "kind": "msg"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "topic",
+            "kind": "kafka",
+            "label": "order events",
+            "sub": "5 subscribers"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Subscribers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Orders DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "db"
+          },
+          {
+            "from": "orders",
+            "to": "topic"
+          },
+          {
+            "from": "topic",
+            "to": "w"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Ordering",
+      "chapter": "tradeoff",
+      "title": "Order, but only per key",
+      "body": [
+        "One log can't absorb unlimited traffic, so it's split into <span class=\"term\">partitions</span> read in parallel. Order is only guaranteed inside a partition.",
+        "So pick a <span class=\"term\">partition key</span>. Keying by order id sends every event about order 881 to the same partition, so Inventory never sees “Refunded” before “Placed”. Events of different orders may interleave, which is fine."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "A hot key (one huge customer) lands on one partition and can't be spread. Choose keys with many, evenly busy values."
+      },
+      "changes": [
+        "+ 3 partitions P0–P2",
+        "~ Events routed by order id"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "p0": {
+            "type": "block",
+            "x": -7,
+            "y": -7,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "P0"
+            ],
+            "h": 30
+          },
+          "p1": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "P1"
+            ],
+            "h": 30
+          },
+          "p2": {
+            "type": "block",
+            "x": 7,
+            "y": -7,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "P2"
+            ],
+            "h": 30
+          },
+          "inv": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Key = order id",
+            "icon": "hash",
+            "lines": [
+              "hash(order 881) mod 3 = 1 → P1",
+              "P1: Placed → Paid → Shipped → Refunded",
+              "= one order's events stay in order",
+              "! no order promised across P0, P1, P2"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "o0": {
+            "from": "orders",
+            "to": "p0",
+            "pts": [
+              "orders",
+              "p0"
+            ]
+          },
+          "o1": {
+            "from": "orders",
+            "to": "p1",
+            "pts": [
+              "orders",
+              "p1"
+            ],
+            "label": "order 881"
+          },
+          "o2": {
+            "from": "orders",
+            "to": "p2",
+            "pts": [
+              "orders",
+              "p2"
+            ]
+          },
+          "i0": {
+            "from": "p0",
+            "to": "inv",
+            "pts": [
+              "p0",
+              "inv"
+            ]
+          },
+          "i1": {
+            "from": "p1",
+            "to": "inv",
+            "pts": [
+              "p1",
+              "inv"
+            ]
+          },
+          "i2": {
+            "from": "p2",
+            "to": "inv",
+            "pts": [
+              "p2",
+              "inv"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "speed": 1.1
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "o0",
+                  "i0"
+                ]
+              },
+              {
+                "path": [
+                  "o1",
+                  "i1"
+                ],
+                "kind": "mine"
+              },
+              {
+                "path": [
+                  "o2",
+                  "i2"
+                ]
+              }
+            ],
+            "kind": "msg",
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Groups",
+      "chapter": "technique",
+      "title": "Share the work, not the events",
+      "body": [
+        "Inventory runs three instances. They join one <span class=\"term\">consumer group</span>: the log assigns each partition to exactly one member, so each event is handled once by the group and order per partition holds.",
+        "Analytics is a different group, so it still receives every event. Inside a group: load-sharing. Across groups: broadcast."
+      ],
+      "changes": [
+        "~ Inventory scaled to 3 instances",
+        "~ One partition per instance"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "p0": {
+            "type": "block",
+            "x": -7,
+            "y": -7,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "P0"
+            ],
+            "h": 30
+          },
+          "p1": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "P1"
+            ],
+            "h": 30
+          },
+          "p2": {
+            "type": "block",
+            "x": 7,
+            "y": -7,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "P2"
+            ],
+            "h": 30
+          },
+          "inv": {
+            "type": "block",
+            "x": -7,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory",
+              "#1"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Consumer groups",
+            "icon": "users",
+            "lines": [
+              "group inventory: 3 instances, 1 partition each",
+              "group analytics: 1 instance reads all 3",
+              "= share work inside a group",
+              "= every group gets every event",
+              "# 4th instance with 3 partitions → idle"
+            ]
+          },
+          "inv2": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory",
+              "#2"
+            ],
+            "h": 40
+          },
+          "inv3": {
+            "type": "block",
+            "x": 7,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory",
+              "#3"
+            ],
+            "h": 40
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "o0": {
+            "from": "orders",
+            "to": "p0",
+            "pts": [
+              "orders",
+              "p0"
+            ]
+          },
+          "o1": {
+            "from": "orders",
+            "to": "p1",
+            "pts": [
+              "orders",
+              "p1"
+            ],
+            "label": "order 881"
+          },
+          "o2": {
+            "from": "orders",
+            "to": "p2",
+            "pts": [
+              "orders",
+              "p2"
+            ]
+          },
+          "i0": {
+            "from": "p0",
+            "to": "inv",
+            "pts": [
+              "p0",
+              "inv"
+            ]
+          },
+          "i1": {
+            "from": "p1",
+            "to": "inv2",
+            "pts": [
+              "p1",
+              "inv2"
+            ]
+          },
+          "i2": {
+            "from": "p2",
+            "to": "inv3",
+            "pts": [
+              "p2",
+              "inv3"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "speed": 1.1
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "o0",
+                  "i0"
+                ]
+              },
+              {
+                "path": [
+                  "o1",
+                  "i1"
+                ],
+                "kind": "mine"
+              },
+              {
+                "path": [
+                  "o2",
+                  "i2"
+                ]
+              }
+            ],
+            "kind": "msg",
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Eventually",
+      "chapter": "tradeoff",
+      "title": "The price of not waiting",
+      "body": [
+        "Checkout is fast because it no longer waits — which means the rest happens <span class=\"term\">eventually</span>. A shopper may look for loyalty points a few seconds too early.",
+        "And the flow is harder to see: no single function shows what happens after a sale. You need event schemas treated as contracts, tracing across consumers, and dead-letter handling for events a subscriber can't process."
+      ],
+      "changes": [
+        "~ Side effects arrive seconds later"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "topic": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "radio",
+            "label": [
+              "order",
+              "events"
+            ],
+            "h": 34,
+            "sub": "topic"
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "gift": {
+            "type": "block",
+            "x": 17.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "gift",
+            "label": [
+              "Gift",
+              "box"
+            ],
+            "h": 40
+          },
+          "card": {
+            "type": "panel",
+            "title": "Done… eventually",
+            "icon": "clock",
+            "lines": [
+              "shopper sees “Thanks!”    260 ms",
+              "receipt email arrives    ~2 s",
+              "loyalty points appear    ~5 s",
+              "! “where are my points?” tickets",
+              "# events are contracts: version the schema"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pub": {
+            "from": "orders",
+            "to": "topic",
+            "pts": [
+              "orders",
+              "topic"
+            ],
+            "label": "publish OrderPlaced"
+          },
+          "temail": {
+            "from": "topic",
+            "to": "email",
+            "pts": [
+              "topic",
+              "email"
+            ]
+          },
+          "tinv": {
+            "from": "topic",
+            "to": "inv",
+            "pts": [
+              "topic",
+              "inv"
+            ]
+          },
+          "tana": {
+            "from": "topic",
+            "to": "ana",
+            "pts": [
+              "topic",
+              "ana"
+            ]
+          },
+          "tloy": {
+            "from": "topic",
+            "to": "loy",
+            "pts": [
+              "topic",
+              "loy"
+            ]
+          },
+          "tgift": {
+            "from": "topic",
+            "to": "gift",
+            "pts": [
+              "topic",
+              "gift"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 1.1
+          },
+          {
+            "route": [
+              "pub"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "temail"
+                ]
+              },
+              {
+                "path": [
+                  "tinv"
+                ]
+              },
+              {
+                "path": [
+                  "tana"
+                ]
+              },
+              {
+                "path": [
+                  "tloy"
+                ]
+              },
+              {
+                "path": [
+                  "tgift"
+                ]
+              }
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Say it once, let others listen",
+      "body": [
+        "<ul class=\"takeaways\"><li>Keep the calls you truly need answers from (payment) synchronous; publish the rest as events.</li><li>Pub/sub fans one event out to any number of independent subscribers.</li><li>A slow or broken subscriber only delays itself.</li><li>Event logs keep history: consumers track offsets and can replay.</li><li>Order holds per partition — key events by the entity they describe.</li><li>Consumer groups share partitions; separate groups each get everything.</li></ul>"
+      ],
+      "metrics": {
+        "checkout": 260,
+        "knows": 1,
+        "breaks": "no",
+        "subs": 5
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "orders": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Orders"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 36
+          },
+          "topic": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "radio",
+            "label": [
+              "order",
+              "events"
+            ],
+            "h": 34,
+            "sub": "topic"
+          },
+          "email": {
+            "type": "block",
+            "x": -10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "mail",
+            "label": [
+              "Email"
+            ],
+            "h": 40
+          },
+          "inv": {
+            "type": "block",
+            "x": -3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "package",
+            "label": [
+              "Inventory"
+            ],
+            "h": 40
+          },
+          "ana": {
+            "type": "block",
+            "x": 3.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "chart",
+            "label": [
+              "Analytics"
+            ],
+            "h": 40
+          },
+          "loy": {
+            "type": "block",
+            "x": 10.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "bookmark",
+            "label": [
+              "Loyalty"
+            ],
+            "h": 40
+          },
+          "gift": {
+            "type": "block",
+            "x": 17.5,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "gift",
+            "label": [
+              "Gift",
+              "box"
+            ],
+            "h": 40
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "orders",
+            "pts": [
+              "users",
+              "orders"
+            ],
+            "label": "checkout",
+            "heads": "both"
+          },
+          "pp": {
+            "from": "orders",
+            "to": "pay",
+            "pts": [
+              "orders",
+              "pay"
+            ],
+            "label": "charge",
+            "heads": "both"
+          },
+          "pub": {
+            "from": "orders",
+            "to": "topic",
+            "pts": [
+              "orders",
+              "topic"
+            ],
+            "label": "publish OrderPlaced"
+          },
+          "temail": {
+            "from": "topic",
+            "to": "email",
+            "pts": [
+              "topic",
+              "email"
+            ]
+          },
+          "tinv": {
+            "from": "topic",
+            "to": "inv",
+            "pts": [
+              "topic",
+              "inv"
+            ]
+          },
+          "tana": {
+            "from": "topic",
+            "to": "ana",
+            "pts": [
+              "topic",
+              "ana"
+            ]
+          },
+          "tloy": {
+            "from": "topic",
+            "to": "loy",
+            "pts": [
+              "topic",
+              "loy"
+            ]
+          },
+          "tgift": {
+            "from": "topic",
+            "to": "gift",
+            "pts": [
+              "topic",
+              "gift"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "pp"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 1.1
+          },
+          {
+            "route": [
+              "pub"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "temail"
+                ]
+              },
+              {
+                "path": [
+                  "tinv"
+                ]
+              },
+              {
+                "path": [
+                  "tana"
+                ]
+              },
+              {
+                "path": [
+                  "tloy"
+                ]
+              },
+              {
+                "path": [
+                  "tgift"
+                ]
+              }
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "orders",
+            "kind": "api_server",
+            "label": "Orders"
+          },
+          {
+            "id": "topic",
+            "kind": "kafka",
+            "label": "order events",
+            "sub": "5 subscribers"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Subscribers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Orders DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "orders"
+          },
+          {
+            "from": "orders",
+            "to": "db"
+          },
+          {
+            "from": "orders",
+            "to": "topic"
+          },
+          {
+            "from": "topic",
+            "to": "w"
+          }
+        ]
+      }
+    }
+  ]
+}

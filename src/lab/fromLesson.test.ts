@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { LESSONS } from "../content/lessons";
+import { LESSONS } from "../content/lessons/all";
 import type { StepLab } from "../types/lesson";
 import { CATALOG } from "./sim/catalog/components";
 import { SIM_RPS_CAP, hasLab, lessonLabGraph, workloadFor } from "./fromLesson";

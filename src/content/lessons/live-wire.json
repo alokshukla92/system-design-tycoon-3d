@@ -1,0 +1,2200 @@
+{
+  "id": "live-wire",
+  "title": "Live Wire",
+  "summary": "Push a goal to 50,000 phones within a second: polling, long polling, Server-Sent Events, WebSockets — and how to scale open connections.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "rpm",
+    "wasted",
+    "delay",
+    "conns"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "empty",
+    "push",
+    "msg",
+    "write",
+    "ping"
+  ],
+  "goals": [
+    {
+      "text": "See why plain HTTP can't push and what polling costs",
+      "step": 2
+    },
+    {
+      "text": "Compare long polling, SSE and WebSockets",
+      "step": 5
+    },
+    {
+      "text": "Fan out across connection servers with pub/sub",
+      "step": 7
+    },
+    {
+      "text": "Track presence with heartbeats and TTLs",
+      "step": 8
+    },
+    {
+      "text": "Survive deploys without a reconnect storm",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "The goal",
+      "chapter": "setup",
+      "title": "A goal nobody hears about",
+      "body": [
+        "<b>Pitchside</b> shows live scores for amateur football leagues. A volunteer scorer taps “Goal!” on a laptop by the pitch; the event lands in the Match API.",
+        "But HTTP only answers questions. Until a fan's phone asks again, the server has no way to tell it anything — the goal sits in the database while fans stare at 1–1."
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": "—",
+        "delay": "never",
+        "conns": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 6,
+            "label": "Fans"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Match",
+              "API"
+            ],
+            "cpu": 0.2
+          },
+          "edb": {
+            "type": "db",
+            "x": 0,
+            "y": -7,
+            "label": "match events"
+          },
+          "scorer": {
+            "type": "device",
+            "x": 11,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "Scorer"
+          },
+          "card": {
+            "type": "panel",
+            "title": "HTTP speaks when spoken to",
+            "icon": "message",
+            "lines": [
+              "client asks → server answers",
+              "server has news → no way to say it",
+              "! fans see the goal only on refresh"
+            ]
+          }
+        },
+        "links": {
+          "q": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET /match/812",
+            "heads": "both"
+          },
+          "sc": {
+            "from": "scorer",
+            "to": "api",
+            "pts": [
+              "scorer",
+              "api"
+            ],
+            "label": "POST goal"
+          },
+          "ev": {
+            "from": "api",
+            "to": "edb",
+            "pts": [
+              "api",
+              "edb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sc",
+              "ev"
+            ],
+            "rate": 0.35,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "q"
+            ],
+            "bounce": true,
+            "rate": 0.25
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 25000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Match API",
+            "sub": "request/response"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "match events"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Polling",
+      "chapter": "technique",
+      "title": "Are we there yet?",
+      "body": [
+        "The simplest fix is <span class=\"term\">short polling</span>: every phone asks “anything new?” every 2 seconds. It works through every firewall and proxy, and a fan sees a goal at most 2 seconds late.",
+        "Almost every answer, though, is “no”."
+      ],
+      "changes": [
+        "~ Phones poll every 2 s"
+      ],
+      "metrics": {
+        "rpm": 30,
+        "wasted": 97,
+        "delay": "1 s",
+        "conns": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 6,
+            "label": "Fans"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Match",
+              "API"
+            ],
+            "cpu": 0.55
+          },
+          "edb": {
+            "type": "db",
+            "x": 0,
+            "y": -7,
+            "label": "match events"
+          },
+          "scorer": {
+            "type": "device",
+            "x": 11,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "Scorer"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Short polling",
+            "icon": "refresh",
+            "lines": [
+              "setInterval(() => fetch('/match/812'), 2000)",
+              "news appears ≤ 2 s late, ~1 s on average",
+              "# simple, works everywhere, any proxy"
+            ]
+          }
+        },
+        "links": {
+          "q": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "every 2 s: anything new?",
+            "heads": "both"
+          },
+          "sc": {
+            "from": "scorer",
+            "to": "api",
+            "pts": [
+              "scorer",
+              "api"
+            ],
+            "label": "POST goal"
+          },
+          "ev": {
+            "from": "api",
+            "to": "edb",
+            "pts": [
+              "api",
+              "edb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sc",
+              "ev"
+            ],
+            "rate": 0.35,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "q"
+            ],
+            "bounce": true,
+            "rate": 2.4,
+            "pattern": [
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "req"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 25000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Match API",
+            "sub": "short polling"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "match events"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Poll cost",
+      "chapter": "problem",
+      "title": "Paying for silence",
+      "body": [
+        "Cup final day: 50,000 fans. At 30 polls a minute each, that's 25,000 requests per second — and about 97% of them come back empty. The API fleet is sized for questions with no news.",
+        "Poll faster for fresher scores and the cost rises; poll slower and fans hear the crowd cheer before their phone does. Polling makes you trade freshness against load."
+      ],
+      "changes": [
+        "~ 50,000 fans online",
+        "~ API saturated by empty polls"
+      ],
+      "metrics": {
+        "rpm": 30,
+        "wasted": 97,
+        "delay": "1 s",
+        "conns": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 12,
+            "label": "Fans"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Match",
+              "API"
+            ],
+            "cpu": 0.92,
+            "heat": 0.8,
+            "tags": [
+              {
+                "text": "25,000 req/s",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "edb": {
+            "type": "db",
+            "x": 0,
+            "y": -7,
+            "label": "match events"
+          },
+          "scorer": {
+            "type": "device",
+            "x": 11,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "Scorer"
+          },
+          "card": {
+            "type": "panel",
+            "title": "50,000 fans × 30 polls / min",
+            "icon": "activity",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Requests per second",
+                "note": "25,000",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "…that carry news",
+                "note": "~500",
+                "to": 0.03,
+                "tone": "green"
+              }
+            ],
+            "lines": [
+              "! faster polling = fresher and costlier",
+              "# slower polling = cheaper and staler"
+            ]
+          }
+        },
+        "links": {
+          "q": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "every 2 s: anything new?",
+            "heads": "both"
+          },
+          "sc": {
+            "from": "scorer",
+            "to": "api",
+            "pts": [
+              "scorer",
+              "api"
+            ],
+            "label": "POST goal"
+          },
+          "ev": {
+            "from": "api",
+            "to": "edb",
+            "pts": [
+              "api",
+              "edb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sc",
+              "ev"
+            ],
+            "rate": 0.35,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "q"
+            ],
+            "bounce": true,
+            "rate": 3,
+            "pattern": [
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "empty",
+              "req"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 25000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Match API",
+            "sub": "short polling",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "match events"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Long poll",
+      "chapter": "technique",
+      "title": "Ask once, wait for news",
+      "body": [
+        "With <span class=\"term\">long polling</span> the server doesn't answer “nothing yet”; it holds the request open until something happens or ~30 s pass. The fan gets the goal almost instantly, then immediately asks again.",
+        "Requests drop from 30 to about 2 per fan per minute. The cost moves elsewhere: 50,000 requests are now open at once, so the server must hold many idle connections cheaply."
+      ],
+      "changes": [
+        "~ Server holds requests until news",
+        "~ 50,000 open requests"
+      ],
+      "metrics": {
+        "rpm": 2,
+        "wasted": 30,
+        "delay": "90 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 12,
+            "label": "Fans"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Match",
+              "API"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "50,000 requests held open",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "edb": {
+            "type": "db",
+            "x": 0,
+            "y": -7,
+            "label": "match events"
+          },
+          "scorer": {
+            "type": "device",
+            "x": 11,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "Scorer"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Long polling",
+            "icon": "hourglass",
+            "lines": [
+              "client asks; server holds the request",
+              "news → answer at once",
+              "30 s of quiet → empty answer",
+              "client immediately asks again",
+              "= ~instant, few wasted replies"
+            ]
+          }
+        },
+        "links": {
+          "q": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "wait until news (≤ 30 s)",
+            "heads": "both"
+          },
+          "sc": {
+            "from": "scorer",
+            "to": "api",
+            "pts": [
+              "scorer",
+              "api"
+            ],
+            "label": "POST goal"
+          },
+          "ev": {
+            "from": "api",
+            "to": "edb",
+            "pts": [
+              "api",
+              "edb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sc",
+              "ev"
+            ],
+            "rate": 0.35,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "q"
+            ],
+            "bounce": true,
+            "rate": 1,
+            "hold": 1.8,
+            "pattern": [
+              "req",
+              "req",
+              "empty"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 25000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Match API",
+            "sub": "long polling"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "match events"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "SSE",
+      "chapter": "technique",
+      "title": "One response that never ends",
+      "body": [
+        "<span class=\"term\">Server-Sent Events</span> make the long wait official: the phone opens one HTTP request and the server streams events down it as they happen. It's plain HTTP, the browser reconnects automatically, and the <code>Last-Event-ID</code> header lets it resume without gaps.",
+        "SSE is one-way — perfect for scores, notifications and feeds, where the client mostly listens."
+      ],
+      "changes": [
+        "- Polling",
+        "+ Event stream from server to fans"
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": 0,
+        "delay": "40 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 12,
+            "label": "Fans"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Match",
+              "API"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "50,000 open streams",
+                "tone": "green",
+                "icon": "radio"
+              }
+            ]
+          },
+          "edb": {
+            "type": "db",
+            "x": 0,
+            "y": -7,
+            "label": "match events"
+          },
+          "scorer": {
+            "type": "device",
+            "x": 11,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "Scorer"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Server-Sent Events",
+            "icon": "radio",
+            "lines": [
+              "one GET, the response never ends",
+              "data: {\"goal\":\"Rovers 2–1\"}",
+              "browser reconnects by itself",
+              "Last-Event-ID → resume where it left",
+              "# one-way: server → client only"
+            ]
+          }
+        },
+        "links": {
+          "sc": {
+            "from": "scorer",
+            "to": "api",
+            "pts": [
+              "scorer",
+              "api"
+            ],
+            "label": "POST goal"
+          },
+          "ev": {
+            "from": "api",
+            "to": "edb",
+            "pts": [
+              "api",
+              "edb"
+            ]
+          },
+          "sse": {
+            "from": "api",
+            "to": "users",
+            "pts": [
+              "api",
+              "users"
+            ],
+            "label": "text/event-stream",
+            "labelTone": "green"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sc",
+              "ev"
+            ],
+            "rate": 0.35,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "sse"
+            ],
+            "rate": 1.2,
+            "kind": "push"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 25000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Match API",
+            "sub": "SSE streams"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "match events"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "WebSocket",
+      "chapter": "technique",
+      "title": "Both sides talk",
+      "body": [
+        "Pitchside adds match chat. Now fans send too, many times a minute. A <span class=\"term\">WebSocket</span> starts as an HTTP request with an <code>Upgrade</code> header and becomes a persistent two-way channel: small messages flow both ways with no per-message HTTP overhead.",
+        "Use it when the client talks as much as it listens — chat, multiplayer, collaborative editing."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "If you only push one way, SSE is simpler: it works with ordinary HTTP tooling and reconnects for free."
+      },
+      "changes": [
+        "~ Event stream → two-way WebSocket",
+        "+ Fans send chat messages"
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": 0,
+        "delay": "40 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -34,
+            "y1": -28,
+            "count": 12,
+            "label": "Fans"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Match",
+              "API"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "50,000 sockets",
+                "tone": "green",
+                "icon": "network"
+              }
+            ]
+          },
+          "edb": {
+            "type": "db",
+            "x": 0,
+            "y": -7,
+            "label": "match events"
+          },
+          "scorer": {
+            "type": "device",
+            "x": 11,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "Scorer"
+          },
+          "card": {
+            "type": "panel",
+            "title": "WebSockets",
+            "icon": "network",
+            "lines": [
+              "starts as HTTP: Upgrade: websocket",
+              "then a raw two-way pipe",
+              "server → fan: goals, stats, chat",
+              "fan → server: chat, reactions",
+              "# needs LB + proxies that allow long upgrades"
+            ]
+          }
+        },
+        "links": {
+          "sc": {
+            "from": "scorer",
+            "to": "api",
+            "pts": [
+              "scorer",
+              "api"
+            ],
+            "label": "POST goal"
+          },
+          "ev": {
+            "from": "api",
+            "to": "edb",
+            "pts": [
+              "api",
+              "edb"
+            ]
+          },
+          "up": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "dn": {
+            "from": "api",
+            "to": "users",
+            "pts": [
+              "api",
+              "users"
+            ],
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sc",
+              "ev"
+            ],
+            "rate": 0.35,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "rate": 0.8,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "dn"
+            ],
+            "rate": 1.3,
+            "kind": "push"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 25000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Match API",
+            "sub": "WebSockets"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "match events"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Many servers",
+      "chapter": "problem",
+      "title": "Your friends are on another server",
+      "body": [
+        "One server can't hold 50,000 busy sockets with room to spare, so Pitchside runs three <span class=\"term\">connection servers</span>. Each socket is pinned to the server it connected to.",
+        "A fan on #1 posts “What a goal!”. Server #1 pushes it to its own 16,000 sockets — and the 34,000 fans on #2 and #3 see nothing."
+      ],
+      "changes": [
+        "+ 3 socket servers",
+        "~ Each fan pinned to one server"
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": 0,
+        "delay": "never",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "fansA": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -6,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -3,
+            "x1": 3,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "fansC": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 12,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "ws1": {
+            "type": "block",
+            "x": -9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#1"
+            ],
+            "cpu": 0.5
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#2"
+            ],
+            "cpu": 0.5,
+            "tags": [
+              {
+                "text": "never heard it",
+                "tone": "red",
+                "icon": "volumeX"
+              }
+            ]
+          },
+          "ws3": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#3"
+            ],
+            "cpu": 0.5,
+            "tags": [
+              {
+                "text": "never heard it",
+                "tone": "red",
+                "icon": "volumeX"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "12,000 sockets per server",
+            "icon": "server",
+            "lines": [
+              "each fan is pinned to one socket server",
+              "message arrives on #1",
+              "#1 can only push to its own sockets",
+              "! fans on #2 and #3 never see it"
+            ]
+          }
+        },
+        "links": {
+          "upA": {
+            "from": "fansA",
+            "to": "ws1",
+            "pts": [
+              "fansA",
+              "ws1"
+            ],
+            "label": "chat: “What a goal!”",
+            "labelTone": "amber"
+          },
+          "dnA": {
+            "from": "ws1",
+            "to": "fansA",
+            "pts": [
+              "ws1",
+              "fansA"
+            ],
+            "heads": "none"
+          },
+          "dnB": {
+            "from": "api",
+            "to": "users",
+            "pts": [
+              "api",
+              "users"
+            ],
+            "heads": "none"
+          },
+          "dnC": {
+            "from": "ws3",
+            "to": "fansC",
+            "pts": [
+              "ws3",
+              "fansC"
+            ],
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "upA"
+            ],
+            "rate": 0.7,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "dnA"
+            ],
+            "rate": 0.7,
+            "kind": "push"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Backplane",
+      "chapter": "solution",
+      "title": "Publish once, every server delivers",
+      "body": [
+        "Connect the servers with a <span class=\"term\">pub/sub</span> backplane (Redis Pub/Sub, NATS or a message broker). Each socket server subscribes to channels for the matches its fans are watching.",
+        "A message arriving at any server is published once to <code>match:812</code>; every subscribed server receives it and pushes it down its own sockets. Servers stay stateless towards each other."
+      ],
+      "changes": [
+        "+ Pub/Sub backplane",
+        "~ Messages reach fans on every server"
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": 0,
+        "delay": "40 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "fansA": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -6,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -3,
+            "x1": 3,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "fansC": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 12,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "ws1": {
+            "type": "block",
+            "x": -9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#1"
+            ],
+            "cpu": 0.5
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#2"
+            ],
+            "cpu": 0.5
+          },
+          "ws3": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#3"
+            ],
+            "cpu": 0.5
+          },
+          "bus": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4,
+            "color": "orange",
+            "glyph": "radio",
+            "label": [
+              "Pub/Sub"
+            ],
+            "sub": "channel match:812"
+          },
+          "card": {
+            "type": "panel",
+            "title": "A shared backplane",
+            "icon": "radio",
+            "lines": [
+              "every socket server SUBSCRIBEs match:812",
+              "#1 PUBLISHes the chat message once",
+              "bus fans it out to all subscribers",
+              "= each server pushes to its own fans"
+            ]
+          }
+        },
+        "links": {
+          "upA": {
+            "from": "fansA",
+            "to": "ws1",
+            "pts": [
+              "fansA",
+              "ws1"
+            ],
+            "label": "chat: “What a goal!”",
+            "labelTone": "amber"
+          },
+          "dnA": {
+            "from": "ws1",
+            "to": "fansA",
+            "pts": [
+              "ws1",
+              "fansA"
+            ],
+            "heads": "none"
+          },
+          "dnB": {
+            "from": "api",
+            "to": "users",
+            "pts": [
+              "api",
+              "users"
+            ],
+            "heads": "none"
+          },
+          "dnC": {
+            "from": "ws3",
+            "to": "fansC",
+            "pts": [
+              "ws3",
+              "fansC"
+            ],
+            "heads": "none"
+          },
+          "pub": {
+            "from": "ws1",
+            "to": "bus",
+            "pts": [
+              "ws1",
+              "bus"
+            ],
+            "label": "PUBLISH",
+            "labelAt": 0.45
+          },
+          "b1": {
+            "from": "bus",
+            "to": "ws1",
+            "pts": [
+              "bus",
+              "ws1"
+            ],
+            "heads": "none"
+          },
+          "b2": {
+            "from": "bus",
+            "to": "api",
+            "pts": [
+              "bus",
+              "api"
+            ]
+          },
+          "b3": {
+            "from": "bus",
+            "to": "ws3",
+            "pts": [
+              "bus",
+              "ws3"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "upA",
+              "pub"
+            ],
+            "rate": 0.6,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1",
+                  "dnA"
+                ]
+              },
+              {
+                "path": [
+                  "b2",
+                  "dnB"
+                ]
+              },
+              {
+                "path": [
+                  "b3",
+                  "dnC"
+                ]
+              }
+            ],
+            "rate": 0.6,
+            "kind": "push"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "LB",
+            "sub": "sticky"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Socket servers",
+            "sub": "×3"
+          },
+          {
+            "id": "bus",
+            "kind": "redis",
+            "label": "Pub/Sub",
+            "sub": "match channels"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "bus"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Presence",
+      "chapter": "technique",
+      "title": "Who's watching right now?",
+      "body": [
+        "<span class=\"term\">Presence</span> (“48,210 watching”) can't rely on clean disconnects — phones drop into tunnels without saying goodbye. Instead, clients send a heartbeat every 30 s and the server refreshes a key with a TTL in a shared store.",
+        "Miss two heartbeats and the key expires: that fan is offline. Counts are approximate by design, and that's fine for a badge."
+      ],
+      "changes": [
+        "+ Heartbeats to the shared store",
+        "~ Online count from expiring keys"
+      ],
+      "metrics": {
+        "rpm": 2,
+        "wasted": 0,
+        "delay": "40 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "fansA": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -6,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -3,
+            "x1": 3,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "fansC": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 12,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "ws1": {
+            "type": "block",
+            "x": -9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#1"
+            ],
+            "cpu": 0.5
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#2"
+            ],
+            "cpu": 0.5
+          },
+          "ws3": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#3"
+            ],
+            "cpu": 0.5
+          },
+          "bus": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4,
+            "color": "orange",
+            "glyph": "radio",
+            "label": [
+              "Pub/Sub"
+            ],
+            "sub": "channel match:812",
+            "tags": [
+              {
+                "text": "online: 48,210",
+                "tone": "green",
+                "icon": "users"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Who's here?",
+            "icon": "users",
+            "lines": [
+              "client heartbeat every 30 s",
+              "server: SET online:fan42 EX 75",
+              "2 missed beats → key expires → offline",
+              "# count online per match, not per server"
+            ]
+          }
+        },
+        "links": {
+          "upA": {
+            "from": "fansA",
+            "to": "ws1",
+            "pts": [
+              "fansA",
+              "ws1"
+            ],
+            "label": "",
+            "labelTone": "amber"
+          },
+          "dnA": {
+            "from": "ws1",
+            "to": "fansA",
+            "pts": [
+              "ws1",
+              "fansA"
+            ],
+            "heads": "none"
+          },
+          "dnB": {
+            "from": "api",
+            "to": "users",
+            "pts": [
+              "api",
+              "users"
+            ],
+            "heads": "none"
+          },
+          "dnC": {
+            "from": "ws3",
+            "to": "fansC",
+            "pts": [
+              "ws3",
+              "fansC"
+            ],
+            "heads": "none"
+          },
+          "h1": {
+            "from": "ws1",
+            "to": "bus",
+            "pts": [
+              "ws1",
+              "bus"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "h2": {
+            "from": "api",
+            "to": "bus",
+            "pts": [
+              "api",
+              "bus"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "h3": {
+            "from": "ws3",
+            "to": "bus",
+            "pts": [
+              "ws3",
+              "bus"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "h1"
+                ]
+              },
+              {
+                "path": [
+                  "h2"
+                ]
+              },
+              {
+                "path": [
+                  "h3"
+                ]
+              }
+            ],
+            "rate": 1.5,
+            "kind": "ping"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "LB",
+            "sub": "sticky"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Socket servers",
+            "sub": "×3"
+          },
+          {
+            "id": "bus",
+            "kind": "redis",
+            "label": "Pub/Sub",
+            "sub": "match channels"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "bus"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Deploys",
+      "chapter": "tradeoff",
+      "title": "Long-lived connections, short-lived servers",
+      "body": [
+        "Restarting server #2 cuts 16,000 sockets. If all clients reconnect instantly, the survivors take a <span class=\"term\">reconnect storm</span> on top of normal traffic.",
+        "Clients should wait a random delay (jitter) and back off on failure; servers should drain: stop accepting new sockets, then close existing ones gradually.",
+        "<table class=\"compare numbers\"><tbody><tr><td>Short polling</td><td>rare updates, simplest setup</td></tr><tr><td>Long polling</td><td>fallback where streams are blocked</td></tr><tr><td>SSE</td><td>server → client feeds</td></tr><tr><td>WebSocket</td><td>two-way, chatty clients</td></tr></tbody></table>"
+      ],
+      "changes": [
+        "- Socket #2 restarting",
+        "~ Its fans reconnect with jitter"
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": 0,
+        "delay": "40 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "fansA": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -6,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -3,
+            "x1": 3,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "fansC": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 12,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "ws1": {
+            "type": "block",
+            "x": -9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#1"
+            ],
+            "cpu": 0.8,
+            "heat": 0.5
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#2"
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "deploying",
+                "tone": "amber",
+                "icon": "rocket"
+              }
+            ]
+          },
+          "ws3": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#3"
+            ],
+            "cpu": 0.8,
+            "heat": 0.5
+          },
+          "bus": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4,
+            "color": "orange",
+            "glyph": "radio",
+            "label": [
+              "Pub/Sub"
+            ],
+            "sub": "channel match:812"
+          },
+          "card": {
+            "type": "panel",
+            "title": "16,000 reconnects",
+            "icon": "refresh",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "All at once",
+                "note": "16,000 in 1 s",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Random 0–10 s jitter",
+                "note": "~1,600 / s",
+                "to": 0.1,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "# drain: stop new sockets, then close slowly"
+            ]
+          }
+        },
+        "links": {
+          "upA": {
+            "from": "fansA",
+            "to": "ws1",
+            "pts": [
+              "fansA",
+              "ws1"
+            ],
+            "label": "chat: “What a goal!”",
+            "labelTone": "amber"
+          },
+          "dnA": {
+            "from": "ws1",
+            "to": "fansA",
+            "pts": [
+              "ws1",
+              "fansA"
+            ],
+            "heads": "none"
+          },
+          "dnC": {
+            "from": "ws3",
+            "to": "fansC",
+            "pts": [
+              "ws3",
+              "fansC"
+            ],
+            "heads": "none"
+          },
+          "pub": {
+            "from": "ws1",
+            "to": "bus",
+            "pts": [
+              "ws1",
+              "bus"
+            ],
+            "label": "PUBLISH",
+            "labelAt": 0.45
+          },
+          "b1": {
+            "from": "bus",
+            "to": "ws1",
+            "pts": [
+              "bus",
+              "ws1"
+            ],
+            "heads": "none"
+          },
+          "b3": {
+            "from": "bus",
+            "to": "ws3",
+            "pts": [
+              "bus",
+              "ws3"
+            ]
+          },
+          "rA": {
+            "from": "users",
+            "to": "ws1",
+            "pts": [
+              "users",
+              "ws1"
+            ],
+            "label": "reconnect",
+            "style": "dashed",
+            "labelAt": 0.35
+          },
+          "rC": {
+            "from": "users",
+            "to": "ws3",
+            "pts": [
+              "users",
+              "ws3"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "rA",
+                "rC"
+              ]
+            ],
+            "rate": 2.6,
+            "kind": "req"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1",
+                  "dnA"
+                ]
+              },
+              {
+                "path": [
+                  "b3",
+                  "dnC"
+                ]
+              }
+            ],
+            "rate": 0.5,
+            "kind": "push"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Keep the line open",
+      "body": [
+        "<ul class=\"takeaways\"><li>Polling trades freshness for load; most answers are empty.</li><li>Long polling holds requests open until there's news.</li><li>SSE streams server → client over plain HTTP; WebSockets go both ways.</li><li>Open connections pin users to servers — fan out through a pub/sub backplane.</li><li>Presence = heartbeats + expiring keys.</li><li>Reconnect with jitter and drain servers before deploys.</li></ul>"
+      ],
+      "metrics": {
+        "rpm": 0,
+        "wasted": 0,
+        "delay": "40 ms",
+        "conns": 50000
+      },
+      "scene": {
+        "entities": {
+          "fansA": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -6,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -3,
+            "x1": 3,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "fansC": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 12,
+            "y0": -34,
+            "y1": -28,
+            "count": 5,
+            "label": "Fans"
+          },
+          "ws1": {
+            "type": "block",
+            "x": -9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#1"
+            ],
+            "cpu": 0.5
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#2"
+            ],
+            "cpu": 0.5
+          },
+          "ws3": {
+            "type": "block",
+            "x": 9,
+            "y": -20,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Socket",
+              "#3"
+            ],
+            "cpu": 0.5
+          },
+          "bus": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 4,
+            "color": "orange",
+            "glyph": "radio",
+            "label": [
+              "Pub/Sub"
+            ],
+            "sub": "channel match:812"
+          }
+        },
+        "links": {
+          "upA": {
+            "from": "fansA",
+            "to": "ws1",
+            "pts": [
+              "fansA",
+              "ws1"
+            ],
+            "label": "chat: “What a goal!”",
+            "labelTone": "amber"
+          },
+          "dnA": {
+            "from": "ws1",
+            "to": "fansA",
+            "pts": [
+              "ws1",
+              "fansA"
+            ],
+            "heads": "none"
+          },
+          "dnB": {
+            "from": "api",
+            "to": "users",
+            "pts": [
+              "api",
+              "users"
+            ],
+            "heads": "none"
+          },
+          "dnC": {
+            "from": "ws3",
+            "to": "fansC",
+            "pts": [
+              "ws3",
+              "fansC"
+            ],
+            "heads": "none"
+          },
+          "pub": {
+            "from": "ws1",
+            "to": "bus",
+            "pts": [
+              "ws1",
+              "bus"
+            ],
+            "label": "PUBLISH",
+            "labelAt": 0.45
+          },
+          "b1": {
+            "from": "bus",
+            "to": "ws1",
+            "pts": [
+              "bus",
+              "ws1"
+            ],
+            "heads": "none"
+          },
+          "b2": {
+            "from": "bus",
+            "to": "api",
+            "pts": [
+              "bus",
+              "api"
+            ]
+          },
+          "b3": {
+            "from": "bus",
+            "to": "ws3",
+            "pts": [
+              "bus",
+              "ws3"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "upA",
+              "pub"
+            ],
+            "rate": 0.6,
+            "kind": "msg"
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1",
+                  "dnA"
+                ]
+              },
+              {
+                "path": [
+                  "b2",
+                  "dnB"
+                ]
+              },
+              {
+                "path": [
+                  "b3",
+                  "dnC"
+                ]
+              }
+            ],
+            "rate": 0.6,
+            "kind": "push"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Fans"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "LB",
+            "sub": "sticky"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Socket servers",
+            "sub": "×3"
+          },
+          {
+            "id": "bus",
+            "kind": "redis",
+            "label": "Pub/Sub",
+            "sub": "match channels"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "bus"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,3435 @@
+{
+  "id": "later-please",
+  "title": "Later, Please",
+  "summary": "Move slow work out of the request with a message queue — and learn the acks, retries and dead letters that keep jobs from vanishing.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "respond",
+    "backlog",
+    "workers",
+    "lost"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "msg",
+    [
+      "poison",
+      "poison job"
+    ],
+    "write",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Decouple slow work with producers, a queue and consumers",
+      "step": 2
+    },
+    {
+      "text": "Use the backlog as a buffer and scale consumers",
+      "step": 4
+    },
+    {
+      "text": "Explain acks and at-least-once delivery",
+      "step": 6
+    },
+    {
+      "text": "Make consumers idempotent and park poison jobs",
+      "step": 8
+    },
+    {
+      "text": "Recognise when backpressure is needed",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Do it now",
+      "chapter": "setup",
+      "title": "The upload that takes eight seconds",
+      "body": [
+        "<b>Snapfolio</b> turns your photos into printed albums. Upload 40 photos and the API does everything on the spot: resize, colour-correct, lay out pages, render a print-ready PDF — then replies.",
+        "On a quiet Tuesday that's 8 seconds of spinner. Annoying, but it works."
+      ],
+      "metrics": {
+        "respond": 8200,
+        "backlog": 0,
+        "workers": 0,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 4,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.55
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "card": {
+            "type": "panel",
+            "title": "Inside one upload request",
+            "icon": "hourglass",
+            "lines": [
+              "receive 40 photos",
+              "resize · colour-correct · lay out pages",
+              "render print PDF",
+              "= reply after 8.2 s"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "d": {
+            "from": "api",
+            "to": "store",
+            "pts": [
+              "api",
+              "store"
+            ],
+            "label": "save PDF"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "hold": 2,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "d"
+            ],
+            "rate": 0.3,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 3,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API",
+            "sub": "renders inline"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sunday rush",
+      "chapter": "problem",
+      "title": "Everyone uploads after the weekend",
+      "body": [
+        "Sunday evening, uploads triple. Each one holds an API thread for 8 seconds of CPU work, so the thread pool fills, new uploads queue inside the server, and the load balancer's 30-second timeout starts cutting them off.",
+        "The user sees an error after half a minute, and the half-finished album is simply gone."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Doing slow work inside a request ties your response time — and your failure rate — to the slowest thing you do."
+      },
+      "changes": [
+        "~ Uploads 3× higher",
+        "~ API threads saturated",
+        "~ Requests time out"
+      ],
+      "metrics": {
+        "respond": 30000,
+        "backlog": 0,
+        "workers": 0,
+        "lost": 340
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.98,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "all threads busy",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "card": {
+            "type": "panel",
+            "title": "Sunday evening",
+            "icon": "trendingUp",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Uploads arriving",
+                "note": "90 / min",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "Uploads the API can finish",
+                "note": "35 / min",
+                "to": 0.39,
+                "tone": "amber"
+              }
+            ],
+            "lines": [
+              "! the rest time out and are lost"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both",
+            "fail": 0.45
+          },
+          "d": {
+            "from": "api",
+            "to": "store",
+            "pts": [
+              "api",
+              "store"
+            ],
+            "label": "save PDF"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 2.2,
+            "hold": 2,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "d"
+            ],
+            "rate": 0.3,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API",
+            "sub": "renders inline",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Add a queue",
+      "chapter": "solution",
+      "title": "Take a ticket",
+      "body": [
+        "Split the work. The API — now a <span class=\"term\">producer</span> — checks the upload, stores the photos and puts a small job message on a <span class=\"term\">message queue</span>, then answers <code>202 Accepted</code> with a job id. Separate <span class=\"term\">consumer</span> processes, the workers, pull jobs and do the rendering.",
+        "The app shows “We're building your album” and notifies the user when it's ready. Users wait for a reply that is honest instead of one that is slow."
+      ],
+      "changes": [
+        "+ Job queue",
+        "+ 2 render workers",
+        "~ API replies 202 Accepted"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 20,
+        "workers": 2,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 6,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 2,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "card": {
+            "type": "panel",
+            "title": "Accept now, work later",
+            "icon": "inbox",
+            "lines": [
+              "API: validate, store photos, enqueue job",
+              "reply 202 Accepted + job id",
+              "worker: pull job, render, save",
+              "= upload answers in 160 ms"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1"
+              ]
+            ],
+            "rate": 1.4,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1"
+              ]
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "2 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Buffer",
+      "chapter": "insight",
+      "title": "The backlog absorbs the spike",
+      "body": [
+        "Sunday again. Jobs now arrive three times faster than two workers can finish them, so the <span class=\"term\">backlog</span> grows. That's fine: the queue stores jobs durably, the API still answers in 160 ms, and nothing is dropped.",
+        "The cost moved from “errors now” to “albums ready later”. Watch the age of the oldest job — that's the delay your users actually feel."
+      ],
+      "changes": [
+        "~ Backlog grows to 4,800 jobs",
+        "~ Oldest job waits 18 min"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 4800,
+        "workers": 2,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "oldest job: 18 min",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 13,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34,
+            "heat": 0.6,
+            "cpu": 0.96
+          },
+          "w1": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34,
+            "heat": 0.6,
+            "cpu": 0.96
+          },
+          "card": {
+            "type": "panel",
+            "title": "The queue is a shock absorber",
+            "icon": "inbox",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Jobs in",
+                "note": "90 / min",
+                "to": 1,
+                "tone": "amber"
+              },
+              {
+                "label": "Jobs out (2 workers)",
+                "note": "30 / min",
+                "to": 0.33,
+                "tone": "violet"
+              }
+            ],
+            "lines": [
+              "# the backlog grows, but nothing is lost",
+              "# users still get an instant reply"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 2.2,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1"
+              ]
+            ],
+            "rate": 1.4,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1"
+              ]
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue",
+            "status": "warn"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "2 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scale out",
+      "chapter": "technique",
+      "title": "More hands on the line",
+      "body": [
+        "Because producers and consumers only share the queue, each side scales on its own. Add workers and they simply start pulling jobs too; no load balancer or API change is needed.",
+        "Autoscaling on queue depth (or oldest-job age) adds workers on Sunday and removes them on Tuesday, so you pay for rendering only when there's rendering to do."
+      ],
+      "changes": [
+        "+ 4 more workers",
+        "~ Backlog drains to 300"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 300,
+        "workers": 6,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "oldest job: 1 min",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W1"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": -6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W2"
+            ],
+            "h": 34
+          },
+          "w2": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34
+          },
+          "w3": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "w4": {
+            "type": "block",
+            "x": 6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W5"
+            ],
+            "h": 34
+          },
+          "w5": {
+            "type": "block",
+            "x": 11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W6"
+            ],
+            "h": 34
+          },
+          "card": {
+            "type": "panel",
+            "title": "Scale the consumers, not the API",
+            "icon": "server",
+            "lines": [
+              "1 worker ≈ 15 albums / min",
+              "6 workers ≈ 90 / min = the Sunday peak",
+              "# autoscale on queue depth or oldest-job age",
+              "= backlog 4,800 → 300 in 40 min"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          },
+          "c2": {
+            "from": "q",
+            "to": "w2",
+            "pts": [
+              "q",
+              "w2"
+            ]
+          },
+          "s2": {
+            "from": "w2",
+            "to": "store",
+            "pts": [
+              "w2",
+              "store"
+            ]
+          },
+          "c3": {
+            "from": "q",
+            "to": "w3",
+            "pts": [
+              "q",
+              "w3"
+            ]
+          },
+          "s3": {
+            "from": "w3",
+            "to": "store",
+            "pts": [
+              "w3",
+              "store"
+            ]
+          },
+          "c4": {
+            "from": "q",
+            "to": "w4",
+            "pts": [
+              "q",
+              "w4"
+            ]
+          },
+          "s4": {
+            "from": "w4",
+            "to": "store",
+            "pts": [
+              "w4",
+              "store"
+            ]
+          },
+          "c5": {
+            "from": "q",
+            "to": "w5",
+            "pts": [
+              "q",
+              "w5"
+            ]
+          },
+          "s5": {
+            "from": "w5",
+            "to": "store",
+            "pts": [
+              "w5",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 2.2,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1",
+                "c2",
+                "c3",
+                "c4",
+                "c5"
+              ]
+            ],
+            "rate": 3.4,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1",
+                "s2",
+                "s3",
+                "s4",
+                "s5"
+              ]
+            ],
+            "rate": 1.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "6 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Worker dies",
+      "chapter": "problem",
+      "title": "Taken is not the same as done",
+      "body": [
+        "Worker W3 runs out of memory on a huge panorama and crashes. Our queue was configured to delete a job the moment a worker receives it, so W3's 12 in-progress jobs vanish with it.",
+        "Twelve customers paid for albums that will never arrive, and no error was logged anywhere."
+      ],
+      "changes": [
+        "- W3 crashed",
+        "~ 12 in-flight jobs lost"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 300,
+        "workers": 5,
+        "lost": 12
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "delete on receive",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W1"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": -6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W2"
+            ],
+            "h": 34
+          },
+          "w2": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34,
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "w3": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "w4": {
+            "type": "block",
+            "x": 6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W5"
+            ],
+            "h": 34
+          },
+          "w5": {
+            "type": "block",
+            "x": 11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W6"
+            ],
+            "h": 34
+          },
+          "card": {
+            "type": "panel",
+            "title": "W3 crashed mid-render",
+            "icon": "skull",
+            "lines": [
+              "queue removed its jobs when W3 took them",
+              "W3 held 12 jobs in memory",
+              "! 12 albums will never print"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          },
+          "c2": {
+            "from": "q",
+            "to": "w2",
+            "pts": [
+              "q",
+              "w2"
+            ],
+            "style": "cut",
+            "fail": 1
+          },
+          "c3": {
+            "from": "q",
+            "to": "w3",
+            "pts": [
+              "q",
+              "w3"
+            ]
+          },
+          "s3": {
+            "from": "w3",
+            "to": "store",
+            "pts": [
+              "w3",
+              "store"
+            ]
+          },
+          "c4": {
+            "from": "q",
+            "to": "w4",
+            "pts": [
+              "q",
+              "w4"
+            ]
+          },
+          "s4": {
+            "from": "w4",
+            "to": "store",
+            "pts": [
+              "w4",
+              "store"
+            ]
+          },
+          "c5": {
+            "from": "q",
+            "to": "w5",
+            "pts": [
+              "q",
+              "w5"
+            ]
+          },
+          "s5": {
+            "from": "w5",
+            "to": "store",
+            "pts": [
+              "w5",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.4,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 1.3,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1",
+                "c3",
+                "c4",
+                "c5",
+                "c2"
+              ]
+            ],
+            "rate": 3.4,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1",
+                "s3",
+                "s4",
+                "s5"
+              ]
+            ],
+            "rate": 1.55,
+            "kind": "write"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Acks",
+      "chapter": "solution",
+      "title": "Delete only after an acknowledgement",
+      "body": [
+        "With <span class=\"term\">acknowledgements</span>, receiving a job just hides it for a <span class=\"term\">visibility timeout</span>. The worker deletes it by sending an ack after the PDF is safely saved. If the worker dies first, the timeout expires and the job reappears for another worker.",
+        "This gives <span class=\"term\">at-least-once delivery</span>: every job is processed, possibly more than once."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Set the visibility timeout comfortably above the slowest normal job, or long jobs get handed out twice while still running."
+      },
+      "changes": [
+        "~ Jobs hidden on receive, deleted on ack",
+        "~ W3's jobs redelivered"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 312,
+        "workers": 5,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "ack after done",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W1"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": -6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W2"
+            ],
+            "h": 34
+          },
+          "w2": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34,
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "w3": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "w4": {
+            "type": "block",
+            "x": 6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W5"
+            ],
+            "h": 34
+          },
+          "w5": {
+            "type": "block",
+            "x": 11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W6"
+            ],
+            "h": 34
+          },
+          "card": {
+            "type": "panel",
+            "title": "Acknowledge, then forget",
+            "icon": "check",
+            "lines": [
+              "worker takes job → job hidden, not deleted",
+              "finish → worker sends ack → job deleted",
+              "no ack within 5 min → job visible again",
+              "= W3's 12 jobs go to other workers"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          },
+          "c2": {
+            "from": "q",
+            "to": "w2",
+            "pts": [
+              "q",
+              "w2"
+            ],
+            "style": "cut"
+          },
+          "c3": {
+            "from": "q",
+            "to": "w3",
+            "pts": [
+              "q",
+              "w3"
+            ]
+          },
+          "s3": {
+            "from": "w3",
+            "to": "store",
+            "pts": [
+              "w3",
+              "store"
+            ]
+          },
+          "c4": {
+            "from": "q",
+            "to": "w4",
+            "pts": [
+              "q",
+              "w4"
+            ]
+          },
+          "s4": {
+            "from": "w4",
+            "to": "store",
+            "pts": [
+              "w4",
+              "store"
+            ]
+          },
+          "c5": {
+            "from": "q",
+            "to": "w5",
+            "pts": [
+              "q",
+              "w5"
+            ]
+          },
+          "s5": {
+            "from": "w5",
+            "to": "store",
+            "pts": [
+              "w5",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.4,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 1.3,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1",
+                "c3",
+                "c4",
+                "c5"
+              ]
+            ],
+            "rate": 2,
+            "kind": "msg",
+            "bounce": true,
+            "hold": 0.8
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1",
+                "s3",
+                "s4",
+                "s5"
+              ]
+            ],
+            "rate": 1.55,
+            "kind": "write"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Duplicates",
+      "chapter": "tradeoff",
+      "title": "Twice is the price of never zero",
+      "body": [
+        "At-least-once has a catch: a worker can finish the work and crash just before its ack. The job comes back and another worker renders the same album again.",
+        "So consumers must be <span class=\"term\">idempotent</span>: running a job twice has the same effect as once. Write output to a path derived from the job id, record “job 9187 done” in the same transaction as the result, and skip jobs already marked done."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "“Exactly once” delivery is not something a network can promise. You build <i>effectively once</i> from at-least-once plus idempotent processing."
+      },
+      "changes": [
+        "+ W3 back",
+        "~ Job 9187 delivered twice, processed once"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 300,
+        "workers": 6,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2,
+            "tags": [
+              {
+                "text": "job 9187 · done",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "at-least-once",
+                "tone": "amber",
+                "icon": "replay"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W1"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": -6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W2"
+            ],
+            "h": 34
+          },
+          "w2": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "job 9187 again",
+                "tone": "amber",
+                "icon": "replay"
+              }
+            ]
+          },
+          "w3": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "w4": {
+            "type": "block",
+            "x": 6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W5"
+            ],
+            "h": 34
+          },
+          "w5": {
+            "type": "block",
+            "x": 11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W6"
+            ],
+            "h": 34
+          },
+          "card": {
+            "type": "panel",
+            "title": "Same job, twice",
+            "icon": "replay",
+            "lines": [
+              "W3 saved album 9187, then crashed before ack",
+              "job reappears → W4 renders it again",
+              "naive: print + ship 2 books, bill twice",
+              "= idempotent: 'job 9187 done' → skip"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          },
+          "c2": {
+            "from": "q",
+            "to": "w2",
+            "pts": [
+              "q",
+              "w2"
+            ]
+          },
+          "s2": {
+            "from": "w2",
+            "to": "store",
+            "pts": [
+              "w2",
+              "store"
+            ]
+          },
+          "c3": {
+            "from": "q",
+            "to": "w3",
+            "pts": [
+              "q",
+              "w3"
+            ]
+          },
+          "s3": {
+            "from": "w3",
+            "to": "store",
+            "pts": [
+              "w3",
+              "store"
+            ]
+          },
+          "c4": {
+            "from": "q",
+            "to": "w4",
+            "pts": [
+              "q",
+              "w4"
+            ]
+          },
+          "s4": {
+            "from": "w4",
+            "to": "store",
+            "pts": [
+              "w4",
+              "store"
+            ]
+          },
+          "c5": {
+            "from": "q",
+            "to": "w5",
+            "pts": [
+              "q",
+              "w5"
+            ]
+          },
+          "s5": {
+            "from": "w5",
+            "to": "store",
+            "pts": [
+              "w5",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 2.2,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1",
+                "c2",
+                "c3",
+                "c4",
+                "c5"
+              ]
+            ],
+            "rate": 3.4,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1",
+                "s2",
+                "s3",
+                "s4",
+                "s5"
+              ]
+            ],
+            "rate": 1.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "6 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Poison job",
+      "chapter": "technique",
+      "title": "The job that always fails",
+      "body": [
+        "One album contains a corrupt TIFF that crashes the renderer every time. Redelivery makes it a <span class=\"term\">poison message</span>: it bounces from worker to worker forever, burning capacity.",
+        "Cap the attempts. Retry with growing delays, and after the 5th failure move the job to a <span class=\"term\">dead-letter queue</span> (DLQ). Alert on DLQ size; someone inspects, fixes and replays those jobs later."
+      ],
+      "changes": [
+        "+ Dead-letter queue",
+        "~ Retries capped at 5"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 300,
+        "workers": 6,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "TIFF 1 of 40 corrupt",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W1"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": -6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W2"
+            ],
+            "h": 34
+          },
+          "w2": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34
+          },
+          "w3": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "w4": {
+            "type": "block",
+            "x": 6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W5"
+            ],
+            "h": 34
+          },
+          "w5": {
+            "type": "block",
+            "x": 11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W6"
+            ],
+            "h": 34
+          },
+          "card": {
+            "type": "panel",
+            "title": "A poison message",
+            "icon": "bug",
+            "lines": [
+              "crashes every worker that tries it",
+              "retry with backoff: 10 s, 40 s, 3 min…",
+              "after 5 attempts → dead-letter queue",
+              "= the line keeps moving; a human looks later"
+            ]
+          },
+          "dlq": {
+            "type": "block",
+            "x": 9,
+            "y": -16,
+            "s": 3.4,
+            "color": "orange",
+            "glyph": "alert",
+            "label": [
+              "Dead",
+              "letters"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "1 job",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ],
+            "fail": 0.25
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          },
+          "c2": {
+            "from": "q",
+            "to": "w2",
+            "pts": [
+              "q",
+              "w2"
+            ]
+          },
+          "s2": {
+            "from": "w2",
+            "to": "store",
+            "pts": [
+              "w2",
+              "store"
+            ]
+          },
+          "c3": {
+            "from": "q",
+            "to": "w3",
+            "pts": [
+              "q",
+              "w3"
+            ]
+          },
+          "s3": {
+            "from": "w3",
+            "to": "store",
+            "pts": [
+              "w3",
+              "store"
+            ]
+          },
+          "c4": {
+            "from": "q",
+            "to": "w4",
+            "pts": [
+              "q",
+              "w4"
+            ]
+          },
+          "s4": {
+            "from": "w4",
+            "to": "store",
+            "pts": [
+              "w4",
+              "store"
+            ]
+          },
+          "c5": {
+            "from": "q",
+            "to": "w5",
+            "pts": [
+              "q",
+              "w5"
+            ]
+          },
+          "s5": {
+            "from": "w5",
+            "to": "store",
+            "pts": [
+              "w5",
+              "store"
+            ]
+          },
+          "dl": {
+            "from": "q",
+            "to": "dlq",
+            "pts": [
+              "q",
+              "dlq"
+            ],
+            "label": "after 5 tries",
+            "labelTone": "red",
+            "labelAt": 0.4
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.6,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 1.5,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1",
+                "c2",
+                "c3",
+                "c4",
+                "c5"
+              ]
+            ],
+            "rate": 3,
+            "pattern": [
+              "msg",
+              "msg",
+              "msg",
+              "poison"
+            ]
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1",
+                "s2",
+                "s3",
+                "s4",
+                "s5"
+              ]
+            ],
+            "rate": 1.8,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "dl"
+            ],
+            "rate": 0.3,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "6 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Backpressure",
+      "chapter": "tradeoff",
+      "title": "A queue is not infinite",
+      "body": [
+        "A queue hides a mismatch, it doesn't fix it. If jobs arrive faster than you can ever process them, the backlog grows without end, delays reach days and eventually storage runs out.",
+        "<span class=\"term\">Backpressure</span> means telling producers to slow down: bound the queue, and when it's full make the API answer <code>503</code> with “try again later” (or throttle uploads), while autoscaling catches up. Better a clear “not now” than a promise you can't keep."
+      ],
+      "changes": [
+        "~ Queue bounded at 50,000 jobs",
+        "~ API pushes back when full"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 18000,
+        "workers": 2,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "full → 503 + retry later",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ]
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "max 50,000 jobs",
+                "tone": "amber",
+                "icon": "gauge"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 18,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34,
+            "heat": 0.6,
+            "cpu": 0.96
+          },
+          "w1": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34,
+            "heat": 0.6,
+            "cpu": 0.96
+          },
+          "card": {
+            "type": "panel",
+            "title": "If in > out, forever",
+            "icon": "gauge",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Arriving",
+                "note": "900 / min",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Processed",
+                "note": "600 / min",
+                "to": 0.67,
+                "tone": "violet"
+              },
+              {
+                "label": "Backlog growth",
+                "note": "+18,000 / hour",
+                "to": 0.33,
+                "tone": "amber",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "# bound the queue · alert on oldest-job age",
+              "# push back on producers or add consumers"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ]
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 2.2,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1"
+              ]
+            ],
+            "rate": 1.4,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1"
+              ]
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue",
+            "status": "crit"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "2 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Fast replies, durable work",
+      "body": [
+        "<ul class=\"takeaways\"><li>Queue slow work: reply fast with a job id, let consumers do the rest.</li><li>The backlog buffers spikes; scale consumers on its depth and age.</li><li>Ack after the work is done → at-least-once delivery.</li><li>At-least-once needs idempotent consumers.</li><li>Cap retries and park poison jobs in a dead-letter queue.</li><li>Bound queues and push back when consumers can't keep up.</li></ul>"
+      ],
+      "metrics": {
+        "respond": 160,
+        "backlog": 300,
+        "workers": 6,
+        "lost": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -32,
+            "y1": -26,
+            "count": 12,
+            "label": "Photographers"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -18,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Upload",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 21,
+            "label": "print files",
+            "r": 2
+          },
+          "q": {
+            "type": "block",
+            "x": 0,
+            "y": -5,
+            "s": 4.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Job",
+              "Queue"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "ack · retries · DLQ",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "qd": {
+            "type": "queue",
+            "x": -4.2,
+            "y": -6,
+            "n": 3,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#efb041"
+          },
+          "w0": {
+            "type": "block",
+            "x": -11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W1"
+            ],
+            "h": 34
+          },
+          "w1": {
+            "type": "block",
+            "x": -6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W2"
+            ],
+            "h": 34
+          },
+          "w2": {
+            "type": "block",
+            "x": -2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W3"
+            ],
+            "h": 34
+          },
+          "w3": {
+            "type": "block",
+            "x": 2.2,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W4"
+            ],
+            "h": 34
+          },
+          "w4": {
+            "type": "block",
+            "x": 6.6,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W5"
+            ],
+            "h": 34
+          },
+          "w5": {
+            "type": "block",
+            "x": 11,
+            "y": 10,
+            "s": 2.8,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "W6"
+            ],
+            "h": 34
+          },
+          "dlq": {
+            "type": "block",
+            "x": 9,
+            "y": -16,
+            "s": 3.4,
+            "color": "orange",
+            "glyph": "alert",
+            "label": [
+              "Dead",
+              "letters"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "1 job",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST /albums",
+            "heads": "both"
+          },
+          "e": {
+            "from": "api",
+            "to": "q",
+            "pts": [
+              "api",
+              "q"
+            ],
+            "label": "enqueue"
+          },
+          "c0": {
+            "from": "q",
+            "to": "w0",
+            "pts": [
+              "q",
+              "w0"
+            ]
+          },
+          "s0": {
+            "from": "w0",
+            "to": "store",
+            "pts": [
+              "w0",
+              "store"
+            ]
+          },
+          "c1": {
+            "from": "q",
+            "to": "w1",
+            "pts": [
+              "q",
+              "w1"
+            ],
+            "fail": 0
+          },
+          "s1": {
+            "from": "w1",
+            "to": "store",
+            "pts": [
+              "w1",
+              "store"
+            ]
+          },
+          "c2": {
+            "from": "q",
+            "to": "w2",
+            "pts": [
+              "q",
+              "w2"
+            ]
+          },
+          "s2": {
+            "from": "w2",
+            "to": "store",
+            "pts": [
+              "w2",
+              "store"
+            ]
+          },
+          "c3": {
+            "from": "q",
+            "to": "w3",
+            "pts": [
+              "q",
+              "w3"
+            ]
+          },
+          "s3": {
+            "from": "w3",
+            "to": "store",
+            "pts": [
+              "w3",
+              "store"
+            ]
+          },
+          "c4": {
+            "from": "q",
+            "to": "w4",
+            "pts": [
+              "q",
+              "w4"
+            ]
+          },
+          "s4": {
+            "from": "w4",
+            "to": "store",
+            "pts": [
+              "w4",
+              "store"
+            ]
+          },
+          "c5": {
+            "from": "q",
+            "to": "w5",
+            "pts": [
+              "q",
+              "w5"
+            ]
+          },
+          "s5": {
+            "from": "w5",
+            "to": "store",
+            "pts": [
+              "w5",
+              "store"
+            ]
+          },
+          "dl": {
+            "from": "q",
+            "to": "dlq",
+            "pts": [
+              "q",
+              "dlq"
+            ],
+            "label": "after 5 tries",
+            "labelTone": "red",
+            "labelAt": 0.4
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.6,
+            "speed": 1.3
+          },
+          {
+            "route": [
+              "e"
+            ],
+            "rate": 1.5,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              [
+                "c0",
+                "c1",
+                "c2",
+                "c3",
+                "c4",
+                "c5"
+              ]
+            ],
+            "rate": 3,
+            "pattern": [
+              "msg",
+              "msg",
+              "msg",
+              "poison"
+            ]
+          },
+          {
+            "route": [
+              [
+                "s0",
+                "s1",
+                "s2",
+                "s3",
+                "s4",
+                "s5"
+              ]
+            ],
+            "rate": 1.8,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "dl"
+            ],
+            "rate": 0.3,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Photographers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Upload API"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Job queue"
+          },
+          {
+            "id": "w",
+            "kind": "worker",
+            "label": "Render workers",
+            "sub": "6 workers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Albums DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "w"
+          },
+          {
+            "from": "w",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

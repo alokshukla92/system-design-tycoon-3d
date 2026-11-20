@@ -1,7 +1,7 @@
 // Search modal `.sx` (doc 04 §9, doc 06 F8; original JS L5726-6035).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { CHAPTERS, FLAT, getLesson } from "../content";
+import { CHAPTERS } from "../content";
 import { iconInner, iconSvg } from "../icons";
 import type { Chapter, Lesson, Module } from "../types/lesson";
 import {
@@ -15,7 +15,7 @@ import {
   resultHref,
   snippet,
 } from "./index";
-import type { ConceptDoc, DocKind, LessonDoc, SearchIndex, StepDoc } from "./index";
+import type { ConceptDoc, DocKind, LessonDoc, SearchIndex, SearchLesson, StepDoc } from "./index";
 import { D, t } from "../i18n";
 import "./search.css";
 
@@ -31,8 +31,10 @@ export interface SearchModalProps {
   onPick: (lessonId: string, step: number) => void;
   /** Called on ⌘K / Ctrl K / "/" while closed. Omit to disable the global shortcuts for opening. */
   onOpen?: () => void;
-  /** Lessons to index (default: every bundled lesson in course order). Pass a filtered list to hide locked lessons. */
-  lessons?: readonly Lesson[];
+  /** Lessons to index (default: the lazily loaded search corpus — every lesson, in course order). */
+  lessons?: readonly (Lesson | SearchLesson)[];
+  /** Which lessons to index, e.g. to hide locked ones (default: all). */
+  include?: (lessonId: string) => boolean;
   /** Currently open lesson — excluded from Recent (default: `sdt:last`). */
   currentLessonId?: string | null;
   /** Completed lesson ids (default: `sdt:done`). */
@@ -177,10 +179,21 @@ function buildRows(index: SearchIndex | null, q: string, snap: Snapshot): { rows
   return { rows, count: t("{lessons} lessons · {steps} steps · {concepts} concepts", { lessons: c.lessons, steps: c.steps, concepts: c.concepts }) };
 }
 
-const defaultLessons = () => FLAT.map((r) => getLesson(r.id)).filter((l): l is Lesson => !!l);
+// The corpus chunk loads on first open (original: index built lazily at first open, "Loading…" meanwhile).
+let corpus: Promise<readonly SearchLesson[]> | null = null;
+function loadCorpus(): Promise<readonly SearchLesson[]> {
+  corpus ??= import("./corpus").then(
+    (m) => m.CORPUS,
+    (err: unknown) => {
+      corpus = null;
+      throw err;
+    },
+  );
+  return corpus;
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
-export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLessonId, done, recent }: SearchModalProps) {
+export function SearchModal({ open, onClose, onPick, onOpen, lessons, include, currentLessonId, done, recent }: SearchModalProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -193,7 +206,23 @@ export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLes
   const [q, setQ] = useState("");
   const [snap, setSnap] = useState<Snapshot>({ currentLessonId: null, done: new Set(), recent: [] });
 
-  const index = useMemo(() => (wanted ? buildIndex(lessons ?? defaultLessons()) : null), [wanted, lessons]);
+  const [loaded, setLoaded] = useState<readonly SearchLesson[] | null>(null);
+  const source = lessons ?? loaded;
+  useEffect(() => {
+    if (!open || lessons || loaded) return;
+    let live = true;
+    loadCorpus().then(
+      (c) => live && setLoaded(c),
+      (err: unknown) => console.warn("[search] could not load the search index", err),
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, lessons, loaded]);
+  const index = useMemo(
+    () => (wanted && source ? buildIndex(include ? source.filter((l) => include(l.id)) : source) : null),
+    [wanted, source, include],
+  );
   const { rows, count } = useMemo(() => buildRows(index, q, snap), [index, q, snap]);
   const items = useMemo(() => rows.flatMap((r) => (r.type === "item" ? [r] : [])), [rows]);
 

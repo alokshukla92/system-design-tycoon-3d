@@ -1,0 +1,2460 @@
+{
+  "id": "right-or-reachable",
+  "title": "Right or Reachable",
+  "summary": "Tallyho keeps group travel wallets in two regions. When the ocean link drops, every request has to pick: the right answer, or an answer at all.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "consistent",
+    "available",
+    "conflicts",
+    "lag",
+    "p95"
+  ],
+  "legend": [
+    [
+      "write",
+      "write"
+    ],
+    "req",
+    "res",
+    [
+      "slow",
+      "stuck write"
+    ],
+    [
+      "empty",
+      "refused"
+    ],
+    [
+      "msg",
+      "comment"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See what a network partition forces you to choose",
+      "step": 1
+    },
+    {
+      "text": "Compare refusing writes with accepting and diverging",
+      "step": 2
+    },
+    {
+      "text": "Choose consistency per kind of data",
+      "step": 5
+    },
+    {
+      "text": "Use quorums (R + W > N) to tune reads and writes",
+      "step": 6
+    },
+    {
+      "text": "Trade latency for consistency even without failures",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Two regions",
+      "chapter": "setup",
+      "title": "One wallet, two continents",
+      "body": [
+        "<b>Tallyho</b> runs shared travel wallets: a group tops up €100 and anyone can spend from it. To keep the app fast for everyone, the data lives in <b>Frankfurt</b> and in <b>Virginia</b>.",
+        "Every write is copied to the other region before it's confirmed — <span class=\"term\">synchronous replication</span>. Both copies always agree, at the price of an ocean round trip on every write."
+      ],
+      "metrics": {
+        "consistent": "yes",
+        "available": "yes",
+        "conflicts": 0,
+        "lag": "0 s",
+        "p95": 190
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt"
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia"
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "sync replication · 85 ms"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "eu1",
+              "eu2",
+              "rep"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "us1",
+              "us2"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Partition",
+      "chapter": "problem",
+      "title": "The ocean link drops",
+      "body": [
+        "A transatlantic route fails. Both regions are healthy and serving users, but they can't talk to each other: a <span class=\"term\">network partition</span>.",
+        "Every write now hangs, waiting for a confirmation that will never come. The <span class=\"term\">CAP theorem</span> says this moment is a forced choice: while partitioned, a replicated system can stay <b>consistent</b> or stay <b>available</b> — not both."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Partitions aren't optional. Cables get cut and switches fail; the only question is what your system does when it happens."
+      },
+      "changes": [
+        "~ Frankfurt ↔ Virginia link partitioned",
+        "~ Writes stuck waiting for the other side"
+      ],
+      "metrics": {
+        "consistent": "?",
+        "available": "?",
+        "conflicts": 0,
+        "lag": "unknown",
+        "p95": null
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "Frankfurt",
+            "heat": 0.35,
+            "tags": [
+              {
+                "text": "waiting",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "Virginia",
+            "heat": 0.35,
+            "tags": [
+              {
+                "text": "waiting",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "CAP, during a partition",
+            "icon": "split",
+            "lines": [
+              "**C**onsistent: every read sees the latest write",
+              "**A**vailable: every request gets a real answer",
+              "! with the link down you can't promise both"
+            ]
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "partition",
+            "style": "cut",
+            "fail": 1,
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "eu1",
+              "eu2",
+              "rep"
+            ],
+            "kind": "slow",
+            "rate": 1
+          },
+          {
+            "route": [
+              "us1",
+              "us2"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "hold": 1.6,
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary",
+            "status": "warn"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Choose C",
+      "chapter": "tradeoff",
+      "title": "Option 1: stay correct",
+      "body": [
+        "A <span class=\"term\">CP</span> system refuses what it can't make safe. Writes that can't reach the other region fail fast with an error; reads still work but may be a few minutes old.",
+        "Nobody overdraws the wallet — and nobody can pay for dinner either. For the length of the outage, Tallyho is partly down on both continents."
+      ],
+      "changes": [
+        "~ Both APIs reject writes with 503",
+        "~ Reads still served from the local copy"
+      ],
+      "metrics": {
+        "consistent": "yes",
+        "available": "no",
+        "conflicts": 0,
+        "lag": "frozen",
+        "p95": 30
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt",
+            "tags": [
+              {
+                "text": "writes: 503",
+                "tone": "red",
+                "icon": "ban"
+              }
+            ]
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia",
+            "tags": [
+              {
+                "text": "writes: 503",
+                "tone": "red",
+                "icon": "ban"
+              }
+            ]
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "reads only"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "reads only"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "partition",
+            "style": "cut",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "eu1",
+                  "eu2"
+                ]
+              },
+              {
+                "path": [
+                  "eu1"
+                ],
+                "kind": "empty"
+              }
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "us1",
+                  "us2"
+                ]
+              },
+              {
+                "path": [
+                  "us1"
+                ],
+                "kind": "empty"
+              }
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary",
+            "status": "crit"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Choose A",
+      "chapter": "tradeoff",
+      "title": "Option 2: stay reachable",
+      "body": [
+        "An <span class=\"term\">AP</span> system keeps accepting writes on both sides and promises to reconcile later. Everything feels normal: payments go through in 25 ms in each region.",
+        "But the two copies are now quietly telling different stories. Frankfurt thinks the wallet holds €40, Virginia thinks €30, and each is approving new spending against its own number."
+      ],
+      "changes": [
+        "~ Both regions accept writes independently",
+        "~ The two copies diverge"
+      ],
+      "metrics": {
+        "consistent": "no",
+        "available": "yes",
+        "conflicts": 0,
+        "lag": "growing",
+        "p95": 25
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt",
+            "tags": [
+              {
+                "text": "accepting writes",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia",
+            "tags": [
+              {
+                "text": "accepting writes",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet €40",
+                "tone": "amber",
+                "icon": "creditCard"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet €30",
+                "tone": "amber",
+                "icon": "creditCard"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "partition",
+            "style": "cut",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "eu1",
+              "eu2"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.3
+          },
+          {
+            "route": [
+              "us1",
+              "us2"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Heal",
+      "chapter": "problem",
+      "title": "The link comes back",
+      "body": [
+        "When the partition heals, each region ships its backlog to the other — and they disagree. Two payments were each approved against €100, together spending €130.",
+        "Someone must <span class=\"term\">reconcile</span>. <i>Last-write-wins</i> keeps one version and silently drops the other expense. For money, neither answer is acceptable after the fact."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "AP doesn't remove conflicts — it postpones them until after the partition, when they're harder to undo."
+      },
+      "changes": [
+        "~ Link restored, backlogs exchanged",
+        "+ Conflict on the wallet balance"
+      ],
+      "metrics": {
+        "consistent": "no",
+        "available": "yes",
+        "conflicts": 1,
+        "lag": "catching up",
+        "p95": 25
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt"
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia"
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet €40",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet €30",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Same wallet, two histories",
+            "icon": "creditCard",
+            "lines": [
+              "start: €100",
+              "Frankfurt · Ana: dinner −€60 → €40",
+              "Virginia · Raj: car hire −€70 → €30",
+              "! together −€130 · wallet overdrawn by €30",
+              "# last-write-wins would silently drop one expense"
+            ]
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "exchanging backlog",
+            "labelTone": "amber"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary",
+            "status": "warn"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Per data",
+      "chapter": "insight",
+      "title": "Choose per kind of data",
+      "body": [
+        "The choice isn't per system, it's per operation. Wallet spending gets a <b>home region</b> (Virginia): during a partition, Frankfurt refuses spending rather than guess. That's CP where it matters.",
+        "Comments and reactions are AP: accept them everywhere and merge later. A set of comments merges cleanly — keep everything from both sides — so there's nothing to lose by staying available."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Data that merges naturally (sets, counters, append-only logs) is a great fit for AP. Data with invariants (balances, stock, seats) usually isn't."
+      },
+      "changes": [
+        "~ Wallet writes routed to a single home region",
+        "~ Comments accepted in both regions and merged"
+      ],
+      "metrics": {
+        "consistent": "wallet: yes",
+        "available": "comments: yes",
+        "conflicts": 0,
+        "lag": "comments",
+        "p95": 30
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt",
+            "tags": [
+              {
+                "text": "wallet spend: 503",
+                "tone": "amber",
+                "icon": "ban"
+              }
+            ]
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia"
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet → CP",
+                "tone": "violet",
+                "icon": "lock"
+              },
+              {
+                "text": "comments → AP",
+                "tone": "green",
+                "icon": "message"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet home",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "comments → AP",
+                "tone": "green",
+                "icon": "message"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "partition",
+            "style": "cut",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "eu1",
+                  "eu2"
+                ],
+                "kind": "msg"
+              },
+              {
+                "path": [
+                  "eu1"
+                ],
+                "kind": "empty"
+              }
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "us1",
+                  "us2"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "us1",
+                  "us2"
+                ],
+                "kind": "msg"
+              }
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Quorum",
+      "chapter": "technique",
+      "title": "Quorums: overlap by arithmetic",
+      "body": [
+        "Inside a region, stores like Cassandra or DynamoDB keep <b>N</b> copies of each row and let you choose how many must answer. A write waits for <b>W</b> replicas; a read asks <b>R</b> replicas and takes the newest version.",
+        "If <span class=\"term\">R + W &gt; N</span>, every read set overlaps every write set in at least one replica — so a read always sees the latest confirmed write, even while replica 3 is still catching up."
+      ],
+      "changes": [
+        "+ Three replicas behind a coordinator",
+        "~ Writes wait for 2, reads ask 2"
+      ],
+      "metrics": {
+        "consistent": "yes",
+        "available": "yes",
+        "conflicts": 0,
+        "lag": "1 · 40 ms",
+        "p95": 12
+      },
+      "scene": {
+        "entities": {
+          "zQ": {
+            "type": "zone",
+            "x0": -10,
+            "x1": 5,
+            "y0": 2,
+            "y1": 18,
+            "label": "VIRGINIA · 3 REPLICAS"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -29,
+            "y1": -23,
+            "count": 10,
+            "label": "Travellers"
+          },
+          "co": {
+            "type": "block",
+            "x": 0,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tallyho",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "coordinator"
+          },
+          "r1": {
+            "type": "db",
+            "x": -7,
+            "y": 5,
+            "label": "Replica 1",
+            "tags": [
+              {
+                "text": "v7",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "r2": {
+            "type": "db",
+            "x": -2,
+            "y": 10,
+            "label": "Replica 2",
+            "tags": [
+              {
+                "text": "v7",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "r3": {
+            "type": "db",
+            "x": 3,
+            "y": 15,
+            "label": "Replica 3",
+            "tags": [
+              {
+                "text": "v6 · behind",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Quorum arithmetic",
+            "icon": "sigma",
+            "lines": [
+              "N = 3 copies of every row",
+              "W = 2 must confirm each write",
+              "R = 2 answer each read",
+              "= R + W = 4 > 3 → every read meets the latest write"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "co",
+            "pts": [
+              "users",
+              "co"
+            ],
+            "label": "comment"
+          },
+          "c1": {
+            "from": "co",
+            "to": "r1",
+            "pts": [
+              "co",
+              "r1"
+            ],
+            "label": "W"
+          },
+          "c2": {
+            "from": "co",
+            "to": "r2",
+            "pts": [
+              "co",
+              "r2"
+            ],
+            "label": "W + R"
+          },
+          "c3": {
+            "from": "co",
+            "to": "r3",
+            "pts": [
+              "co",
+              "r3"
+            ],
+            "label": "R"
+          }
+        },
+        "flows": [
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "c1"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "c2"
+                ],
+                "kind": "write"
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "c2"
+                ]
+              },
+              {
+                "path": [
+                  "c3"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7
+          },
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "co",
+            "kind": "api_server",
+            "label": "Tallyho API",
+            "sub": "coordinator"
+          },
+          {
+            "id": "cas",
+            "kind": "cassandra",
+            "label": "Replicas",
+            "sub": "N=3 · R=2 · W=2"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "co"
+          },
+          {
+            "from": "co",
+            "to": "cas"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Dials",
+      "chapter": "tradeoff",
+      "title": "Lose a replica, keep going",
+      "body": [
+        "Replica 1 dies. With R = 2 and W = 2, the remaining two still form a quorum for both reads and writes — nobody notices.",
+        "R and W are dials: lower them for speed and availability, raise them for stronger reads. <b>Eventual consistency</b> (R = 1, W = 1) is fastest, but a read may land on a replica that hasn't heard the latest write yet."
+      ],
+      "changes": [
+        "~ Replica 1 down",
+        "~ Reads and writes use replicas 2 and 3"
+      ],
+      "metrics": {
+        "consistent": "yes",
+        "available": "yes",
+        "conflicts": 0,
+        "lag": "0 s",
+        "p95": 14
+      },
+      "scene": {
+        "entities": {
+          "zQ": {
+            "type": "zone",
+            "x0": -10,
+            "x1": 5,
+            "y0": 2,
+            "y1": 18,
+            "label": "VIRGINIA · 3 REPLICAS"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -29,
+            "y1": -23,
+            "count": 10,
+            "label": "Travellers"
+          },
+          "co": {
+            "type": "block",
+            "x": 0,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tallyho",
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "coordinator"
+          },
+          "r1": {
+            "type": "db",
+            "x": -7,
+            "y": 5,
+            "label": "Replica 1",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0
+          },
+          "r2": {
+            "type": "db",
+            "x": -2,
+            "y": 10,
+            "label": "Replica 2",
+            "tags": [
+              {
+                "text": "v7",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "r3": {
+            "type": "db",
+            "x": 3,
+            "y": 15,
+            "label": "Replica 3",
+            "tags": [
+              {
+                "text": "v7",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Turning the dials (N = 3)",
+            "icon": "settings",
+            "lines": [
+              "R=1 W=1 · fastest · reads may be stale",
+              "R=2 W=2 · overlap · survives 1 replica down",
+              "R=1 W=3 · cheap reads · 1 replica down blocks writes",
+              "! lose 2 replicas and R=2 / W=2 can't be met"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "co",
+            "pts": [
+              "users",
+              "co"
+            ],
+            "label": "comment"
+          },
+          "c1": {
+            "from": "co",
+            "to": "r1",
+            "pts": [
+              "co",
+              "r1"
+            ],
+            "style": "cut",
+            "label": ""
+          },
+          "c2": {
+            "from": "co",
+            "to": "r2",
+            "pts": [
+              "co",
+              "r2"
+            ],
+            "label": "W + R"
+          },
+          "c3": {
+            "from": "co",
+            "to": "r3",
+            "pts": [
+              "co",
+              "r3"
+            ],
+            "label": "W + R"
+          }
+        },
+        "flows": [
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "c2"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "c3"
+                ],
+                "kind": "write"
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "c2"
+                ]
+              },
+              {
+                "path": [
+                  "c3"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7
+          },
+          {
+            "route": [
+              "u"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "co",
+            "kind": "api_server",
+            "label": "Tallyho API",
+            "sub": "coordinator"
+          },
+          {
+            "id": "cas",
+            "kind": "cassandra",
+            "label": "Replicas",
+            "sub": "N=3 · R=2 · W=2",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "co"
+          },
+          {
+            "from": "co",
+            "to": "cas"
+          }
+        ]
+      }
+    },
+    {
+      "short": "PACELC",
+      "chapter": "insight",
+      "title": "Even without failures",
+      "body": [
+        "Partitions are rare; latency is every request. <span class=\"term\">PACELC</span> extends CAP: if <b>P</b>artitioned, choose <b>A</b> or <b>C</b>; <b>E</b>lse, choose <b>L</b>atency or <b>C</b>onsistency.",
+        "Comments now commit locally in 25 ms and replicate asynchronously, about 300 ms behind. To hide the lag from the author, read their own data from the region they wrote to — <span class=\"term\">read-your-writes</span>."
+      ],
+      "changes": [
+        "~ Replication becomes asynchronous",
+        "~ Writes commit in the local region"
+      ],
+      "metrics": {
+        "consistent": "eventual",
+        "available": "yes",
+        "conflicts": 0,
+        "lag": "0.3 s",
+        "p95": 25
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt",
+            "tags": [
+              {
+                "text": "commit locally",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia",
+            "tags": [
+              {
+                "text": "commit locally",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet €100"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "~300 ms behind",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Else: latency or consistency",
+            "icon": "timer",
+            "lines": [
+              "# p95 of a wallet write, no partition"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Sync to both regions",
+                "note": "190 ms",
+                "to": 1,
+                "tone": "amber"
+              },
+              {
+                "label": "Commit locally, ship later",
+                "note": "25 ms",
+                "to": 0.13,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "async · ~300 ms",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "eu1",
+              "eu2"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.3
+          },
+          {
+            "route": [
+              "us1",
+              "us2"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.3
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8,
+            "speed": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Right, reachable, or fast",
+      "body": [
+        "<ul class=\"takeaways\"><li>During a partition you choose: refuse (consistent) or accept and reconcile later (available).</li><li>Make the choice per kind of data — money CP, comments AP.</li><li>Quorums with R + W &gt; N give consistent reads while tolerating failed replicas.</li><li>Without failures, the trade is latency versus consistency.</li></ul>"
+      ],
+      "metrics": {
+        "consistent": "wallet: yes",
+        "available": "comments: yes",
+        "conflicts": 0,
+        "lag": "0.3 s",
+        "p95": 25
+      },
+      "scene": {
+        "entities": {
+          "zEu": {
+            "type": "zone",
+            "x0": -14,
+            "x1": -4,
+            "y0": -18,
+            "y1": 5,
+            "label": "FRANKFURT"
+          },
+          "zUs": {
+            "type": "zone",
+            "x0": 4,
+            "x1": 14,
+            "y0": -18,
+            "y1": 5,
+            "label": "VIRGINIA"
+          },
+          "euUsers": {
+            "type": "crowd",
+            "x0": -13,
+            "x1": -5,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "EU travellers"
+          },
+          "usUsers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -30,
+            "y1": -24,
+            "count": 8,
+            "label": "US travellers"
+          },
+          "euApi": {
+            "type": "block",
+            "x": -9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Frankfurt"
+          },
+          "usApi": {
+            "type": "block",
+            "x": 9,
+            "y": -13,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "Virginia"
+          },
+          "euDb": {
+            "type": "db",
+            "x": -9,
+            "y": 0,
+            "label": "EU copy",
+            "tags": [
+              {
+                "text": "wallet → CP",
+                "tone": "violet",
+                "icon": "lock"
+              },
+              {
+                "text": "comments → AP",
+                "tone": "green",
+                "icon": "message"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "usDb": {
+            "type": "db",
+            "x": 9,
+            "y": 0,
+            "label": "US copy",
+            "tags": [
+              {
+                "text": "wallet home",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "comments → AP",
+                "tone": "green",
+                "icon": "message"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "eu1": {
+            "from": "euUsers",
+            "to": "euApi",
+            "pts": [
+              "euUsers",
+              "euApi"
+            ]
+          },
+          "eu2": {
+            "from": "euApi",
+            "to": "euDb",
+            "pts": [
+              "euApi",
+              "euDb"
+            ],
+            "label": "write"
+          },
+          "us1": {
+            "from": "usUsers",
+            "to": "usApi",
+            "pts": [
+              "usUsers",
+              "usApi"
+            ]
+          },
+          "us2": {
+            "from": "usApi",
+            "to": "usDb",
+            "pts": [
+              "usApi",
+              "usDb"
+            ],
+            "label": "write"
+          },
+          "rep": {
+            "from": "euDb",
+            "to": "usDb",
+            "pts": [
+              "euDb",
+              "usDb"
+            ],
+            "heads": "both",
+            "label": "async · ~300 ms",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "eu1",
+              "eu2"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "us1",
+              "us2"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.7,
+            "speed": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 1200000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "2 regions"
+          },
+          {
+            "id": "eu",
+            "kind": "postgres",
+            "label": "EU copy",
+            "sub": "primary"
+          },
+          {
+            "id": "us",
+            "kind": "postgres",
+            "label": "US copy",
+            "sub": "replica"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "eu"
+          },
+          {
+            "from": "eu",
+            "to": "us"
+          }
+        ]
+      }
+    }
+  ]
+}

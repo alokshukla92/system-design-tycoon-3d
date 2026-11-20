@@ -1,5 +1,5 @@
 // Hash routing (#/<lessonId>/<1-based step>) and Pro gating, as in the original controller.
-import { DEFAULT_LESSON_ID, FLAT, getLesson, isFreeLesson, lessonRef } from "../content";
+import { DEFAULT_LESSON_ID, FLAT, hasLesson, isFreeLesson, lessonRef } from "../content";
 import { storage } from "./storage";
 import type { RecentEntry } from "./store";
 
@@ -13,8 +13,8 @@ export const hasPro = (): boolean => false;
 
 export const isLocked = (id: string): boolean => HAS_FREE_TIER && !isFreeLesson(id) && !hasPro();
 
-/** A lesson can be opened when it's listed in the course and its data is bundled. */
-export const isAvailable = (id: string): boolean => !!lessonRef(id) && !!getLesson(id);
+/** A lesson can be opened when it's listed in the course and its data exists (loaded on demand). */
+export const isAvailable = (id: string): boolean => !!lessonRef(id) && hasLesson(id);
 
 /** Default landing lesson: the configured default, else the first available one. */
 export function defaultLessonId(): string {

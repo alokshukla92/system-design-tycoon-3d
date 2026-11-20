@@ -1,0 +1,2496 @@
+{
+  "id": "no-single-point",
+  "title": "No Single Point",
+  "summary": "Find the parts whose failure takes everything down, then remove them with redundancy, health checks, failover and multiple zones.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "avail",
+    "downtime",
+    "spofs",
+    "survives"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "ping",
+    "write",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Spot single points of failure",
+      "step": 1
+    },
+    {
+      "text": "Do availability math for series and parallel parts",
+      "step": 3
+    },
+    {
+      "text": "Route around failures with health checks",
+      "step": 4
+    },
+    {
+      "text": "Compare active-passive failover and active-active",
+      "step": 7
+    },
+    {
+      "text": "Spread across zones and budget spare capacity",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "One of each",
+      "chapter": "setup",
+      "title": "One server, one database",
+      "body": [
+        "<b>Ledgerly</b> sends invoices for 5,000 small businesses. It runs on one web server and one Postgres database. Both are solid machines that rarely fail.",
+        "“Rarely” adds up, though: each is down roughly half a percent of the time for crashes, patches and hardware swaps."
+      ],
+      "metrics": {
+        "avail": "99.0%",
+        "downtime": "88 h",
+        "spofs": 2,
+        "survives": "nothing"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "server"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "only one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "only one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "d": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web server"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Disk dies",
+      "chapter": "problem",
+      "title": "When the only one breaks",
+      "body": [
+        "At 02:10 the web server's disk fails. There's no other copy of it, so every customer gets an error until someone rebuilds it.",
+        "A <span class=\"term\">single point of failure</span> (SPOF) is any component whose failure alone stops the whole system. Ledgerly has two: the web server and the database."
+      ],
+      "changes": [
+        "- Web server down",
+        "~ Every request fails"
+      ],
+      "metrics": {
+        "avail": "99.0%",
+        "downtime": "88 h",
+        "spofs": 2,
+        "survives": "nothing"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "server"
+            ],
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "only one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Single point of failure",
+            "icon": "alert",
+            "lines": [
+              "the web server's disk dies at 02:10",
+              "no other machine can serve the site",
+              "! every customer gets an error",
+              "# back when someone rebuilds it: ~3 h"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "HTTPS",
+            "heads": "both",
+            "style": "cut",
+            "fail": 1
+          },
+          "d": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u"
+            ],
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web server",
+            "sub": "DOWN",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Nines",
+      "chapter": "insight",
+      "title": "Counting nines",
+      "body": [
+        "<span class=\"term\">Availability</span> is the share of time the system works. When a request needs <i>every</i> part in a chain, the availabilities multiply — two 99.5% parts give 99.0%.",
+        "<table class=\"compare numbers\"><thead><tr><th>Availability</th><th>Downtime</th></tr></thead><tbody><tr><td>99%</td><td>3.7 days down / year</td></tr><tr><td>99.9%</td><td>8.8 hours</td></tr><tr><td>99.99%</td><td>53 minutes</td></tr><tr><td>99.999%</td><td>5 minutes</td></tr></tbody></table>"
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "In series, availability only goes down. In parallel — where any one copy is enough — it goes up fast."
+      },
+      "changes": [
+        "+ Series availability card"
+      ],
+      "metrics": {
+        "avail": "99.0%",
+        "downtime": "88 h",
+        "spofs": 2,
+        "survives": "nothing"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "server"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "only one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "only one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Availability in series",
+            "icon": "sigma",
+            "lines": [
+              "web server   99.5%",
+              "× database   99.5%",
+              "= both up   99.0%",
+              "# 1% of a year ≈ 88 hours down",
+              "! every extra must-work part multiplies in"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "d": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Two of them",
+      "chapter": "solution",
+      "title": "Two web servers and a balancer",
+      "body": [
+        "Add a second web server and a <span class=\"term\">load balancer</span>. Now the web tier is only down if <i>both</i> servers are down at once: 0.5% × 0.5% = 0.0025% of the time.",
+        "But look at the score: the load balancer is a new SPOF and the database still is one. Overall availability is now capped by the weakest single part."
+      ],
+      "changes": [
+        "+ Load balancer",
+        "+ Second web server"
+      ],
+      "metrics": {
+        "avail": "99.49%",
+        "downtime": "45 h",
+        "spofs": 2,
+        "survives": "a web server"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "new SPOF",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": 0.35
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "still one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Availability in parallel",
+            "icon": "sigma",
+            "lines": [
+              "both web servers down: 0.5% × 0.5%",
+              "= web tier up 99.9975%",
+              "× LB 99.99% × DB 99.5%",
+              "= 99.49% — the DB now dominates"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ]
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg",
+            "pts": [
+              "web2",
+              "pg"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "w2",
+                  "d2"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 1.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Health checks",
+      "chapter": "technique",
+      "title": "Noticing a dead server",
+      "body": [
+        "Redundancy only helps if traffic avoids the broken copy. The balancer runs <span class=\"term\">health checks</span>: it calls each server's <code>/health</code> every few seconds and removes one after several failures in a row.",
+        "A shallow check (“the process answers”) misses a server that can't reach its database. A deep check tests real dependencies — but keep it cheap, and don't let one shared dependency fail every server's check at once."
+      ],
+      "changes": [
+        "- Web #2 down",
+        "+ Health checks every 5 s",
+        "~ Traffic only to Web #1"
+      ],
+      "metrics": {
+        "avail": "99.49%",
+        "downtime": "45 h",
+        "spofs": 2,
+        "survives": "a web server"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 30
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "still one",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Health checks",
+            "icon": "heartPulse",
+            "lines": [
+              "LB → GET /health every 5 s",
+              "3 failures in a row → out of rotation",
+              "2 passes → back in",
+              "= users never reach the dead server",
+              "# check what matters: can it reach the DB?"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ],
+            "style": "off"
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "h1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "h2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 1.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "h1"
+                ]
+              },
+              {
+                "path": [
+                  "h2"
+                ]
+              }
+            ],
+            "rate": 1.2,
+            "kind": "ping"
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Standby DB",
+      "chapter": "solution",
+      "title": "A database waiting in the wings",
+      "body": [
+        "Databases hold state, so you can't just run two independent ones. The common pattern is <span class=\"term\">active–passive</span>: a primary serves everything while a standby receives every change through <span class=\"term\">replication</span> and stays ready.",
+        "With synchronous replication a write is confirmed only once the standby has it too, so a failover loses nothing — at the cost of a little extra write latency."
+      ],
+      "changes": [
+        "+ Standby database",
+        "~ Changes copied synchronously"
+      ],
+      "metrics": {
+        "avail": "99.94%",
+        "downtime": "5 h",
+        "spofs": 1,
+        "survives": "one server"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "last SPOF",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": 0.35
+          },
+          "pg": {
+            "type": "db",
+            "x": -6,
+            "y": 2,
+            "label": "primary"
+          },
+          "pg2": {
+            "type": "db",
+            "x": 6,
+            "y": 2,
+            "label": "standby",
+            "tags": [
+              {
+                "text": "in sync",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Active–passive database",
+            "icon": "database",
+            "lines": [
+              "primary takes all reads and writes",
+              "standby replays every change",
+              "heartbeat between them",
+              "# standby waits, ready to take over"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ]
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg",
+            "pts": [
+              "web2",
+              "pg"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "pg2",
+            "pts": [
+              "pg",
+              "pg2"
+            ],
+            "label": "sync copy"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "w2",
+                  "d2"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 1.8
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancers",
+            "sub": "single"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "primary"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "standby"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "db2"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Failover",
+      "chapter": "technique",
+      "title": "Promoting the standby",
+      "body": [
+        "The primary dies. <span class=\"term\">Failover</span> takes a few steps: notice (missed heartbeats), decide (promote the standby), redirect (move a virtual IP or DNS name so apps reconnect). The total is usually tens of seconds — far better than hours, but not zero.",
+        "Detection is the tricky part: a primary that's only slow or cut off might still be accepting writes. Before promoting, the old primary must be <span class=\"term\">fenced</span> off, or you get two primaries and a split brain."
+      ],
+      "changes": [
+        "- Primary down",
+        "~ Standby promoted",
+        "~ Web servers reconnect"
+      ],
+      "metrics": {
+        "avail": "99.94%",
+        "downtime": "5 h",
+        "spofs": 1,
+        "survives": "one server"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "last SPOF",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": 0.35
+          },
+          "pg": {
+            "type": "db",
+            "x": -6,
+            "y": 2,
+            "label": "primary",
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg2": {
+            "type": "db",
+            "x": 6,
+            "y": 2,
+            "label": "primary",
+            "tags": [
+              {
+                "text": "promoted",
+                "tone": "green",
+                "icon": "flag"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Failover timeline",
+            "icon": "clock",
+            "lines": [
+              "00 s  primary stops answering",
+              "15 s  3 heartbeats missed → declared dead",
+              "25 s  standby promoted to primary",
+              "40 s  apps reconnect to the new address",
+              "= ~40 s of failed writes, not 3 hours",
+              "! fence the old primary: no split brain"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ]
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg2",
+            "pts": [
+              "web",
+              "pg2"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg2",
+            "pts": [
+              "web2",
+              "pg2"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "pg2",
+            "pts": [
+              "pg",
+              "pg2"
+            ],
+            "style": "cut"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "w2",
+                  "d2"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 1.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Active-active",
+      "chapter": "tradeoff",
+      "title": "Everybody works",
+      "body": [
+        "The web tier was already <span class=\"term\">active–active</span>: both servers take traffic, so losing one just means the other works harder — no switch-over. Do the same for the balancers: two of them, both published in DNS (or sharing a floating address).",
+        "Active–active suits stateless parts. For databases it means multiple writers and conflict resolution, so most teams keep their primary active–passive."
+      ],
+      "changes": [
+        "+ Second load balancer",
+        "~ No single point left"
+      ],
+      "metrics": {
+        "avail": "99.95%",
+        "downtime": "4.4 h",
+        "spofs": 0,
+        "survives": "one server"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": -6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "A"
+            ],
+            "h": 30
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": 0.35
+          },
+          "pg": {
+            "type": "db",
+            "x": -6,
+            "y": 2,
+            "label": "primary"
+          },
+          "pg2": {
+            "type": "db",
+            "x": 6,
+            "y": 2,
+            "label": "standby",
+            "tags": [
+              {
+                "text": "in sync",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "lb2": {
+            "type": "block",
+            "x": 6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "B"
+            ],
+            "h": 30
+          },
+          "card": {
+            "type": "panel",
+            "title": "Active–active vs active–passive",
+            "icon": "split",
+            "lines": [
+              "active–active: all copies serve traffic",
+              "+ no idle hardware, no switch-over",
+              "! shared state must be safe to split",
+              "active–passive: one serves, one waits",
+              "+ simple for databases, costs a failover"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "DNS: A",
+            "heads": "both"
+          },
+          "u2": {
+            "from": "users",
+            "to": "lb2",
+            "pts": [
+              "users",
+              "lb2"
+            ],
+            "label": "DNS: B",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ]
+          },
+          "x1": {
+            "from": "lb2",
+            "to": "web",
+            "pts": [
+              "lb2",
+              "web"
+            ]
+          },
+          "x2": {
+            "from": "lb2",
+            "to": "web2",
+            "pts": [
+              "lb2",
+              "web2"
+            ]
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg",
+            "pts": [
+              "web2",
+              "pg"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "pg2",
+            "pts": [
+              "pg",
+              "pg2"
+            ],
+            "label": "sync copy"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "u2",
+                  "x2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "w2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "u2",
+                  "x1",
+                  "d1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 2
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancers",
+            "sub": "pair"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "primary"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "standby"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "db2"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Zones",
+      "chapter": "solution",
+      "title": "Don't share a building",
+      "body": [
+        "Every copy still sits in one data center. A power cut, cooling failure or fibre cut there takes all of them at once — they share a hidden SPOF.",
+        "Cloud regions are split into <span class=\"term\">availability zones</span>: separate buildings with independent power and network, a millisecond or two apart. Put one copy of each tier in each zone, and a whole zone can fail while the other carries on."
+      ],
+      "changes": [
+        "+ Zone A and Zone B",
+        "~ One copy of each tier per zone"
+      ],
+      "metrics": {
+        "avail": "99.99%",
+        "downtime": "53 min",
+        "spofs": 0,
+        "survives": "a zone"
+      },
+      "scene": {
+        "entities": {
+          "za": {
+            "type": "zone",
+            "x0": -10.5,
+            "x1": -1.5,
+            "y0": -27,
+            "y1": 6,
+            "label": "ZONE A"
+          },
+          "zb": {
+            "type": "zone",
+            "x0": 1.5,
+            "x1": 10.5,
+            "y0": -27,
+            "y1": 6,
+            "label": "ZONE B"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": -6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "A"
+            ],
+            "h": 30
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": 0.35
+          },
+          "pg": {
+            "type": "db",
+            "x": -6,
+            "y": 2,
+            "label": "primary"
+          },
+          "pg2": {
+            "type": "db",
+            "x": 6,
+            "y": 2,
+            "label": "standby",
+            "tags": [
+              {
+                "text": "in sync",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "lb2": {
+            "type": "block",
+            "x": 6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "B"
+            ],
+            "h": 30
+          },
+          "card": {
+            "type": "panel",
+            "title": "Availability zones",
+            "icon": "building",
+            "lines": [
+              "separate buildings, power and network",
+              "1–2 ms apart: fast enough for sync copies",
+              "each zone has an LB, web and a database",
+              "= a whole building can go dark"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "DNS: A",
+            "heads": "both"
+          },
+          "u2": {
+            "from": "users",
+            "to": "lb2",
+            "pts": [
+              "users",
+              "lb2"
+            ],
+            "label": "DNS: B",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ]
+          },
+          "x1": {
+            "from": "lb2",
+            "to": "web",
+            "pts": [
+              "lb2",
+              "web"
+            ]
+          },
+          "x2": {
+            "from": "lb2",
+            "to": "web2",
+            "pts": [
+              "lb2",
+              "web2"
+            ]
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg",
+            "pts": [
+              "web2",
+              "pg"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "pg2",
+            "pts": [
+              "pg",
+              "pg2"
+            ],
+            "label": "sync copy"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "u2",
+                  "x2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "w2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "u2",
+                  "x1",
+                  "d1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 2
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancers",
+            "sub": "one per zone"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "primary"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "standby"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "db2"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Zone lost",
+      "chapter": "tradeoff",
+      "title": "The survivor carries everyone",
+      "body": [
+        "Zone B loses power. Health checks and DNS shift all traffic to zone A within seconds. The primary database already lives in zone A, so writes never stop; had it been in B, the standby in A would have been promoted.",
+        "The catch is capacity. Zone A must absorb the full load, so with two zones each must normally run at most half full. Three zones need only ⅔ — one reason many teams use three. Redundancy you can't afford to keep spare isn't redundancy."
+      ],
+      "changes": [
+        "- Zone B down",
+        "~ Zone A serves all traffic"
+      ],
+      "metrics": {
+        "avail": "99.99%",
+        "downtime": "53 min",
+        "spofs": 0,
+        "survives": "a zone"
+      },
+      "scene": {
+        "entities": {
+          "za": {
+            "type": "zone",
+            "x0": -10.5,
+            "x1": -1.5,
+            "y0": -27,
+            "y1": 6,
+            "label": "ZONE A"
+          },
+          "zb": {
+            "type": "zone",
+            "x0": 1.5,
+            "x1": 10.5,
+            "y0": -27,
+            "y1": 6,
+            "label": "ZONE B · POWER CUT"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": -6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "A"
+            ],
+            "h": 30
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.9,
+            "heat": 0.6
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": -6,
+            "y": 2,
+            "label": "primary"
+          },
+          "pg2": {
+            "type": "db",
+            "x": 6,
+            "y": 2,
+            "label": "standby",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1
+          },
+          "lb2": {
+            "type": "block",
+            "x": 6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "B"
+            ],
+            "h": 30,
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Capacity you must keep spare",
+            "icon": "gauge",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "2 zones: run each at ≤ 50%",
+                "note": "pay 2×",
+                "to": 1,
+                "tone": "amber"
+              },
+              {
+                "label": "3 zones: run each at ≤ 67%",
+                "note": "pay 1.5×",
+                "to": 0.75,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "! the survivor must carry everyone"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "DNS: A",
+            "heads": "both"
+          },
+          "u2": {
+            "from": "users",
+            "to": "lb2",
+            "pts": [
+              "users",
+              "lb2"
+            ],
+            "label": "DNS: B",
+            "heads": "both",
+            "style": "cut"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ],
+            "style": "off"
+          },
+          "x1": {
+            "from": "lb2",
+            "to": "web",
+            "pts": [
+              "lb2",
+              "web"
+            ],
+            "style": "off"
+          },
+          "x2": {
+            "from": "lb2",
+            "to": "web2",
+            "pts": [
+              "lb2",
+              "web2"
+            ],
+            "style": "off"
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg",
+            "pts": [
+              "web2",
+              "pg"
+            ],
+            "style": "off"
+          },
+          "rep": {
+            "from": "pg",
+            "to": "pg2",
+            "pts": [
+              "pg",
+              "pg2"
+            ],
+            "label": "",
+            "style": "cut"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "w1",
+              "d1"
+            ],
+            "bounce": true,
+            "rate": 2
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancers",
+            "sub": "zone B down"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "primary"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "standby"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "db2"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Assume every part will fail",
+      "body": [
+        "<ul class=\"takeaways\"><li>A SPOF is anything whose failure alone stops the system — hunt for hidden shared ones too.</li><li>Series parts multiply availabilities down; parallel copies push them up.</li><li>Health checks turn redundancy into actual failure avoidance.</li><li>Stateless tiers go active–active; databases usually go active–passive with fenced failover.</li><li>Spread copies across zones and keep enough spare capacity to lose one.</li></ul>"
+      ],
+      "metrics": {
+        "avail": "99.99%",
+        "downtime": "53 min",
+        "spofs": 0,
+        "survives": "a zone"
+      },
+      "scene": {
+        "entities": {
+          "za": {
+            "type": "zone",
+            "x0": -10.5,
+            "x1": -1.5,
+            "y0": -27,
+            "y1": 6,
+            "label": "ZONE A"
+          },
+          "zb": {
+            "type": "zone",
+            "x0": 1.5,
+            "x1": 10.5,
+            "y0": -27,
+            "y1": 6,
+            "label": "ZONE B"
+          },
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "lb": {
+            "type": "block",
+            "x": -6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "A"
+            ],
+            "h": 30
+          },
+          "web": {
+            "type": "block",
+            "x": -6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#1"
+            ],
+            "cpu": 0.35
+          },
+          "web2": {
+            "type": "block",
+            "x": 6,
+            "y": -11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Web",
+              "#2"
+            ],
+            "cpu": 0.35
+          },
+          "pg": {
+            "type": "db",
+            "x": -6,
+            "y": 2,
+            "label": "primary"
+          },
+          "pg2": {
+            "type": "db",
+            "x": 6,
+            "y": 2,
+            "label": "standby",
+            "tags": [
+              {
+                "text": "in sync",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "lb2": {
+            "type": "block",
+            "x": 6,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "LB",
+              "B"
+            ],
+            "h": 30
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "DNS: A",
+            "heads": "both"
+          },
+          "u2": {
+            "from": "users",
+            "to": "lb2",
+            "pts": [
+              "users",
+              "lb2"
+            ],
+            "label": "DNS: B",
+            "heads": "both"
+          },
+          "w1": {
+            "from": "lb",
+            "to": "web",
+            "pts": [
+              "lb",
+              "web"
+            ]
+          },
+          "w2": {
+            "from": "lb",
+            "to": "web2",
+            "pts": [
+              "lb",
+              "web2"
+            ]
+          },
+          "x1": {
+            "from": "lb2",
+            "to": "web",
+            "pts": [
+              "lb2",
+              "web"
+            ]
+          },
+          "x2": {
+            "from": "lb2",
+            "to": "web2",
+            "pts": [
+              "lb2",
+              "web2"
+            ]
+          },
+          "d1": {
+            "from": "web",
+            "to": "pg",
+            "pts": [
+              "web",
+              "pg"
+            ]
+          },
+          "d2": {
+            "from": "web2",
+            "to": "pg",
+            "pts": [
+              "web2",
+              "pg"
+            ]
+          },
+          "rep": {
+            "from": "pg",
+            "to": "pg2",
+            "pts": [
+              "pg",
+              "pg2"
+            ],
+            "label": "sync copy"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "u",
+                  "w1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "u2",
+                  "x2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "u",
+                  "w2",
+                  "d2"
+                ]
+              },
+              {
+                "path": [
+                  "u2",
+                  "x1",
+                  "d1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 2
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "rate": 0.8,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 5000,
+        "rps": 200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancers",
+            "sub": "one per zone"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web ×2"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "primary"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "standby"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "db",
+            "to": "db2"
+          }
+        ]
+      }
+    }
+  ]
+}

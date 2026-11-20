@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { COURSE, getLesson } from "../content";
+import { COURSE, lessonMeta } from "../content";
 import { BRAND } from "../brand";
 import { fmt, t } from "../i18n";
 import { SiteLinks, SupportEmail } from "./SiteLinks";
@@ -35,7 +35,7 @@ function LessonLink({ id, children }: { id: string | undefined; children?: React
   if (!id) return null;
   return (
     <a data-catalog-lesson="" href={lessonHref(id)}>
-      {children ?? getLesson(id)?.title ?? id}
+      {children ?? lessonMeta(id)?.title ?? id}
     </a>
   );
 }
@@ -43,7 +43,7 @@ function LessonLink({ id, children }: { id: string | undefined; children?: React
 /** SEO-style course overview below the classroom window (target of the topbar "Course" button). */
 export function CourseOverview() {
   const brand = BRAND.name;
-  const refs = REFERENCES.filter((r) => getLesson(r.lesson));
+  const refs = REFERENCES.filter((r) => lessonMeta(r.lesson));
   return (
     <section className="course-overview" aria-labelledby="course-heading" id="course-overview" tabIndex={-1}>
       <h2 id="course-heading">{t("{brand}: System Design in {n} Animated Lessons", { brand, n: lessonCount })}</h2>
@@ -135,7 +135,7 @@ export function CourseOverview() {
             <h3>{m.title}</h3>
             <ul>
               {m.lessons.map((l) => {
-                const summary = getLesson(l.id)?.summary;
+                const summary = lessonMeta(l.id)?.summary;
                 return (
                   <li key={l.id}>
                     <LessonLink id={l.id}>{l.title}</LessonLink>
@@ -153,7 +153,7 @@ export function CourseOverview() {
           <ul>
             {refs.map((r) => (
               <li key={r.href}>
-                {getLesson(r.lesson)?.title} ·{" "}
+                {lessonMeta(r.lesson)?.title} ·{" "}
                 <cite>
                   <a href={r.href} lang="en" rel="noopener">
                     {r.title}

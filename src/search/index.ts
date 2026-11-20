@@ -2,6 +2,10 @@
 // Pure: building and querying the index has no DOM / storage dependencies.
 import type { Chapter, Lesson, Module } from "../types/lesson";
 import { lessonRef } from "../content";
+import { htmlToText, searchLesson } from "../content/derive";
+import type { SearchLesson } from "../content/derive";
+
+export type { SearchLesson } from "../content/derive";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 /** Platform shortcut label shown in the topbar `kbd`. */
@@ -52,26 +56,7 @@ const CJK_RUNS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]+/gu;
 const isCjk = (s: string) => CJK.test(s);
 
 // ── Text helpers ─────────────────────────────────────────────────────────────
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-
-/** Lesson body HTML → plain text (footnotes dropped, list/table items joined with " · "). */
-export function htmlToText(html: string | undefined = ""): string {
-  return String(html)
-    .replace(/<sup>[\s\S]*?<\/sup>/gi, "")
-    .replace(/<\/(li|tr)>/gi, " · ")
-    .replace(/<\/(p|td|th|div)>|<br\s*\/?>/gi, " ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&(#x?[0-9a-f]+|\w+);/gi, (m, ent: string) =>
-      ent[0] === "#"
-        ? String.fromCodePoint(ent[1] === "x" ? parseInt(ent.slice(2), 16) : +ent.slice(1))
-        : (ENTITIES[ent] ?? m),
-    )
-    .replace(/(\s*·\s*)+$/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const panelLine = (s: string) => s.replace(/^[=!#] /, "").replace(/\*\*/g, "");
+export { htmlToText };
 
 /** Case/diacritic fold used for both indexing and querying. */
 export function fold(s: string): string {
@@ -203,15 +188,6 @@ export function snippet(text: string, matched: ReadonlySet<string> | null | unde
   return `${start ? "…" : ""}${body}${end < text.length ? "…" : ""}`;
 }
 
-/** Sentence of `text` containing `term` (case-insensitive), or the whole text. */
-function sentenceAround(text: string, term: string): string {
-  const i = text.toLowerCase().indexOf(term.toLowerCase());
-  if (i < 0) return text;
-  const a = text.lastIndexOf(". ", i);
-  const b = text.indexOf(". ", i + term.length);
-  return text.slice(a < 0 ? 0 : a + 2, b < 0 ? text.length : b + 1).trim();
-}
-
 // ── Index ────────────────────────────────────────────────────────────────────
 export type DocKind = "lesson" | "concept" | "step";
 export type FieldName =
@@ -263,12 +239,15 @@ export interface SearchIndex {
 
 const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** Full lessons are flattened on the fly; the lazy search corpus is already flat (content/derive.ts). */
+const toSearchLesson = (l: Lesson | SearchLesson): SearchLesson => (typeof l.goals === "string" ? (l as SearchLesson) : searchLesson(l as Lesson));
+
 /**
- * Build the index. `moduleOf` maps a lesson id to its module (default: course lookup);
+ * Build the index from full lessons or pre-flattened search lessons. `moduleOf` maps a lesson id to its module (default: course lookup);
  * lessons without a module are skipped.
  */
 export function buildIndex(
-  lessons: readonly Lesson[],
+  lessons: readonly (Lesson | SearchLesson)[],
   moduleOf: (lessonId: string) => Module | undefined = (id) => lessonRef(id)?.module,
 ): SearchIndex {
   const docs: (SearchDoc & { fields: Field[] })[] = [];
@@ -281,6 +260,7 @@ export function buildIndex(
   for (const lesson of lessons) {
     const module = moduleOf(lesson.id);
     if (!module) continue;
+    const src = toSearchLesson(lesson);
     docs.push({
       kind: "lesson",
       lessonId: lesson.id,
@@ -289,81 +269,47 @@ export function buildIndex(
       title: lesson.title,
       text: lesson.summary,
       module,
-      steps: lesson.steps.length,
+      steps: src.steps.length,
       titleFold: "",
       fields: [
         ["title", lesson.title, 10, true],
         ["summary", lesson.summary, 4, true],
         ["module", module.title, 3, true],
-        ["goals", lesson.goals.map((g) => g.text).join(" "), 3, true],
+        ["goals", src.goals, 3, true],
       ],
     });
 
-    lesson.steps.forEach((step, si) => {
-      const body = step.body.map(htmlToText).join(" ");
-      const entities = Object.values(step.scene.entities);
-      const panels = entities
-        .flatMap((e) => (e.type === "panel" ? [e] : []))
-        .map((p) =>
-          [p.title, ...(p.lines ?? []).map(panelLine), ...(p.bars ?? []).map((b) => `${b.label} ${b.note || ""}`)].join(" "),
-        )
-        .join(" ");
-      const labels = [
-        ...entities.flatMap((e) => {
-          const label = "label" in e ? e.label : undefined;
-          return [
-            ...(Array.isArray(label) ? label : [label]),
-            "sub" in e ? e.sub : undefined,
-            ...("tags" in e && e.tags ? e.tags.map((t) => t.text) : []),
-          ];
-        }),
-        ...Object.values(step.scene.links ?? {}).map((l) => l.label),
-      ]
-        .filter((s): s is string => typeof s === "string" && !!s)
-        .join(" ");
-
+    src.steps.forEach((step, si) => {
       docs.push({
         kind: "step",
         lessonId: lesson.id,
         step: si,
         order: order++,
         title: step.title,
-        text: body,
+        text: step.body,
         lesson: lesson.title,
         module,
-        chapter: step.chapter,
-        steps: lesson.steps.length,
+        chapter: step.chapter as Chapter,
+        steps: src.steps.length,
         titleFold: "",
         fields: [
           ["title", step.title, 8, true],
           ["short", step.short, 6, true],
-          ["body", body, 3, true],
-          ["callout", htmlToText(step.callout?.text), 2, true],
-          ["changes", (step.changes ?? []).map((c) => c.replace(/^[+~−-]\s*/, "")).join(" "), 1.5, true],
-          ["panel", panels, 1.5, true],
-          ["labels", labels, 1, true],
+          ["body", step.body, 3, true],
+          ["callout", step.callout, 2, true],
+          ["changes", step.changes, 1.5, true],
+          ["panel", step.panel, 1.5, true],
+          ["labels", step.labels, 1, true],
           ["lesson", lesson.title, 1, false],
         ],
       });
 
-      for (const para of step.body) {
-        for (const m of para.matchAll(/<span class="term">([\s\S]*?)<\/span>/g)) {
-          const term = htmlToText(m[1]);
-          const key = tokenize(term).map(stem).join(" ");
-          if (!key) continue;
-          const existing = concepts.get(key);
-          if (existing) existing.lessons.add(lesson.id);
-          else
-            concepts.set(key, {
-              term,
-              lessonId: lesson.id,
-              step: si,
-              lesson: lesson.title,
-              module,
-              sentence: sentenceAround(htmlToText(para), term),
-              lessons: new Set([lesson.id]),
-            });
-        }
+      for (const [term, sentence] of step.terms) {
+        const key = tokenize(term).map(stem).join(" ");
+        if (!key) continue;
+        const existing = concepts.get(key);
+        if (existing) existing.lessons.add(lesson.id);
+        else concepts.set(key, { term, lessonId: lesson.id, step: si, lesson: lesson.title, module, sentence, lessons: new Set([lesson.id]) });
       }
     });
   }

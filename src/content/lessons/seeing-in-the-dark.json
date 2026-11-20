@@ -1,0 +1,3599 @@
+{
+  "id": "seeing-in-the-dark",
+  "title": "Seeing in the Dark",
+  "summary": "Find out something is wrong before your users tell you — and where: metrics, structured logs, distributed traces, SLOs and alerts that matter.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "detect",
+    "locate",
+    "signals",
+    "errors"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "telemetry",
+    [
+      "kill",
+      "alert"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Watch every service with RED and USE metrics",
+      "step": 2
+    },
+    {
+      "text": "Search structured logs by request",
+      "step": 3
+    },
+    {
+      "text": "Follow one request across services with a trace",
+      "step": 4
+    },
+    {
+      "text": "Alert on symptoms with SLOs and burn rates",
+      "step": 6
+    },
+    {
+      "text": "Keep telemetry cost and cardinality in check",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Blind",
+      "chapter": "setup",
+      "title": "Users noticed first",
+      "body": [
+        "<b>Quillmail</b> sends newsletters for independent writers: a gateway, Lists, Send, Billing and a Templates service that renders each issue.",
+        "At 14:02 a new template engine went out. For two hours, 3% of newsletters silently failed to send. The team found out when a writer complained publicly — that's the only alerting system they had."
+      ],
+      "metrics": {
+        "detect": "2 h",
+        "locate": "4 h",
+        "signals": "none",
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40,
+            "tags": [
+              {
+                "text": "?",
+                "tone": "gray",
+                "icon": "eyeOff"
+              }
+            ]
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "card": {
+            "type": "panel",
+            "title": "What the team saw",
+            "icon": "eyeOff",
+            "lines": [
+              "14:02  new template engine deployed",
+              "14:02–16:00  nothing",
+              "16:05  a writer posts: “my issue never went out”",
+              "! 3% of sends failing for two hours"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both",
+            "fail": 0.08
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "ssh & grep",
+      "chapter": "problem",
+      "title": "Searching 14 machines by hand",
+      "body": [
+        "The on-call engineer logs into machines one by one and greps text files. Messages are vague, formats differ per service, and nothing links a log line to the request that caused it.",
+        "Hours go by just working out <i>which</i> service is failing. <span class=\"term\">Observability</span> is the ability to answer new questions about a running system from the data it emits — and right now it emits almost nothing useful."
+      ],
+      "changes": [
+        "+ On-call engineer",
+        "~ Logs read machine by machine"
+      ],
+      "metrics": {
+        "detect": "2 h",
+        "locate": "4 h",
+        "signals": "scattered logs",
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "card": {
+            "type": "panel",
+            "title": "send-07: /var/log/app.log",
+            "icon": "scroll",
+            "lines": [
+              "ERROR something went wrong",
+              "WARN retrying...",
+              "ERROR something went wrong",
+              "# 14 machines, different formats, no request ids",
+              "! which of these is our problem?"
+            ]
+          },
+          "oncall": {
+            "type": "device",
+            "x": 15,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "On-call"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both",
+            "fail": 0.08
+          },
+          "ss": {
+            "from": "oncall",
+            "to": "send",
+            "pts": [
+              "oncall",
+              "send"
+            ],
+            "label": "ssh + grep",
+            "style": "dashed",
+            "labelAt": 0.4
+          },
+          "sl": {
+            "from": "oncall",
+            "to": "bill",
+            "pts": [
+              "oncall",
+              "bill"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Metrics",
+      "chapter": "technique",
+      "title": "A few numbers for everything",
+      "body": [
+        "<span class=\"term\">Metrics</span> are cheap numeric time series. For every service that handles requests, track <span class=\"term\">RED</span>: request <b>R</b>ate, <b>E</b>rror rate and <b>D</b>uration (as percentiles). For every resource — CPU, disk, queue, pool — track <span class=\"term\">USE</span>: <b>U</b>tilization, <b>S</b>aturation and <b>E</b>rrors.",
+        "A dashboard of those answers “is something wrong, and roughly where?” in seconds: Send's errors and p99 jumped at 14:02; Lists didn't move."
+      ],
+      "changes": [
+        "+ Telemetry pipeline",
+        "+ RED metrics per service"
+      ],
+      "metrics": {
+        "detect": "20 min",
+        "locate": "1 h",
+        "signals": "metrics",
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Golden numbers per service",
+            "icon": "chartLine",
+            "lines": [
+              "RED (requests): Rate · Errors · Duration",
+              "send: 420/s · 3.1% errors · p99 2.4 s",
+              "lists: 400/s · 0.0% · p99 40 ms",
+              "USE (resources): Utilization · Saturation · Errors",
+              "templates CPU 92%, queue 140"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both",
+            "fail": 0.08
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "metrics"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Logs",
+      "chapter": "technique",
+      "title": "Logs a machine can query",
+      "body": [
+        "<span class=\"term\">Structured logs</span> write each event as fields (JSON) rather than prose: service, level, request id, list, error, duration. Shipped to one central store, they can be filtered and counted like a database.",
+        "One query shows that 98% of Send's errors are “render timeout” — the problem is downstream of Send."
+      ],
+      "changes": [
+        "~ Logs are JSON with request ids",
+        "~ All logs in one searchable store"
+      ],
+      "metrics": {
+        "detect": "20 min",
+        "locate": "1 h",
+        "signals": "metrics + logs",
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "One event = one JSON line",
+            "icon": "braces",
+            "lines": [
+              "{\"svc\":\"send\",\"lvl\":\"error\",",
+              " \"req\":\"r-7f3a\",\"list\":\"bakers-weekly\",",
+              " \"err\":\"render timeout\",\"ms\":2004}",
+              "# query: svc=send AND err=* | count by err",
+              "= 98% are “render timeout”"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both",
+            "fail": 0.08
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "metrics · logs"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Traces",
+      "chapter": "technique",
+      "title": "Follow one request end to end",
+      "body": [
+        "A <span class=\"term\">distributed trace</span> follows a single request through every service. The gateway assigns a trace id and passes it along in headers; each service records <span class=\"term\">spans</span> — what it did, when, for how long, and for which parent.",
+        "Laid out as a waterfall, trace r-7f3a points straight at it: 1.92 of its 2.1 seconds are spent in <code>templates.render</code>."
+      ],
+      "changes": [
+        "+ Trace ids passed between services",
+        "~ Slow span found in Templates"
+      ],
+      "metrics": {
+        "detect": "20 min",
+        "locate": "10 min",
+        "signals": "metrics, logs, traces",
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40,
+            "heat": 0.8,
+            "tags": [
+              {
+                "text": "render 1.9 s",
+                "tone": "red",
+                "icon": "timer"
+              }
+            ]
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Trace r-7f3a · 2.1 s",
+            "icon": "waypoints",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "gateway",
+                "note": "2.10 s",
+                "to": 1,
+                "tone": "gray"
+              },
+              {
+                "label": "  send",
+                "note": "2.06 s",
+                "to": 0.98,
+                "tone": "gray"
+              },
+              {
+                "label": "    lists.lookup",
+                "note": "40 ms",
+                "to": 0.02,
+                "tone": "green"
+              },
+              {
+                "label": "    templates.render",
+                "note": "1.92 s",
+                "to": 0.91,
+                "tone": "red",
+                "bold": true,
+                "from": 0.05
+              }
+            ],
+            "lines": [
+              "# each span: service, start, duration, parent"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both",
+            "label": "trace r-7f3a"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both",
+            "fail": 0.08
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "metrics · logs · traces"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Too loud",
+      "chapter": "problem",
+      "title": "The pager that cried wolf",
+      "body": [
+        "Dashboards need someone watching, so the team adds alerts: CPU above 80%, disk above 70%, any error log. The pager goes off 40 times a week; almost every page is harmless.",
+        "Engineers start ignoring it — and a real incident sits unacknowledged for 45 minutes. Alerts on <i>causes</i> are noisy, because systems routinely run hot without hurting anyone."
+      ],
+      "changes": [
+        "+ Alerts on CPU, disk, errors",
+        "~ 40 pages a week"
+      ],
+      "metrics": {
+        "detect": "ignored",
+        "locate": "10 min",
+        "signals": "metrics, logs, traces",
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "oncall": {
+            "type": "device",
+            "x": 15,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "On-call",
+            "tags": [
+              {
+                "text": "40 pages / week",
+                "tone": "red",
+                "icon": "bell"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Alerting on causes",
+            "icon": "bell",
+            "lines": [
+              "CPU > 80% on any machine → page",
+              "disk > 70% → page",
+              "any ERROR log line → page",
+              "! 38 of 40 pages: nothing users noticed",
+              "# people learn to ignore the pager"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both"
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "al": {
+            "from": "obs",
+            "to": "oncall",
+            "pts": [
+              "obs",
+              "oncall"
+            ],
+            "label": "CPU > 80%!",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          },
+          {
+            "route": [
+              "al"
+            ],
+            "rate": 1.6,
+            "kind": "kill"
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "cause-based alerts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    },
+    {
+      "short": "SLOs",
+      "chapter": "solution",
+      "title": "Promise something users care about",
+      "body": [
+        "Alert on <span class=\"term\">symptoms</span> instead. Pick a <span class=\"term\">service level indicator</span> (SLI) users feel: the share of issues sent within 60 s. Set a <span class=\"term\">service level objective</span> (SLO): 99.9% over 30 days.",
+        "That leaves an <span class=\"term\">error budget</span> of 0.1% — about 43 minutes of full outage a month. Small blips spend a little budget and wake nobody; anything that threatens the promise pages."
+      ],
+      "changes": [
+        "+ SLO on sends",
+        "~ Pages drop to ~2 a month"
+      ],
+      "metrics": {
+        "detect": "5 min",
+        "locate": "10 min",
+        "signals": "metrics, logs, traces",
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "oncall": {
+            "type": "device",
+            "x": 15,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "On-call",
+            "tags": [
+              {
+                "text": "2 pages / month",
+                "tone": "green",
+                "icon": "bell"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Alert on what users feel",
+            "icon": "target",
+            "lines": [
+              "SLI: issues accepted and sent within 60 s",
+              "SLO: 99.9% over 30 days",
+              "= error budget 0.1% ≈ 43 min a month",
+              "# page only when the budget burns fast"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both"
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "al": {
+            "from": "obs",
+            "to": "oncall",
+            "pts": [
+              "obs",
+              "oncall"
+            ],
+            "label": "SLO burn",
+            "labelTone": "green"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          },
+          {
+            "route": [
+              "al"
+            ],
+            "rate": 0.2,
+            "kind": "kill"
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "SLO alerts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Burn rate",
+      "chapter": "technique",
+      "title": "How fast is the budget going?",
+      "body": [
+        "The <span class=\"term\">burn rate</span> compares how fast you're spending the error budget with the pace that would use exactly all of it in 30 days. At 1× all is well; at 14× the month's budget is gone in about two days — page now. A slow 6× burn becomes a ticket for working hours.",
+        "Check a long and a short window together, so a brief spike doesn't page and a recovered incident stops paging quickly."
+      ],
+      "changes": [
+        "~ Alerts keyed to burn rate"
+      ],
+      "metrics": {
+        "detect": "5 min",
+        "locate": "10 min",
+        "signals": "metrics, logs, traces",
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "oncall": {
+            "type": "device",
+            "x": 15,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "On-call",
+            "tags": [
+              {
+                "text": "2 pages / month",
+                "tone": "green",
+                "icon": "bell"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Burn rate → action",
+            "icon": "flame",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "1× · budget lasts 30 days",
+                "note": "fine",
+                "to": 0.07,
+                "tone": "green"
+              },
+              {
+                "label": "6× · gone in 5 days",
+                "note": "ticket",
+                "to": 0.43,
+                "tone": "amber"
+              },
+              {
+                "label": "14× · gone in ~2 days",
+                "note": "page now",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "# check a long and a short window together"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both"
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "al": {
+            "from": "obs",
+            "to": "oncall",
+            "pts": [
+              "obs",
+              "oncall"
+            ],
+            "label": "SLO burn",
+            "labelTone": "green"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          },
+          {
+            "route": [
+              "al"
+            ],
+            "rate": 0.2,
+            "kind": "kill"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Replay",
+      "chapter": "insight",
+      "title": "The same incident, with eyes",
+      "body": [
+        "Rewind to the bad deploy, with everything in place. Two minutes in, the send SLO burns at 30× and pages. The dashboard shows only Send unhealthy; a trace shows Templates rendering for 1.9 s. Rollback at 14:09.",
+        "Detection went from 2 hours to 2 minutes, diagnosis from 4 hours to 5 minutes — and a writer never had to tell anyone."
+      ],
+      "changes": [
+        "~ Bad deploy replayed",
+        "~ Burn-rate page after 2 min"
+      ],
+      "metrics": {
+        "detect": "2 min",
+        "locate": "5 min",
+        "signals": "metrics, logs, traces",
+        "errors": 3
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40,
+            "tags": [
+              {
+                "text": "v2 · slow render",
+                "tone": "red",
+                "icon": "timer"
+              }
+            ]
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "oncall": {
+            "type": "device",
+            "x": 15,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "On-call",
+            "tags": [
+              {
+                "text": "paged 14:04",
+                "tone": "amber",
+                "icon": "siren"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "The same bug, replayed",
+            "icon": "siren",
+            "lines": [
+              "14:02  template engine v2 deployed",
+              "14:04  burn-rate page: send SLO",
+              "14:05  dashboard: only send errors, p99 up",
+              "14:07  trace: templates.render 1.9 s",
+              "= 14:09 rolled back — 7 min, not 4 h"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both",
+            "fail": 0.08
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "al": {
+            "from": "obs",
+            "to": "oncall",
+            "pts": [
+              "obs",
+              "oncall"
+            ],
+            "label": "burn 30×",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          },
+          {
+            "route": [
+              "al"
+            ],
+            "rate": 0.5,
+            "kind": "kill"
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "SLO alerts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cost",
+      "chapter": "tradeoff",
+      "title": "Seeing everything costs money",
+      "body": [
+        "Telemetry has a bill. Each unique combination of metric labels is a separate time series, so a label like <code>user_id</code> creates millions — a <span class=\"term\">cardinality</span> explosion. Keep per-user detail in logs and traces.",
+        "Traces are usually sampled: keep, say, 1% of normal requests plus every error and slow one. Logs need levels and retention limits. Spend where it answers questions."
+      ],
+      "changes": [
+        "~ Traces sampled",
+        "~ No ids in metric labels"
+      ],
+      "metrics": {
+        "detect": "2 min",
+        "locate": "5 min",
+        "signals": "metrics, logs, traces",
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Telemetry has a bill",
+            "icon": "dollar",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Metric label user_id",
+                "note": "2M series",
+                "to": 1,
+                "tone": "red"
+              },
+              {
+                "label": "Metric label plan",
+                "note": "3 series",
+                "to": 0.02,
+                "tone": "green"
+              },
+              {
+                "label": "Traces kept: 1% + all errors",
+                "note": "affordable",
+                "to": 0.2,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "! high-cardinality ids go in logs and traces, not metric labels"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both"
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Know before they tell you",
+      "body": [
+        "<ul class=\"takeaways\"><li>Metrics (RED for services, USE for resources) say <i>whether</i> and roughly <i>where</i>.</li><li>Structured, centralised logs say <i>what</i> happened to a request.</li><li>Traces show <i>where the time went</i> across services.</li><li>Alert on symptoms via SLOs and burn rate, not on every cause.</li><li>Watch cardinality and sample traces to keep the bill sane.</li></ul>"
+      ],
+      "metrics": {
+        "detect": "2 min",
+        "locate": "5 min",
+        "signals": "metrics, logs, traces",
+        "errors": 0.2
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Writers"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -23,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "lists": {
+            "type": "block",
+            "x": -8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Lists"
+            ]
+          },
+          "send": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Send"
+            ]
+          },
+          "bill": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ]
+          },
+          "tmpl": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "file",
+            "label": [
+              "Templates"
+            ],
+            "h": 40
+          },
+          "sdb": {
+            "type": "db",
+            "x": -9,
+            "y": 3,
+            "label": "subscribers"
+          },
+          "obs": {
+            "type": "block",
+            "x": 15,
+            "y": -4,
+            "s": 4,
+            "color": "green",
+            "glyph": "chartLine",
+            "label": [
+              "Telemetry"
+            ]
+          },
+          "oncall": {
+            "type": "device",
+            "x": 15,
+            "y": -20,
+            "w": 5,
+            "d": 5,
+            "label": "On-call",
+            "tags": [
+              {
+                "text": "SLO alerts",
+                "tone": "green",
+                "icon": "bell"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "POST /send",
+            "heads": "both"
+          },
+          "gl": {
+            "from": "gw",
+            "to": "lists",
+            "pts": [
+              "gw",
+              "lists"
+            ],
+            "heads": "both"
+          },
+          "gs": {
+            "from": "gw",
+            "to": "send",
+            "pts": [
+              "gw",
+              "send"
+            ],
+            "heads": "both"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "bill",
+            "pts": [
+              "gw",
+              "bill"
+            ],
+            "heads": "both"
+          },
+          "ld": {
+            "from": "lists",
+            "to": "sdb",
+            "pts": [
+              "lists",
+              "sdb"
+            ]
+          },
+          "st": {
+            "from": "send",
+            "to": "tmpl",
+            "pts": [
+              "send",
+              "tmpl"
+            ],
+            "label": "render",
+            "heads": "both"
+          },
+          "t1": {
+            "from": "lists",
+            "to": "obs",
+            "pts": [
+              "lists",
+              [
+                "lists",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t2": {
+            "from": "send",
+            "to": "obs",
+            "pts": [
+              "send",
+              [
+                "send",
+                "obs"
+              ],
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t3": {
+            "from": "bill",
+            "to": "obs",
+            "pts": [
+              "bill",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "t4": {
+            "from": "tmpl",
+            "to": "obs",
+            "pts": [
+              "tmpl",
+              "obs"
+            ],
+            "style": "dashed"
+          },
+          "al": {
+            "from": "obs",
+            "to": "oncall",
+            "pts": [
+              "obs",
+              "oncall"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              [
+                "gl",
+                "gs",
+                "gb",
+                "gs"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "st"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "ld"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t1"
+                ]
+              },
+              {
+                "path": [
+                  "t2"
+                ]
+              },
+              {
+                "path": [
+                  "t3"
+                ]
+              },
+              {
+                "path": [
+                  "t4"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "kind": "write",
+            "speed": 1.2
+          },
+          {
+            "route": [
+              "al"
+            ],
+            "rate": 0.2,
+            "kind": "kill"
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Writers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateway"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Send",
+            "sub": "+ Lists, Billing"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "subscribers"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Telemetry",
+            "sub": "SLO alerts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "mon"
+          }
+        ]
+      }
+    }
+  ]
+}

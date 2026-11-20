@@ -1,0 +1,1830 @@
+{
+  "id": "the-front-door",
+  "title": "The Front Door",
+  "summary": "Load balancers: one address for many servers, smarter ways to share the work, and health checks that route around failure.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "rps",
+    "p95",
+    "errors",
+    "healthy",
+    "maxShare"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "heavy",
+    [
+      "mine",
+      "popular reader"
+    ],
+    "ping",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Why clients need one front door",
+      "step": 1
+    },
+    {
+      "text": "Tell Layer 4 from Layer 7 balancing",
+      "step": 2
+    },
+    {
+      "text": "Pick an algorithm: round robin, least connections, hashing",
+      "step": 5
+    },
+    {
+      "text": "Route around dead servers with health checks",
+      "step": 7
+    },
+    {
+      "text": "Avoid making the balancer a single point of failure",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "No door",
+      "chapter": "problem",
+      "title": "Three servers, no front door",
+      "body": [
+        "Brightpost, a newsletter platform, outgrew one server and now runs three. But a browser needs <i>one</i> address. The team lists all three IPs in DNS and hopes readers spread out evenly.",
+        "They don't. Resolvers cache a single answer, many clients simply take the first IP, and a dead server's address keeps being handed out until caches expire. Server 1 is taking about 70% of the traffic."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "DNS answers are cached for minutes or hours. It can't react quickly to load or to a dead server."
+      },
+      "metrics": {
+        "rps": 3000,
+        "p95": 780,
+        "errors": 2,
+        "healthy": "3 / 3",
+        "maxShare": 70
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.95,
+            "heat": 0.9,
+            "tags": [
+              {
+                "text": "70% of traffic",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.2
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.1
+          }
+        },
+        "links": {
+          "d0": {
+            "from": "users",
+            "to": "s0",
+            "pts": [
+              "users",
+              "s0"
+            ],
+            "label": "first IP in DNS",
+            "heads": "both"
+          },
+          "d1": {
+            "from": "users",
+            "to": "s1",
+            "pts": [
+              "users",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "d2": {
+            "from": "users",
+            "to": "s2",
+            "pts": [
+              "users",
+              "s2"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "d0",
+                "d1",
+                "d2"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              7,
+              2,
+              1
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Front door",
+      "chapter": "solution",
+      "title": "One address, many servers",
+      "body": [
+        "A <span class=\"term\">load balancer</span> sits in front, owns the public address, and forwards each request to one of the servers behind it. Readers never learn the servers exist — which means servers can be added or removed freely.",
+        "The simplest policy is <span class=\"term\">round robin</span>: 1, 2, 3, 1, 2, 3… With similar requests and similar servers, each gets a third of the traffic."
+      ],
+      "changes": [
+        "+ Load balancer owns brightpost.io",
+        "~ Round robin across 3 servers",
+        "~ Biggest share 70% → 33%"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 120,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 33
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.35
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.35
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.35
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000,
+        "rps": 3000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web servers ×3"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "L4 or L7",
+      "chapter": "technique",
+      "title": "How much does the balancer read?",
+      "body": [
+        "A <span class=\"term\">Layer 4</span> balancer works on TCP connections: it sees IP addresses and ports and forwards bytes without reading them. It's very fast and works for any protocol, but every request on one connection goes to the same server.",
+        "A <span class=\"term\">Layer 7</span> balancer speaks HTTP. It terminates TLS, reads paths, headers and cookies, and can route <code>/api</code> and <code>/images</code> to different pools, retry a failed request, or add headers. More features, more work per request."
+      ],
+      "changes": [
+        "~ Balancer now terminates HTTPS (L7)",
+        "+ Comparison card"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 120,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 33
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "L7 · terminates TLS",
+                "tone": "violet",
+                "icon": "lock"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.35
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.35
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Layer 4 vs Layer 7",
+            "icon": "layers",
+            "lines": [
+              "L4 · sees IP + port, forwards TCP",
+              "L4 · fast, protocol-agnostic",
+              "L7 · sees URL, headers, cookies",
+              "L7 · TLS, per-request routing, retries",
+              "# most web apps use L7"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "HTTPS",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both",
+            "label": "HTTP"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Uneven work",
+      "chapter": "problem",
+      "title": "Equal turns, unequal work",
+      "body": [
+        "Brightpost adds “export subscribers”, which takes ~2 s, while normal requests take 20 ms. Round robin counts turns, not effort: several exports can land on the same server while another sits idle.",
+        "Server 2 is now at 94% CPU with a growing queue, and its ordinary requests slow down with it. p95 climbs to 900 ms even though the fleet as a whole is half idle."
+      ],
+      "changes": [
+        "+ Slow export requests",
+        "~ Server 2 overloaded, others idle"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 900,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 55
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "round robin",
+                "tone": "gray",
+                "icon": "replay"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.3
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.94,
+            "heat": 0.8,
+            "tags": [
+              {
+                "text": "3 exports running",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.25
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "in",
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ],
+                "kind": "slow"
+              }
+            ],
+            "bounce": true,
+            "rate": 3,
+            "hold": 0.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Least conns",
+      "chapter": "solution",
+      "title": "Send work to whoever is least busy",
+      "body": [
+        "<span class=\"term\">Least connections</span> sends each request to the server with the fewest requests in flight. A server stuck on exports has more open requests, so new work flows elsewhere automatically.",
+        "Variants weigh by server size or measured response time. A cheap alternative is the <span class=\"term\">power of two choices</span>: pick two servers at random, use the less busy one — nearly as good, with far less bookkeeping."
+      ],
+      "changes": [
+        "~ Algorithm: round robin → least connections",
+        "~ Exports spread out",
+        "~ p95 900 → 210 ms"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 210,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 36
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "least connections",
+                "tone": "green",
+                "icon": "gauge"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.5
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.55,
+            "tags": [
+              {
+                "text": "1 export",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.5
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "in",
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b2"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 3,
+            "hold": 0.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hashing",
+      "chapter": "technique",
+      "title": "Same reader, same server",
+      "body": [
+        "Sometimes you <i>want</i> repeat visitors on the same server — say, so each server's in-memory cache stays warm for its readers. <span class=\"term\">Hash-based routing</span> computes <code>hash(reader_id) mod 3</code> and always picks that server.",
+        "Two catches: popular readers make shares uneven (41% here), and with plain <i>mod N</i>, adding a fourth server remaps about three-quarters of readers. <span class=\"term\">Consistent hashing</span> limits that reshuffle to roughly 1/N."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Hashing trades even load for locality. Use it when a warm per-server cache or connection is worth more than perfect balance."
+      },
+      "changes": [
+        "~ Algorithm: hash on reader id",
+        "~ Shares now uneven (41 / 33 / 26%)"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 140,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 41
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "hash(reader) mod 3",
+                "tone": "violet",
+                "icon": "hash"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.55,
+            "tags": [
+              {
+                "text": "hash 0 · 41%",
+                "tone": "amber"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "hash 1 · 33%"
+              }
+            ]
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.33,
+            "tags": [
+              {
+                "text": "hash 2 · 26%"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ],
+                "kind": "mine",
+                "weight": 41
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ],
+                "weight": 33
+              },
+              {
+                "path": [
+                  "in",
+                  "b2"
+                ],
+                "weight": 26
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Dead server",
+      "chapter": "problem",
+      "title": "The balancer keeps calling a dead line",
+      "body": [
+        "At 3 a.m. server 3's process hangs. The balancer has no idea — it keeps sending a third of all requests there, and every one of them times out. Errors jump to 33%.",
+        "A load balancer is only as smart as what it knows about the servers behind it."
+      ],
+      "changes": [
+        "~ Server 3 hangs",
+        "~ 1 in 3 requests fails"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": null,
+        "errors": 33,
+        "healthy": "2 / 3",
+        "maxShare": 33
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "round robin",
+                "tone": "gray",
+                "icon": "replay"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.35
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.35
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both",
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000,
+        "rps": 3000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web servers ×3",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Health checks",
+      "chapter": "solution",
+      "title": "Ask before you send",
+      "body": [
+        "The balancer now sends a <span class=\"term\">health check</span> — a tiny request such as <code>GET /healthz</code> — to every server every few seconds. After 3 failures in a row it takes a server out of rotation; after 2 successes it puts it back.",
+        "Traffic now flows only to servers 1 and 2. Each carries 50% more than before, but errors fall back to almost zero. When server 3 recovers, it rejoins on its own."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Make the health check test what the server really needs (can it reach its database?), but keep it cheap — it runs thousands of times an hour."
+      },
+      "changes": [
+        "+ Health checks to every server",
+        "- Server 3 removed from rotation",
+        "~ Errors 33% → ~0%"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 190,
+        "errors": 0,
+        "healthy": "2 / 3",
+        "maxShare": 50
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "checks every 5 s",
+                "tone": "green",
+                "icon": "heartPulse"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.55
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.55
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "out of rotation",
+                "tone": "red",
+                "icon": "ban"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both",
+            "style": "beat",
+            "fail": 1,
+            "label": "GET /healthz"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              [
+                "b0",
+                "b1",
+                "b2"
+              ]
+            ],
+            "kind": "ping",
+            "rate": 1.2,
+            "speed": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000,
+        "rps": 3000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web servers ×3"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Door twice",
+      "chapter": "tradeoff",
+      "title": "Who balances the balancer?",
+      "body": [
+        "Every request now flows through one balancer. If it fails, three healthy servers become unreachable — the front door is the new single point of failure.",
+        "So balancers run in pairs. A standby watches the active one with heartbeats and takes over its address — a <span class=\"term\">floating IP</span> — within seconds. Managed cloud balancers do this for you across several zones."
+      ],
+      "changes": [
+        "+ Standby balancer with heartbeat",
+        "~ Server 3 recovered and back in rotation"
+      ],
+      "metrics": {
+        "rps": 3000,
+        "p95": 120,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 33
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "active",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "lb2": {
+            "type": "block",
+            "x": -6,
+            "y": -12,
+            "s": 3.2,
+            "h": 28,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Standby",
+              "LB"
+            ],
+            "dim": 0.3,
+            "tags": [
+              {
+                "text": "standby",
+                "tone": "gray"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.35
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.35
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.35
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "hb": {
+            "from": "lb",
+            "to": "lb2",
+            "pts": [
+              "lb",
+              "lb2"
+            ],
+            "label": "heartbeat",
+            "heads": "none",
+            "style": "beat"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "hb"
+            ],
+            "kind": "ping",
+            "rate": 0.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 150000,
+        "rps": 3000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Web servers ×3"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "The front door, summarised",
+      "body": [
+        "<ul class=\"takeaways\"><li>A load balancer gives clients one stable address and spreads requests across servers.</li><li><b>L4</b> forwards connections; <b>L7</b> understands HTTP and can route, terminate TLS and retry.</li><li>Round robin is simple; least connections handles uneven work; hashing keeps a client on one server (consistent hashing for resizes).</li><li>Health checks remove dead servers automatically.</li><li>Run the balancer itself redundantly, or use a managed one.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next: what breaks when a server remembers you — and how to make it forget."
+      },
+      "metrics": {
+        "rps": 3000,
+        "p95": 120,
+        "errors": 0,
+        "healthy": "3 / 3",
+        "maxShare": 33
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.8,
+            "h": 32,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "active",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "lb2": {
+            "type": "block",
+            "x": -6,
+            "y": -12,
+            "s": 3.2,
+            "h": 28,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Standby",
+              "LB"
+            ],
+            "dim": 0.3,
+            "tags": [
+              {
+                "text": "standby",
+                "tone": "gray"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "1"
+            ],
+            "cpu": 0.35
+          },
+          "s1": {
+            "type": "block",
+            "x": 0,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "2"
+            ],
+            "cpu": 0.35
+          },
+          "s2": {
+            "type": "block",
+            "x": 8,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Server",
+              "3"
+            ],
+            "cpu": 0.35
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "brightpost.io",
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "hb": {
+            "from": "lb",
+            "to": "lb2",
+            "pts": [
+              "lb",
+              "lb2"
+            ],
+            "label": "heartbeat",
+            "heads": "none",
+            "style": "beat"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1",
+                "b2"
+              ]
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "hb"
+            ],
+            "kind": "ping",
+            "rate": 0.8,
+            "bounce": true
+          }
+        ]
+      }
+    }
+  ]
+}

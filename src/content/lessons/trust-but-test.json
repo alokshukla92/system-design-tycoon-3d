@@ -1,0 +1,2249 @@
+{
+  "id": "trust-but-test",
+  "title": "Trust but Test",
+  "summary": "Ferncart stops shipping on hope: build a fast test pyramid, tame flaky tests, and know what tests can never catch.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "feedback",
+    "covers",
+    "escaped",
+    "leadTime"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    [
+      "ping",
+      "unit test"
+    ],
+    [
+      "poison",
+      "bad result"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Tell unit, integration, contract and end-to-end tests apart by scope",
+      "step": 5
+    },
+    {
+      "text": "Shape a test pyramid and know why the cone shape hurts",
+      "step": 6
+    },
+    {
+      "text": "Diagnose and fix flaky tests",
+      "step": 7
+    },
+    {
+      "text": "Keep feedback fast and know which bugs only production reveals",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Ship weekly",
+      "chapter": "setup",
+      "title": "Ferncart ships on Thursdays",
+      "body": [
+        "<b>Ferncart</b> delivers groceries in three cities. Fourteen engineers merge code all week, then every Thursday a QA team spends two days clicking through a <b>90-item checklist</b> before anything reaches shoppers.",
+        "It feels safe. In practice, the checklist only covers what somebody remembered to write down, and engineers wait days to learn whether a change broke something."
+      ],
+      "metrics": {
+        "feedback": "2 days",
+        "covers": "a checklist",
+        "escaped": "weekly",
+        "leadTime": "1 week"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper"
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ]
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres"
+          },
+          "qa": {
+            "type": "crowd",
+            "x0": -17,
+            "x1": -9,
+            "y0": -14,
+            "y1": -8,
+            "count": 5,
+            "label": "QA team"
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "qa": {
+            "from": "qa",
+            "to": "web",
+            "pts": [
+              "qa",
+              "web"
+            ],
+            "label": "90-item checklist",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cp"
+            ],
+            "bounce": true,
+            "rate": 0.5
+          },
+          {
+            "route": [
+              "qa"
+            ],
+            "kind": "slow",
+            "rate": 0.6,
+            "bounce": true,
+            "hold": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "web",
+            "kind": "api_server",
+            "label": "Web app"
+          },
+          {
+            "id": "cart",
+            "kind": "api_server",
+            "label": "Cart service"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "web"
+          },
+          {
+            "from": "web",
+            "to": "cart"
+          },
+          {
+            "from": "cart",
+            "to": "pay"
+          },
+          {
+            "from": "cart",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Bug escapes",
+      "chapter": "problem",
+      "title": "A discount applied twice",
+      "body": [
+        "A tidy-up of the pricing code made promo codes apply once <em>per item</em> as well as once per cart. Carts with two or more promo items got 20% off instead of 10%.",
+        "No checklist line covered “two promo items plus a code”, so it sailed through QA. It ran for three days and cost <b>$41,000</b> before a shopper's tweet flagged it."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Manual passes test what people remember. Bugs live in the combinations nobody wrote down."
+      },
+      "changes": [
+        "~ Cart service now returns wrong totals",
+        "~ Wrong prices reach shoppers"
+      ],
+      "metrics": {
+        "feedback": "2 days",
+        "covers": "a checklist",
+        "escaped": "weekly",
+        "leadTime": "1 week"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper"
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ]
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.96,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "bug: 2× discount",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres"
+          },
+          "qa": {
+            "type": "crowd",
+            "x0": -17,
+            "x1": -9,
+            "y0": -14,
+            "y1": -8,
+            "count": 5,
+            "label": "QA team"
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "checkout"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "qa": {
+            "from": "qa",
+            "to": "web",
+            "pts": [
+              "qa",
+              "web"
+            ],
+            "label": "90-item checklist",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1.4,
+            "pattern": [
+              "poison",
+              "req",
+              "poison"
+            ]
+          },
+          {
+            "route": [
+              "qa"
+            ],
+            "kind": "slow",
+            "rate": 0.6,
+            "bounce": true,
+            "hold": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Unit tests",
+      "chapter": "technique",
+      "title": "Unit tests: one piece, in isolation",
+      "body": [
+        "A <span class=\"term\">unit test</span> calls one function or class directly with chosen inputs and asserts on the output. <code>priceFor()</code> needs no server, network or database, so a test runs in milliseconds.",
+        "That speed is the point: Ferncart writes <b>2,400</b> of them, covering every discount rule and edge case, and they all finish in 18 seconds on a laptop.",
+        "The catch: anything the function talks to is replaced by a <i>fake</i>. A fake behaves how you <em>believe</em> the real thing behaves."
+      ],
+      "changes": [
+        "- Removed QA checklist pass",
+        "+ Added CI runner",
+        "+ Unit-test scope around priceFor()"
+      ],
+      "metrics": {
+        "feedback": "20 s",
+        "covers": "pricing logic",
+        "escaped": "fewer",
+        "leadTime": "1 week"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0.55
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0.55
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": "priceFor()"
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0.55
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0.55
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "2,400 unit tests",
+                "tone": "green",
+                "icon": "flask"
+              }
+            ]
+          },
+          "scope": {
+            "type": "zone",
+            "x0": -3.5,
+            "x1": 3.5,
+            "y0": -3.5,
+            "y1": 3.5,
+            "label": "UNIT · ONE FUNCTION"
+          },
+          "card": {
+            "type": "panel",
+            "title": "A unit test",
+            "icon": "flask",
+            "lines": [
+              "given 2 promo items + code SAVE10",
+              "expect priceFor() = 10% off, once",
+              "= runs in 4 ms · no network, no DB",
+              "# fakes stand in for Postgres & Payments"
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "tc": {
+            "from": "ci",
+            "to": "cart",
+            "pts": [
+              "ci",
+              "cart"
+            ],
+            "label": "priceFor(cart)"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "tc"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 3,
+            "speed": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "short": "Integration",
+      "chapter": "technique",
+      "title": "Integration tests: talk to the real thing",
+      "body": [
+        "All unit tests passed, yet staging lost cents: the database mapping stored <code>amount</code> in an integer column and quietly truncated it. The fake database never would have.",
+        "An <span class=\"term\">integration test</span> runs the Cart service against a real Postgres started in a throwaway container, with real migrations and real SQL. It catches wiring, queries and serialization bugs.",
+        "Each one takes seconds instead of milliseconds, so Ferncart keeps the count modest: <b>180</b> tests, about 3 minutes."
+      ],
+      "changes": [
+        "~ Scope widened to Cart + Postgres",
+        "+ Postgres runs in a test container"
+      ],
+      "metrics": {
+        "feedback": "3 min",
+        "covers": "+ SQL & mapping",
+        "escaped": "fewer",
+        "leadTime": "1 week"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0.55
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0.55
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": ""
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0.55
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0,
+            "tags": [
+              {
+                "text": "throwaway container",
+                "tone": "green",
+                "icon": "container"
+              }
+            ]
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "+ 180 integration",
+                "tone": "green",
+                "icon": "flask"
+              }
+            ]
+          },
+          "scope": {
+            "type": "zone",
+            "x0": -3.5,
+            "x1": 3.5,
+            "y0": -3.5,
+            "y1": 14,
+            "label": "INTEGRATION · SERVICE + REAL DB"
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "tc": {
+            "from": "ci",
+            "to": "cart",
+            "pts": [
+              "ci",
+              "cart"
+            ],
+            "label": "save cart"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "tc"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 1.6,
+            "speed": 1.5
+          },
+          {
+            "route": [
+              "tc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1,
+            "hold": 0.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Contracts",
+      "chapter": "technique",
+      "title": "Contract tests: pin down the handshake",
+      "body": [
+        "The Payments team renamed a request field to <code>amount_cents</code>. Cart's tests used a stubbed Payments that still accepted the old name, so everything stayed green while real checkouts failed.",
+        "A <span class=\"term\">consumer-driven contract</span> fixes this: Cart records exactly what it sends and what it needs back. Payments' CI replays that contract against its real API on every pull request, so a breaking rename fails <em>their</em> build before merge."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Contracts replace most cross-team end-to-end tests: each side is tested alone, against a shared, versioned promise."
+      },
+      "changes": [
+        "~ Scope now spans Cart ⇄ Payments",
+        "+ Payments CI verifies Cart's contract"
+      ],
+      "metrics": {
+        "feedback": "4 min",
+        "covers": "+ API promises",
+        "escaped": "fewer",
+        "leadTime": "1 week"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0.55
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0.55
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": ""
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0,
+            "tags": [
+              {
+                "text": "verifies contract",
+                "tone": "green",
+                "icon": "listChecks"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0.55,
+            "tags": []
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "+ 40 contract",
+                "tone": "green",
+                "icon": "flask"
+              }
+            ]
+          },
+          "scope": {
+            "type": "zone",
+            "x0": -3.5,
+            "x1": 14.5,
+            "y0": -3.5,
+            "y1": 3.5,
+            "label": "CONTRACT · CART ⇄ PAYMENTS"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Cart's contract",
+            "icon": "clipboard",
+            "lines": [
+              "POST /charge",
+              "  { amount_cents: int, order_id }",
+              "→ 201 { charge_id }",
+              "= replayed in Payments CI on every PR",
+              "! renaming a field now fails their build"
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "amount_cents",
+            "labelTone": "green"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "tc": {
+            "from": "ci",
+            "to": "cart",
+            "pts": [
+              "ci",
+              "cart"
+            ],
+            "label": "checkout"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "tc",
+              "cp"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "End-to-end",
+      "chapter": "technique",
+      "title": "End-to-end: a robot shopper",
+      "body": [
+        "An <span class=\"term\">end-to-end test</span> drives a real browser through the deployed stack: sign in, search, add to cart, pay. It is the only test that proves all the pieces actually fit together.",
+        "It is also the slowest and most fragile: every network hop, animation and shared environment is a chance to fail. Ferncart keeps just <b>12 journeys</b>, the ones that would make the news if they broke."
+      ],
+      "changes": [
+        "~ Scope covers the whole stack",
+        "~ CI drives a headless browser"
+      ],
+      "metrics": {
+        "feedback": "25 min",
+        "covers": "+ 12 journeys",
+        "escaped": "fewer",
+        "leadTime": "2 days"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0,
+            "tags": [
+              {
+                "text": "headless browser",
+                "tone": "violet",
+                "icon": "bot"
+              }
+            ]
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": "",
+            "dim": 0
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0,
+            "tags": []
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0,
+            "tags": []
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "+ 12 journeys",
+                "tone": "green",
+                "icon": "flask"
+              }
+            ]
+          },
+          "scope": {
+            "type": "zone",
+            "x0": -3.5,
+            "x1": 14.5,
+            "y0": -25.5,
+            "y1": 14,
+            "label": "END-TO-END · WHOLE STACK"
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "te": {
+            "from": "ci",
+            "to": "shop",
+            "pts": [
+              "ci",
+              [
+                "ci",
+                "shop"
+              ],
+              "shop"
+            ],
+            "label": "drive browser"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "te",
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.6,
+            "hold": 0.6
+          },
+          {
+            "route": [
+              "te",
+              "sw",
+              "wc",
+              "cp"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.4,
+            "hold": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Pyramid",
+      "chapter": "tradeoff",
+      "title": "Many small tests, few big ones",
+      "body": [
+        "Stack the layers and you get a <span class=\"term\">test pyramid</span>: a wide base of fast, precise unit tests, fewer integration and contract tests, and a thin tip of end-to-end journeys.",
+        "The rule of thumb: <b>catch each bug at the lowest layer that can see it</b>. A discount rule belongs in a unit test; a broken SQL mapping in an integration test; only “do the services connect?” needs end-to-end.",
+        "The inverted shape, the <i>ice-cream cone</i>, is mostly manual and browser tests: slow, flaky, and silent about <em>where</em> the bug is."
+      ],
+      "changes": [
+        "- Removed scope overlay",
+        "+ Pyramid of test counts and run times"
+      ],
+      "metrics": {
+        "feedback": "25 min",
+        "covers": "all 4 layers",
+        "escaped": "rare",
+        "leadTime": "2 days"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0,
+            "tags": []
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": "",
+            "dim": 0
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0,
+            "tags": []
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0,
+            "tags": []
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "2,632 tests",
+                "tone": "green",
+                "icon": "listChecks"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Ferncart's test pyramid",
+            "icon": "layers",
+            "lines": [
+              "# count · time for the whole layer"
+            ],
+            "chart": "bars",
+            "w": 250,
+            "bars": [
+              {
+                "label": "End-to-end",
+                "note": "12 · 9 min",
+                "from": 0.4,
+                "to": 0.6,
+                "tone": "red"
+              },
+              {
+                "label": "Contract",
+                "note": "40 · 1 min",
+                "from": 0.3,
+                "to": 0.7,
+                "tone": "violet"
+              },
+              {
+                "label": "Integration",
+                "note": "180 · 3 min",
+                "from": 0.18,
+                "to": 0.82,
+                "tone": "blue"
+              },
+              {
+                "label": "Unit",
+                "note": "2,400 · 18 s",
+                "from": 0,
+                "to": 1,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "te": {
+            "from": "ci",
+            "to": "shop",
+            "pts": [
+              "ci",
+              [
+                "ci",
+                "shop"
+              ],
+              "shop"
+            ],
+            "label": "drive browser"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "te",
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.4,
+            "hold": 0.4
+          },
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Flaky tests",
+      "chapter": "problem",
+      "title": "The test that cried wolf",
+      "body": [
+        "One checkout journey fails about one run in fifteen with no code change. Engineers learn to hit <i>rerun</i> until it goes green.",
+        "That habit is the real damage: when a genuine failure appears, people shrug “probably flaky”. A <span class=\"term\">flaky test</span> trains the team to ignore red.",
+        "Fixes: wait for a condition (button enabled) instead of a fixed sleep, give each test its own data, quarantine a flaky test out of the blocking suite with an owner and a deadline, and track the flake rate like any other metric."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "A test that fails at random is worse than no test: it costs time <em>and</em> teaches people to distrust the suite."
+      },
+      "changes": [
+        "~ Browser step fails ~1 in 15 runs",
+        "~ CI reruns failed jobs ×3"
+      ],
+      "metrics": {
+        "feedback": "1+ hours",
+        "covers": "all 4 layers",
+        "escaped": "fewer",
+        "leadTime": "2 days"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0,
+            "tags": [
+              {
+                "text": "headless browser",
+                "tone": "violet",
+                "icon": "bot"
+              }
+            ]
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": "",
+            "dim": 0
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0,
+            "tags": []
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0,
+            "tags": []
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "rerun ×3",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ],
+            "heat": 0.4
+          },
+          "card": {
+            "type": "panel",
+            "title": "Why it flakes",
+            "icon": "refresh",
+            "lines": [
+              "! fixed sleeps race the page load",
+              "! tests share one shopper account",
+              "! order-dependent leftovers in the DB",
+              "= wait for conditions, isolate data,",
+              "= quarantine & track flake rate"
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "sleep(2s)…",
+            "fail": 0.35,
+            "labelTone": "amber"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "te": {
+            "from": "ci",
+            "to": "shop",
+            "pts": [
+              "ci",
+              [
+                "ci",
+                "shop"
+              ],
+              "shop"
+            ],
+            "label": "drive browser"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "te",
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1,
+            "pattern": [
+              "slow",
+              "slow",
+              "req"
+            ],
+            "hold": 0.3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fast feedback",
+      "chapter": "solution",
+      "title": "Fast feedback first",
+      "body": [
+        "A suite nobody waits for is a suite nobody runs. Ferncart reorders CI so the cheapest checks run first and <b>fail fast</b>: lint and unit tests report in 90 seconds.",
+        "Integration tests are split across four parallel shards. The end-to-end journeys run after merge on main, in parallel, against a staging copy, and block the deploy, not the developer."
+      ],
+      "changes": [
+        "~ CI split into 4 parallel shards",
+        "~ Cheapest checks run first",
+        "~ E2E moves to post-merge"
+      ],
+      "metrics": {
+        "feedback": "90 s",
+        "covers": "all 4 layers",
+        "escaped": "rare",
+        "leadTime": "1 hour"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0,
+            "tags": []
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": "",
+            "dim": 0
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0,
+            "tags": []
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0,
+            "tags": []
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "4 parallel shards",
+                "tone": "green",
+                "icon": "split"
+              },
+              {
+                "text": "fail fast",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Minutes after a push",
+            "icon": "timer",
+            "lines": [
+              "! before: one 45-minute queue",
+              "= after: first red in 90 s"
+            ],
+            "chart": "bars",
+            "w": 260,
+            "bars": [
+              {
+                "label": "Lint + unit",
+                "note": "0–1.5 min",
+                "from": 0,
+                "to": 0.17,
+                "tone": "green",
+                "bold": true
+              },
+              {
+                "label": "Integration ×4",
+                "note": "1.5–4.5",
+                "from": 0.17,
+                "to": 0.5,
+                "tone": "blue"
+              },
+              {
+                "label": "Contract",
+                "note": "1.5–2.5",
+                "from": 0.17,
+                "to": 0.28,
+                "tone": "violet"
+              },
+              {
+                "label": "E2E ×6 (on main)",
+                "note": "4.5–9",
+                "from": 0.5,
+                "to": 1,
+                "tone": "amber"
+              }
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "te": {
+            "from": "ci",
+            "to": "shop",
+            "pts": [
+              "ci",
+              [
+                "ci",
+                "shop"
+              ],
+              "shop"
+            ],
+            "label": "drive browser"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "te",
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.4,
+            "hold": 0.3
+          },
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "What escapes",
+      "chapter": "insight",
+      "title": "What tests can't see",
+      "body": [
+        "Tests run your code on your inputs in a clean room. Production is not a clean room: a query that is instant on 1,000 test rows times out on <b>38 million</b>, a config value differs, the bank's API slows down, traffic triples at 6 pm.",
+        "So testing lowers risk <em>before</em> merge; it never removes it. The bugs that escape are caught by <span class=\"term\">monitoring</span> and by releasing gradually, so a bad change touches a few users for a few minutes."
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next: <b>Ship It Safely</b> — pipelines, feature flags and canaries that limit the blast radius of what tests miss."
+      },
+      "changes": [
+        "+ Real shoppers and real data volume",
+        "+ Monitoring watches production"
+      ],
+      "metrics": {
+        "feedback": "90 s",
+        "covers": "code, not prod",
+        "escaped": "rare",
+        "leadTime": "1 hour"
+      },
+      "scene": {
+        "entities": {
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ]
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "tags": [
+              {
+                "text": "bank API: slow",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ],
+            "pills": "below"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "38M rows",
+                "tone": "amber",
+                "icon": "database"
+              }
+            ]
+          },
+          "crowd": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -26,
+            "y1": -20,
+            "count": 14,
+            "label": "120k shoppers"
+          },
+          "mon": {
+            "type": "block",
+            "x": -12,
+            "y": -6,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "activity",
+            "label": [
+              "Monitoring"
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "crowd",
+            "to": "web",
+            "pts": [
+              "crowd",
+              "web"
+            ],
+            "label": "real traffic"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "m1": {
+            "from": "mon",
+            "to": "web",
+            "pts": [
+              "mon",
+              "web"
+            ],
+            "style": "beat",
+            "heads": "none"
+          },
+          "m2": {
+            "from": "mon",
+            "to": "cart",
+            "pts": [
+              "mon",
+              "cart"
+            ],
+            "style": "beat",
+            "heads": "none"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 2.2,
+            "pattern": [
+              "req",
+              "req",
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cp"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "pattern": [
+              "req",
+              "slow"
+            ]
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "m1"
+                ]
+              },
+              {
+                "path": [
+                  "m2"
+                ]
+              }
+            ],
+            "kind": "ping",
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "web",
+            "kind": "api_server",
+            "label": "Web app"
+          },
+          {
+            "id": "cart",
+            "kind": "api_server",
+            "label": "Cart service"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          },
+          {
+            "id": "mon",
+            "kind": "monitoring",
+            "label": "Monitoring"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "web"
+          },
+          {
+            "from": "web",
+            "to": "cart"
+          },
+          {
+            "from": "cart",
+            "to": "pay"
+          },
+          {
+            "from": "cart",
+            "to": "db"
+          },
+          {
+            "from": "mon",
+            "to": "web"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Trust, but test",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Unit</b>: one piece, milliseconds, thousands of them.</li><li><b>Integration</b>: real database or broker in a container; catches wiring and SQL.</li><li><b>Contract</b>: each side verifies a shared promise instead of a shared environment.</li><li><b>End-to-end</b>: a handful of critical journeys only.</li><li>Kill flakiness fast and keep the first signal under a few minutes.</li><li>Tests cover code, not production: pair them with monitoring and gradual rollout.</li></ul>"
+      ],
+      "metrics": {
+        "feedback": "90 s",
+        "covers": "all 4 layers",
+        "escaped": "rare",
+        "leadTime": "1 hour"
+      },
+      "scene": {
+        "entities": {
+          "shop": {
+            "type": "device",
+            "x": 0,
+            "y": -22,
+            "label": "Shopper",
+            "dim": 0,
+            "tags": []
+          },
+          "web": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.8,
+            "color": "yellow",
+            "glyph": "window",
+            "label": [
+              "Web app"
+            ],
+            "dim": 0
+          },
+          "cart": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 4,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart",
+              "service"
+            ],
+            "cpu": 0.3,
+            "sub": "",
+            "dim": 0
+          },
+          "pay": {
+            "type": "block",
+            "x": 11,
+            "y": 0,
+            "s": 4,
+            "color": "purple",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "sub": "other team",
+            "cpu": 0.25,
+            "dim": 0,
+            "tags": []
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 11,
+            "label": "Postgres",
+            "dim": 0,
+            "tags": []
+          },
+          "ci": {
+            "type": "block",
+            "x": -13,
+            "y": 0,
+            "s": 3.8,
+            "color": "slab",
+            "glyph": "workflow",
+            "label": [
+              "CI runner"
+            ],
+            "tags": [
+              {
+                "text": "4 shards · 90 s",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Ferncart's test pyramid",
+            "icon": "layers",
+            "lines": [
+              "# count · time for the whole layer"
+            ],
+            "chart": "bars",
+            "w": 250,
+            "bars": [
+              {
+                "label": "End-to-end",
+                "note": "12 · 9 min",
+                "from": 0.4,
+                "to": 0.6,
+                "tone": "red"
+              },
+              {
+                "label": "Contract",
+                "note": "40 · 1 min",
+                "from": 0.3,
+                "to": 0.7,
+                "tone": "violet"
+              },
+              {
+                "label": "Integration",
+                "note": "180 · 3 min",
+                "from": 0.18,
+                "to": 0.82,
+                "tone": "blue"
+              },
+              {
+                "label": "Unit",
+                "note": "2,400 · 18 s",
+                "from": 0,
+                "to": 1,
+                "tone": "green",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "sw": {
+            "from": "shop",
+            "to": "web",
+            "pts": [
+              "shop",
+              "web"
+            ],
+            "label": "HTTPS"
+          },
+          "wc": {
+            "from": "web",
+            "to": "cart",
+            "pts": [
+              "web",
+              "cart"
+            ],
+            "label": "add item"
+          },
+          "cp": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "POST /charge"
+          },
+          "cd": {
+            "from": "cart",
+            "to": "db",
+            "pts": [
+              "cart",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "te": {
+            "from": "ci",
+            "to": "shop",
+            "pts": [
+              "ci",
+              [
+                "ci",
+                "shop"
+              ],
+              "shop"
+            ],
+            "label": "drive browser"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "te",
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.4,
+            "hold": 0.4
+          },
+          {
+            "route": [
+              "sw",
+              "wc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    }
+  ]
+}

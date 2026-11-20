@@ -1,0 +1,1458 @@
+{
+  "id": "fast-vs-busy",
+  "title": "Fast vs Busy",
+  "summary": "Latency and throughput are different dials — and latency explodes long before a server is 100% busy.",
+  "minutes": 11,
+  "level": "beginner",
+  "metrics": [
+    "throughput",
+    "util",
+    "p50",
+    "p99"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    "queue",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Tell latency from throughput",
+      "step": 0
+    },
+    {
+      "text": "Read p50 and p99 — and why fan-out amplifies the tail",
+      "step": 2
+    },
+    {
+      "text": "Explain why latency explodes near saturation",
+      "step": 5
+    },
+    {
+      "text": "Choose headroom deliberately",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Two numbers",
+      "chapter": "setup",
+      "title": "Fast and busy are different questions",
+      "body": [
+        "Stampwise runs an API that renders shipping labels. Two questions describe how it's doing: <span class=\"term\">latency</span> — how long does one request take? — and <span class=\"term\">throughput</span> — how many requests does it finish each second?",
+        "Right now 40 requests arrive per second and each needs about 40 ms of work. The server can finish about 200 per second, so it is busy just 20% of the time. That fraction is its <span class=\"term\">utilization</span>."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A sports car is fast but carries two people; a bus is slow but carries fifty. Latency and throughput are separate dials."
+      },
+      "metrics": {
+        "throughput": 40,
+        "util": 20,
+        "p50": 42,
+        "p99": 110
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 5,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 54,
+            "sub": "max 200 req/s",
+            "cpu": 0.2
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 0,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 0.25,
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 40,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "API clients"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Label renderer",
+            "sub": "max 200 req/s"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Percentiles",
+      "chapter": "technique",
+      "title": "Averages hide the slow ones",
+      "body": [
+        "Latency isn't one number. Sort a minute of requests by duration: the one in the middle is the <span class=\"term\">p50</span> (median); the one slower than 99% of the others is the <span class=\"term\">p99</span>.",
+        "Here p50 is 42 ms but p99 is 110 ms — a few requests hit a cold cache, a garbage-collection pause or a slow disk. The average, about 50 ms, describes nobody in particular."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Watch p50 for the typical experience and p95/p99 for the unlucky. Your most active users send the most requests, so they meet the tail most often."
+      },
+      "changes": [
+        "+ Latency distribution card",
+        "~ Every so often a request is slow"
+      ],
+      "metrics": {
+        "throughput": 40,
+        "util": 20,
+        "p50": 42,
+        "p99": 110
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 5,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 54,
+            "sub": "max 200 req/s",
+            "cpu": 0.2
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 0,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "One minute · 2,400 requests",
+            "icon": "chart",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "p50",
+                "note": "42 ms",
+                "to": 0.19,
+                "tone": "green"
+              },
+              {
+                "label": "p90",
+                "note": "70 ms",
+                "to": 0.32,
+                "tone": "green"
+              },
+              {
+                "label": "p99",
+                "note": "110 ms",
+                "to": 0.5,
+                "tone": "amber",
+                "bold": true
+              },
+              {
+                "label": "slowest",
+                "note": "220 ms",
+                "to": 1,
+                "tone": "red"
+              }
+            ],
+            "lines": [
+              "# 24 requests were slower than p99"
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 0.25,
+            "rate": 1.2,
+            "pattern": [
+              "req",
+              "req",
+              "req",
+              "req",
+              "slow"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fan-out",
+      "chapter": "problem",
+      "title": "When one page waits on many calls",
+      "body": [
+        "Stampwise's dashboard page calls five internal services in parallel and can render only when <i>all</i> of them have answered. The page is as slow as its slowest call.",
+        "If each call has a 1% chance of a p99-slow reply, the chance at least one of five is slow is 1 − 0.99⁵ ≈ <b>5%</b>. With 20 calls it's ≈ <b>18%</b>. This <span class=\"term\">tail amplification</span> turns a backend's rare case into a common one."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "The more calls a request fans out to, the more the <b>tail</b> of each one matters."
+      },
+      "changes": [
+        "+ Five backend services",
+        "~ Page waits for the slowest answer"
+      ],
+      "metrics": {
+        "throughput": 40,
+        "util": 20,
+        "p50": 48,
+        "p99": 230
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 5,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dashboard",
+              "page"
+            ],
+            "h": 54,
+            "sub": "waits for all 5",
+            "cpu": 0.2
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 0,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "b0": {
+            "type": "block",
+            "x": -12,
+            "y": 12,
+            "s": 3,
+            "color": "purple",
+            "glyph": "server",
+            "label": [
+              "Users"
+            ],
+            "h": 32
+          },
+          "b1": {
+            "type": "block",
+            "x": -6,
+            "y": 12,
+            "s": 3,
+            "color": "purple",
+            "glyph": "server",
+            "label": [
+              "Rates"
+            ],
+            "h": 32
+          },
+          "b2": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 3,
+            "color": "purple",
+            "glyph": "server",
+            "label": [
+              "Stock"
+            ],
+            "h": 32
+          },
+          "b3": {
+            "type": "block",
+            "x": 6,
+            "y": 12,
+            "s": 3,
+            "color": "purple",
+            "glyph": "server",
+            "label": [
+              "Maps"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "p99: 210 ms",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "b4": {
+            "type": "block",
+            "x": 12,
+            "y": 12,
+            "s": 3,
+            "color": "purple",
+            "glyph": "server",
+            "label": [
+              "Billing"
+            ],
+            "h": 32
+          },
+          "card": {
+            "type": "panel",
+            "title": "Chance the page is slow",
+            "icon": "split",
+            "lines": [
+              "1 call   → 1%",
+              "5 calls  → 1 − 0.99⁵ ≈ 5%",
+              "20 calls → 1 − 0.99²⁰ ≈ 18%",
+              "! the page's p99 ≈ a backend's p99.9"
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "GET /dashboard",
+            "heads": "both"
+          },
+          "f0": {
+            "from": "srv",
+            "to": "b0",
+            "pts": [
+              "srv",
+              "b0"
+            ],
+            "heads": "both"
+          },
+          "f1": {
+            "from": "srv",
+            "to": "b1",
+            "pts": [
+              "srv",
+              "b1"
+            ],
+            "heads": "both"
+          },
+          "f2": {
+            "from": "srv",
+            "to": "b2",
+            "pts": [
+              "srv",
+              "b2"
+            ],
+            "heads": "both"
+          },
+          "f3": {
+            "from": "srv",
+            "to": "b3",
+            "pts": [
+              "srv",
+              "b3"
+            ],
+            "heads": "both"
+          },
+          "f4": {
+            "from": "srv",
+            "to": "b4",
+            "pts": [
+              "srv",
+              "b4"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 1,
+            "rate": 0.6
+          },
+          {
+            "fanout": true,
+            "bounce": true,
+            "rate": 0.6,
+            "routes": [
+              {
+                "path": [
+                  "f0"
+                ]
+              },
+              {
+                "path": [
+                  "f1"
+                ]
+              },
+              {
+                "path": [
+                  "f2"
+                ]
+              },
+              {
+                "path": [
+                  "f3"
+                ],
+                "kind": "slow"
+              },
+              {
+                "path": [
+                  "f4"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Busier",
+      "chapter": "problem",
+      "title": "Traffic triples",
+      "body": [
+        "Back to the label API. A holiday sale brings 120 requests per second — 60% utilization. Each label still takes 40 ms of work.",
+        "Yet p50 creeps up to 65 ms and p99 to 300 ms. Requests now sometimes arrive while the server is busy and wait their turn in a <span class=\"term\">queue</span>. The work didn't grow; the <b>waiting</b> did."
+      ],
+      "changes": [
+        "~ Traffic 40 → 120 req/s",
+        "+ A short queue forms",
+        "+ Utilization curve card"
+      ],
+      "metrics": {
+        "throughput": 120,
+        "util": 60,
+        "p50": 65,
+        "p99": 300
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 9,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 54,
+            "sub": "max 200 req/s",
+            "cpu": 0.6
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 2,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Wait vs. utilization",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.6,
+            "lines": [
+              "at 60% busy, waiting ≈ 1.5× the work"
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 0.35,
+            "rate": 2,
+            "pattern": [
+              "req",
+              "req",
+              "req",
+              "slow"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Near full",
+      "chapter": "problem",
+      "title": "90% busy, six times slower",
+      "body": [
+        "At 180 requests per second, utilization reaches 90%. Work per request is unchanged, but a typical request now waits behind several others: p50 260 ms, p99 1.4 s.",
+        "Arrivals are random, not evenly spaced. Bursts arrive faster than the server drains them, and a 90%-busy server has very few idle moments in which to catch up."
+      ],
+      "changes": [
+        "~ Traffic 120 → 180 req/s",
+        "~ Queue 2 → 9 waiting",
+        "~ Marker slides up the curve"
+      ],
+      "metrics": {
+        "throughput": 180,
+        "util": 90,
+        "p50": 260,
+        "p99": 1400
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 12,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 54,
+            "sub": "max 200 req/s",
+            "cpu": 0.9,
+            "heat": 0.6
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 9,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Wait vs. utilization",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.9,
+            "lines": [
+              "at 90% busy, waiting ≈ 9× the work"
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 0.8,
+            "rate": 2.6,
+            "pattern": [
+              "slow",
+              "slow",
+              "req"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hockey stick",
+      "chapter": "insight",
+      "title": "Why latency explodes near saturation",
+      "body": [
+        "Queueing theory gives a rule of thumb for one server with random arrivals: <b>wait ≈ work × ρ ÷ (1 − ρ)</b>, where ρ is utilization. From 50% to 60% busy adds a little wait; from 90% to 95% <b>doubles</b> it.",
+        "That's the <span class=\"term\">hockey-stick curve</span>: flat for a long stretch, then nearly vertical. The last slice of capacity is by far the most expensive to use."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Don't plan to run at 100%. Plan for the knee of the curve — often 60–75% for latency-sensitive services."
+      },
+      "changes": [
+        "~ Card shows the formula behind the curve"
+      ],
+      "metrics": {
+        "throughput": 180,
+        "util": 90,
+        "p50": 260,
+        "p99": 1400
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 12,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 54,
+            "sub": "max 200 req/s",
+            "cpu": 0.9,
+            "heat": 0.6
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 9,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "wait ≈ work × ρ / (1 − ρ)",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.9,
+            "lines": [
+              "ρ 50% → wait 1× work",
+              "ρ 80% → wait 4× work",
+              "ρ 90% → wait 9× work",
+              "! ρ 95% → wait 19× work"
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 0.8,
+            "rate": 2.6,
+            "pattern": [
+              "slow",
+              "slow",
+              "req"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Overload",
+      "chapter": "problem",
+      "title": "Past capacity, throughput stops growing",
+      "body": [
+        "A flash sale pushes demand to 240 requests per second. The server can still finish only 200: <span class=\"term\">throughput</span> flattens at capacity while the queue grows every second.",
+        "Forty extra requests per second pile up — 2,400 after one minute, each now waiting about 12 s. Clients time out, retry, and add even more load."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Above capacity a queue never settles. It grows until requests time out or the server runs out of memory."
+      },
+      "changes": [
+        "~ Demand 180 → 240 req/s",
+        "~ Queue keeps growing",
+        "+ Timeouts (failed requests)"
+      ],
+      "metrics": {
+        "throughput": 200,
+        "util": 100,
+        "p50": 4200,
+        "p99": null
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 16,
+            "label": "API clients"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 5,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 54,
+            "sub": "max 200 req/s",
+            "cpu": 0.99,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "queue growing",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 14,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Wait vs. utilization",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.99,
+            "lines": [
+              "demand 240 · capacity 200 req/s",
+              "! +40 req/s queued, forever"
+            ]
+          }
+        },
+        "links": {
+          "e": {
+            "from": "users",
+            "to": "srv",
+            "pts": [
+              "users",
+              "srv"
+            ],
+            "label": "POST /label",
+            "heads": "both",
+            "fail": 0.3
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e"
+            ],
+            "bounce": true,
+            "hold": 1.2,
+            "rate": 3,
+            "kind": "slow"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Headroom",
+      "chapter": "solution",
+      "title": "Buy room to breathe",
+      "body": [
+        "Stampwise adds two more renderers behind a load balancer. Capacity is now 600 req/s, so the same 240 req/s keeps each server only <b>40% busy</b>.",
+        "The queue drains, p50 is back to 48 ms and p99 to 140 ms. Throughput rises to meet demand because there is finally room for it."
+      ],
+      "changes": [
+        "+ Load balancer",
+        "+ Two more renderers",
+        "~ Utilization 100% → 40% each",
+        "- Queue drained"
+      ],
+      "metrics": {
+        "throughput": 240,
+        "util": 40,
+        "p50": 48,
+        "p99": 140
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 16,
+            "label": "API clients"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "s2": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Renderer",
+              "2"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "s3": {
+            "type": "block",
+            "x": 8,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Renderer",
+              "3"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 0,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Wait vs. utilization",
+            "icon": "gauge",
+            "chart": "hockey",
+            "marker": 0.4,
+            "lines": [
+              "each server 40% busy",
+              "= wait ≈ 0.7× the work"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          },
+          "e1": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "srv",
+            "pts": [
+              "lb",
+              "srv"
+            ],
+            "heads": "both"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "e1",
+                "e2",
+                "e3"
+              ]
+            ],
+            "bounce": true,
+            "hold": 0.25,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 12000,
+        "rps": 240,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "API clients"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Label renderers",
+            "sub": "3 × 200 req/s"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Trade-off",
+      "chapter": "tradeoff",
+      "title": "Idle capacity is insurance",
+      "body": [
+        "Running at 40% means paying for machines that sit idle much of the time. Running at 90% is cheap but fragile: one burst or one lost server pushes you over the knee.",
+        "Throughput has a hidden trade-off too: <span class=\"term\">batching</span> — processing items in groups — raises throughput by cutting per-item overhead, but each item waits for its batch to fill. Fast and busy often pull in opposite directions."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Pick a target utilization per service from its latency goal, then let autoscaling hold it there."
+      },
+      "changes": [
+        "~ Card compares fleet sizes for the same load"
+      ],
+      "metrics": {
+        "throughput": 240,
+        "util": 40,
+        "p50": 48,
+        "p99": 140
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 16,
+            "label": "API clients"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "s2": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Renderer",
+              "2"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "s3": {
+            "type": "block",
+            "x": 8,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Renderer",
+              "3"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 0,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Same 240 req/s, different fleets",
+            "icon": "scale",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "6 servers · 20% busy",
+                "note": "p99 ~120 ms · costly",
+                "to": 0.2,
+                "tone": "blue"
+              },
+              {
+                "label": "3 servers · 40% busy",
+                "note": "p99 ~140 ms",
+                "to": 0.4,
+                "tone": "green",
+                "bold": true
+              },
+              {
+                "label": "2 servers · 60% busy",
+                "note": "p99 ~300 ms",
+                "to": 0.6,
+                "tone": "amber"
+              },
+              {
+                "label": "fewest · 90% busy",
+                "note": "p99 ~1.4 s · fragile",
+                "to": 0.9,
+                "tone": "red"
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          },
+          "e1": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "srv",
+            "pts": [
+              "lb",
+              "srv"
+            ],
+            "heads": "both"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "e1",
+                "e2",
+                "e3"
+              ]
+            ],
+            "bounce": true,
+            "hold": 0.25,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Fast vs busy, in five lines",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Latency</b> is time per request; <b>throughput</b> is requests finished per second.</li><li>Report percentiles: p50 for the typical case, p99 for the tail — and fan-out makes the tail common.</li><li>Waiting grows like ρ ÷ (1 − ρ): gentle at first, explosive near saturation.</li><li>Past capacity, throughput flatlines and queues grow without limit.</li><li>Keep headroom: aim for the knee of the curve, not 100%.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next: estimate how much capacity you need <i>before</i> you build — on the back of an envelope."
+      },
+      "metrics": {
+        "throughput": 240,
+        "util": 40,
+        "p50": 48,
+        "p99": 140
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -20,
+            "y1": -14,
+            "count": 16,
+            "label": "API clients"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -7,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Label",
+              "renderer"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "s2": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Renderer",
+              "2"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "s3": {
+            "type": "block",
+            "x": 8,
+            "y": 5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Renderer",
+              "3"
+            ],
+            "h": 46,
+            "sub": "",
+            "cpu": 0.4
+          },
+          "q": {
+            "type": "queue",
+            "x": 3.4,
+            "y": -3.6,
+            "n": 0,
+            "gap": 0.85,
+            "dir": [
+              0,
+              -1
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "POST /label",
+            "heads": "both"
+          },
+          "e1": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "srv",
+            "pts": [
+              "lb",
+              "srv"
+            ],
+            "heads": "both"
+          },
+          "e3": {
+            "from": "lb",
+            "to": "s3",
+            "pts": [
+              "lb",
+              "s3"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "e1",
+                "e2",
+                "e3"
+              ]
+            ],
+            "bounce": true,
+            "hold": 0.25,
+            "rate": 3
+          }
+        ]
+      }
+    }
+  ]
+}

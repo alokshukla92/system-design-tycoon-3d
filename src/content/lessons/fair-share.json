@@ -1,0 +1,2372 @@
+{
+  "id": "fair-share",
+  "title": "Fair Share",
+  "summary": "Stop one runaway client from starving everyone else: per-key limits, window and token-bucket algorithms, shared counters and polite 429s.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "abuser",
+    "served",
+    "apiCpu",
+    "limited"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "poison",
+      "runaway client"
+    ],
+    [
+      "empty",
+      "429 rejected"
+    ],
+    [
+      "ping",
+      "counter check"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Explain why shared capacity needs per-client limits",
+      "step": 1
+    },
+    {
+      "text": "Compare fixed windows, sliding windows and token buckets",
+      "step": 3
+    },
+    {
+      "text": "Enforce one limit across many gateways",
+      "step": 7
+    },
+    {
+      "text": "Reject politely with 429 and Retry-After",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Open door",
+      "chapter": "setup",
+      "title": "Anyone may ask anything",
+      "body": [
+        "<b>Skyglass</b> sells weather forecasts through an API. Farms, airlines and app developers each hold an API key and call <code>GET /forecast</code>. Traffic is healthy and the servers are half busy.",
+        "Nothing stops a single key from sending as much as it likes. Until now, nobody did."
+      ],
+      "metrics": {
+        "abuser": "—",
+        "served": 100,
+        "apiCpu": 45,
+        "limited": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.45
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Skyglass today",
+            "icon": "sun",
+            "lines": [
+              "2,000 customers, each with an API key",
+              "1,200 requests / s at peak",
+              "# no limits: every key may send anything"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ]
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "b",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 0.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "API gateway",
+            "sub": "no limits"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Forecast API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "forecasts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Runaway",
+      "chapter": "problem",
+      "title": "One bug, everyone's outage",
+      "body": [
+        "Customer #4471 deploys a script with a retry loop and no delay. It hammers the API with 9,000 requests a second — seven times everyone else combined.",
+        "The servers don't know whose requests matter. Queues fill, latency soars and requests from all 2,000 customers start failing. This is the <span class=\"term\">noisy neighbour</span> problem."
+      ],
+      "changes": [
+        "+ Runaway script on key #4471",
+        "~ API CPU 45% → 98%",
+        "~ 38% of real requests fail"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 62,
+        "apiCpu": 98,
+        "limited": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "retry loop bug",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 30
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.98,
+            "heat": 1
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Who is using the API",
+            "icon": "users",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Customer #4471",
+                "note": "9,000 req/s",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "All other 1,999 customers",
+                "note": "1,200 req/s",
+                "to": 0.13,
+                "tone": "gray"
+              }
+            ],
+            "lines": [
+              "! one key, 88% of the traffic"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both",
+            "label": "9,000 req/s",
+            "labelTone": "red"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ],
+            "fail": 0.35
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "b",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 3,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "API gateway",
+            "sub": "no limits"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Forecast API",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "forecasts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Limit per key",
+      "chapter": "solution",
+      "title": "Everyone gets a budget",
+      "body": [
+        "A <span class=\"term\">rate limiter</span> in the gateway counts requests per API key. Up to 20 per second pass; beyond that the gateway answers <code>429 Too Many Requests</code> immediately, without touching the Forecast API.",
+        "The script still misbehaves, but it can only spend its own budget. Everyone else is served normally again."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Rejecting is cheap — microseconds in the gateway — so a limiter keeps working even under a flood."
+      },
+      "changes": [
+        "+ 20 req/s limit per key",
+        "~ Excess answered with 429"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 100,
+        "apiCpu": 47,
+        "limited": 8980
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "retry loop bug",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "20 req/s per key",
+                "tone": "green",
+                "icon": "ban"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47,
+            "heat": 0
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The polite “no”",
+            "icon": "ban",
+            "lines": [
+              "HTTP/1.1 429 Too Many Requests",
+              "Retry-After: 1",
+              "RateLimit-Limit: 20",
+              "RateLimit-Remaining: 0",
+              "# cheap: rejected before any real work"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both",
+            "label": "429 Too Many Requests",
+            "labelTone": "amber"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ],
+            "fail": 0
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "b"
+                ],
+                "kind": "empty",
+                "weight": 6
+              },
+              {
+                "path": [
+                  "b",
+                  "g",
+                  "d"
+                ],
+                "kind": "poison",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "API gateway",
+            "sub": "20 req/s per key"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Forecast API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "forecasts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fixed window",
+      "chapter": "technique",
+      "title": "Counting per minute",
+      "body": [
+        "The simplest algorithm is a <span class=\"term\">fixed window</span>: keep one counter per key per clock minute and reject once it passes 1,200. It needs one number per key and resets itself.",
+        "Its flaw is at the edges. A client can send 1,200 requests at 12:00:59 and 1,200 more at 12:01:00 — twice the intended rate in two seconds."
+      ],
+      "changes": [
+        "~ Limiter uses 1-minute windows"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 100,
+        "apiCpu": 49,
+        "limited": 8980
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "retry loop bug",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "1,200 / minute window",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47,
+            "heat": 0
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Fixed window: count per minute",
+            "icon": "clock",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "12:00:00–12:00:58",
+                "note": "0",
+                "to": 0.02,
+                "tone": "gray"
+              },
+              {
+                "label": "12:00:59",
+                "note": "1,200 ✓",
+                "to": 0.5,
+                "tone": "amber"
+              },
+              {
+                "label": "12:01:00 (new window)",
+                "note": "1,200 ✓",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "! 2,400 requests in 2 seconds — double the limit"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both",
+            "label": "429 Too Many Requests",
+            "labelTone": "amber"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ],
+            "fail": 0
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "b"
+                ],
+                "kind": "empty",
+                "weight": 6
+              },
+              {
+                "path": [
+                  "b",
+                  "g",
+                  "d"
+                ],
+                "kind": "poison",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sliding",
+      "chapter": "technique",
+      "title": "Smoothing the edges",
+      "body": [
+        "A <span class=\"term\">sliding window</span> judges the last 60 seconds rather than the current clock minute. Storing every timestamp is exact but heavy; the common shortcut weights the previous window's count by how much of it still overlaps.",
+        "Two counters per key, no boundary spike, and an error small enough to ignore."
+      ],
+      "changes": [
+        "~ Fixed window → sliding window"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 100,
+        "apiCpu": 47,
+        "limited": 8980
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "retry loop bug",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "sliding window",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47,
+            "heat": 0
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Sliding window estimate",
+            "icon": "clock",
+            "lines": [
+              "now 12:01:15 → 25% into this minute",
+              "this minute so far:         300",
+              "last minute 1,200 × 75% =   900",
+              "= estimate 1,200 → limit reached",
+              "# 2 counters per key, smooth at edges"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both",
+            "label": "429 Too Many Requests",
+            "labelTone": "amber"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ],
+            "fail": 0
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "b"
+                ],
+                "kind": "empty",
+                "weight": 6
+              },
+              {
+                "path": [
+                  "b",
+                  "g",
+                  "d"
+                ],
+                "kind": "poison",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Token bucket",
+      "chapter": "technique",
+      "title": "Allowance with savings",
+      "body": [
+        "A <span class=\"term\">token bucket</span> gives each key a bucket that refills at the allowed rate (20 tokens/s) up to a maximum (40). Each request spends a token; an empty bucket means 429.",
+        "Two knobs say two different things: the refill rate caps the long-run average, the bucket size allows short bursts — like an app that fires 30 calls when it opens."
+      ],
+      "changes": [
+        "~ Limiter uses a token bucket",
+        "+ Tokens refill 20/s, burst 40"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 100,
+        "apiCpu": 47,
+        "limited": 8980
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "retry loop bug",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "token bucket",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ],
+            "pills": "above"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47,
+            "heat": 0
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Token bucket per key",
+            "icon": "zap",
+            "lines": [
+              "bucket holds up to 40 tokens (burst)",
+              "refills 20 tokens every second (rate)",
+              "each request spends 1 token",
+              "empty bucket → 429",
+              "= short bursts OK, average stays ≤ 20/s"
+            ]
+          },
+          "tok": {
+            "type": "queue",
+            "x": -4.4,
+            "y": -24.5,
+            "n": 8,
+            "gap": 0.8,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#7cc47f"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both",
+            "label": "429 Too Many Requests",
+            "labelTone": "amber"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ],
+            "fail": 0
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "b"
+                ],
+                "kind": "empty",
+                "weight": 6
+              },
+              {
+                "path": [
+                  "b",
+                  "g",
+                  "d"
+                ],
+                "kind": "poison",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "3 gateways",
+      "chapter": "problem",
+      "title": "Each gateway counts alone",
+      "body": [
+        "Skyglass grows to three gateways behind a load balancer. Each one keeps its counters in its own memory, and the load balancer spreads key #4471 over all three.",
+        "Each gateway sees 20 req/s and is happy — so the key actually gets 60. Every gateway you add quietly raises everyone's limit."
+      ],
+      "changes": [
+        "+ Gateways #1 and #3",
+        "~ Counters are per gateway"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 100,
+        "apiCpu": 55,
+        "limited": 8940
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "gets 60 req/s",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#2"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "my count: 20",
+                "tone": "amber",
+                "icon": "hash"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.55
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#1"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "my count: 20",
+                "tone": "amber",
+                "icon": "hash"
+              }
+            ]
+          },
+          "gw3": {
+            "type": "block",
+            "x": 7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#3"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "my count: 20",
+                "tone": "amber",
+                "icon": "hash"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Local counters",
+            "icon": "hash",
+            "lines": [
+              "each gateway counts on its own",
+              "the LB spreads the key over all 3",
+              "! limit 20/s × 3 gateways = 60/s",
+              "# add gateways → the limit drifts up"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ]
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          },
+          "b1": {
+            "from": "bot",
+            "to": "gw1",
+            "pts": [
+              "bot",
+              "gw1"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "bot",
+            "to": "gw3",
+            "pts": [
+              "bot",
+              "gw3"
+            ],
+            "heads": "both"
+          },
+          "g1": {
+            "from": "gw1",
+            "to": "api",
+            "pts": [
+              "gw1",
+              "api"
+            ]
+          },
+          "g3": {
+            "from": "gw3",
+            "to": "api",
+            "pts": [
+              "gw3",
+              "api"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              [
+                "b1",
+                "b",
+                "b3"
+              ],
+              [
+                "g1",
+                "g",
+                "g3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2,
+            "kind": "poison"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shared count",
+      "chapter": "solution",
+      "title": "One counter for the fleet",
+      "body": [
+        "Move the counters into a shared, fast store like Redis. Each gateway runs an atomic <code>INCR</code> on the key's counter (or a small script for a token bucket) and gets the fleet-wide count in under a millisecond.",
+        "Decide what happens if the store is unreachable: <span class=\"term\">fail open</span> (allow traffic, risk overload) is usual for public APIs; fail closed suits limits that guard money or security, like login attempts."
+      ],
+      "changes": [
+        "+ Redis with shared counters",
+        "~ All gateways check one count"
+      ],
+      "metrics": {
+        "abuser": 9000,
+        "served": 100,
+        "apiCpu": 47,
+        "limited": 8980
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "held to 20 req/s",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#2"
+            ],
+            "h": 30
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#1"
+            ],
+            "h": 30
+          },
+          "gw3": {
+            "type": "block",
+            "x": 7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#3"
+            ],
+            "h": 30
+          },
+          "card": {
+            "type": "panel",
+            "title": "One count for the whole fleet",
+            "icon": "zap",
+            "lines": [
+              "key = rate:4471:12:01",
+              "INCR key → 21   (atomic)",
+              "EXPIRE key 60",
+              "21 > 20 → 429",
+              "# token bucket? one small Lua script",
+              "! Redis down → fail open, alert loudly"
+            ]
+          },
+          "redis": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.4,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "h": 34,
+            "sub": "shared counters"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ]
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          },
+          "b1": {
+            "from": "bot",
+            "to": "gw1",
+            "pts": [
+              "bot",
+              "gw1"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "bot",
+            "to": "gw3",
+            "pts": [
+              "bot",
+              "gw3"
+            ],
+            "heads": "both"
+          },
+          "g1": {
+            "from": "gw1",
+            "to": "api",
+            "pts": [
+              "gw1",
+              "api"
+            ]
+          },
+          "g3": {
+            "from": "gw3",
+            "to": "api",
+            "pts": [
+              "gw3",
+              "api"
+            ]
+          },
+          "r1": {
+            "from": "gw1",
+            "to": "redis",
+            "pts": [
+              "gw1",
+              "redis"
+            ]
+          },
+          "r2": {
+            "from": "gw",
+            "to": "redis",
+            "pts": [
+              "gw",
+              "redis"
+            ],
+            "label": "INCR",
+            "labelAt": 0.6
+          },
+          "r3": {
+            "from": "gw3",
+            "to": "redis",
+            "pts": [
+              "gw3",
+              "redis"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              [
+                "b1",
+                "b",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2,
+            "kind": "empty"
+          },
+          {
+            "route": [
+              [
+                "r1",
+                "r2",
+                "r3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4,
+            "kind": "ping",
+            "speed": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateways ×3",
+            "sub": "rate limited"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "shared counters"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Forecast API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "forecasts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "redis"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Be polite",
+      "chapter": "tradeoff",
+      "title": "Tell clients how to behave",
+      "body": [
+        "A good limiter explains itself: <code>Retry-After</code> says when to come back and rate-limit headers show the remaining budget. Well-behaved clients back off with jitter, and #4471's fixed script now waits instead of hammering.",
+        "Limits are also product choices: bigger plans get bigger budgets, sensitive endpoints like login get tight per-IP limits, and when the backend itself is struggling, <span class=\"term\">load shedding</span> drops low-priority work regardless of who sent it."
+      ],
+      "changes": [
+        "~ Plans get different limits",
+        "~ Client honours Retry-After"
+      ],
+      "metrics": {
+        "abuser": 20,
+        "served": 100,
+        "apiCpu": 46,
+        "limited": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "backs off · Retry-After",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#2"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "free 10/s · pro 100/s",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#1"
+            ],
+            "h": 30
+          },
+          "gw3": {
+            "type": "block",
+            "x": 7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#3"
+            ],
+            "h": 30
+          },
+          "card": {
+            "type": "panel",
+            "title": "Limits are product decisions",
+            "icon": "key",
+            "lines": [
+              "per plan: free 10/s · pro 100/s",
+              "per endpoint: POST /login 5/min per IP",
+              "per tenant: cap total, not just per key",
+              "clients: honour Retry-After + jitter",
+              "# shed load when the backend itself is hot"
+            ]
+          },
+          "redis": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.4,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "h": 34,
+            "sub": "shared counters"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ]
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          },
+          "b1": {
+            "from": "bot",
+            "to": "gw1",
+            "pts": [
+              "bot",
+              "gw1"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "bot",
+            "to": "gw3",
+            "pts": [
+              "bot",
+              "gw3"
+            ],
+            "heads": "both"
+          },
+          "g1": {
+            "from": "gw1",
+            "to": "api",
+            "pts": [
+              "gw1",
+              "api"
+            ]
+          },
+          "g3": {
+            "from": "gw3",
+            "to": "api",
+            "pts": [
+              "gw3",
+              "api"
+            ]
+          },
+          "r1": {
+            "from": "gw1",
+            "to": "redis",
+            "pts": [
+              "gw1",
+              "redis"
+            ]
+          },
+          "r2": {
+            "from": "gw",
+            "to": "redis",
+            "pts": [
+              "gw",
+              "redis"
+            ],
+            "label": "INCR",
+            "labelAt": 0.6
+          },
+          "r3": {
+            "from": "gw3",
+            "to": "redis",
+            "pts": [
+              "gw3",
+              "redis"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              [
+                "b1",
+                "b",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "kind": "empty"
+          },
+          {
+            "route": [
+              [
+                "r1",
+                "r2",
+                "r3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4,
+            "kind": "ping",
+            "speed": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateways ×3",
+            "sub": "rate limited"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "shared counters"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Forecast API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "forecasts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "redis"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Fair by construction",
+      "body": [
+        "<ul class=\"takeaways\"><li>Shared capacity needs per-client budgets, or one bug becomes everyone's outage.</li><li>Fixed windows are simple but burst at edges; sliding windows smooth them.</li><li>Token buckets cap the average rate and allow controlled bursts.</li><li>With many gateways, keep counters in a shared store — and choose fail-open or fail-closed.</li><li>Reject cheaply with 429 + Retry-After so clients can back off.</li></ul>"
+      ],
+      "metrics": {
+        "abuser": 20,
+        "served": 100,
+        "apiCpu": 46,
+        "limited": 0
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -7,
+            "x1": 1,
+            "y0": -36,
+            "y1": -30,
+            "count": 9,
+            "label": "Customers"
+          },
+          "bot": {
+            "type": "device",
+            "x": 10,
+            "y": -34,
+            "w": 5,
+            "d": 5,
+            "label": "Customer #4471",
+            "tags": [
+              {
+                "text": "held to 20 req/s",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#2"
+            ],
+            "h": 30
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Forecast",
+              "API"
+            ],
+            "cpu": 0.47
+          },
+          "fdb": {
+            "type": "db",
+            "x": 0,
+            "y": 4,
+            "label": "forecasts"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#1"
+            ],
+            "h": 30
+          },
+          "gw3": {
+            "type": "block",
+            "x": 7,
+            "y": -21,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Gateway",
+              "#3"
+            ],
+            "h": 30
+          },
+          "redis": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.4,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "h": 34,
+            "sub": "shared counters"
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "gw",
+            "pts": [
+              "users",
+              "gw"
+            ],
+            "label": "GET /forecast",
+            "heads": "both"
+          },
+          "b": {
+            "from": "bot",
+            "to": "gw",
+            "pts": [
+              "bot",
+              "gw"
+            ],
+            "heads": "both"
+          },
+          "g": {
+            "from": "gw",
+            "to": "api",
+            "pts": [
+              "gw",
+              "api"
+            ]
+          },
+          "d": {
+            "from": "api",
+            "to": "fdb",
+            "pts": [
+              "api",
+              "fdb"
+            ]
+          },
+          "b1": {
+            "from": "bot",
+            "to": "gw1",
+            "pts": [
+              "bot",
+              "gw1"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "bot",
+            "to": "gw3",
+            "pts": [
+              "bot",
+              "gw3"
+            ],
+            "heads": "both"
+          },
+          "g1": {
+            "from": "gw1",
+            "to": "api",
+            "pts": [
+              "gw1",
+              "api"
+            ]
+          },
+          "g3": {
+            "from": "gw3",
+            "to": "api",
+            "pts": [
+              "gw3",
+              "api"
+            ]
+          },
+          "r1": {
+            "from": "gw1",
+            "to": "redis",
+            "pts": [
+              "gw1",
+              "redis"
+            ]
+          },
+          "r2": {
+            "from": "gw",
+            "to": "redis",
+            "pts": [
+              "gw",
+              "redis"
+            ],
+            "label": "INCR",
+            "labelAt": 0.6
+          },
+          "r3": {
+            "from": "gw3",
+            "to": "redis",
+            "pts": [
+              "gw3",
+              "redis"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "g",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              [
+                "b1",
+                "b",
+                "b3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2,
+            "kind": "empty"
+          },
+          {
+            "route": [
+              [
+                "r1",
+                "r2",
+                "r3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4,
+            "kind": "ping",
+            "speed": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Gateways ×3",
+            "sub": "rate limited"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Redis",
+            "sub": "shared counters"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Forecast API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "forecasts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "redis"
+          },
+          {
+            "from": "lb",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

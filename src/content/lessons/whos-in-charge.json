@@ -1,0 +1,1933 @@
+{
+  "id": "whos-in-charge",
+  "title": "Who's in Charge?",
+  "summary": "Ferrylane's ride dispatch relies on a three-node store with one leader. When the leader vanishes, the cluster must pick a new one — exactly one.",
+  "minutes": 13,
+  "level": "advanced",
+  "metrics": [
+    "leaders",
+    "term",
+    "canLose",
+    "writes"
+  ],
+  "legend": [
+    [
+      "write",
+      "log entry"
+    ],
+    "res",
+    [
+      "ping",
+      "vote / heartbeat"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why a single leader needs automatic failover",
+      "step": 1
+    },
+    {
+      "text": "Recognise split brain and the damage it does",
+      "step": 2
+    },
+    {
+      "text": "Elect leaders with terms and majority votes",
+      "step": 3
+    },
+    {
+      "text": "Commit writes only once a majority stores them",
+      "step": 5
+    },
+    {
+      "text": "Pick cluster sizes: why 3 and 5, not 4",
+      "step": 7
+    }
+  ],
+  "steps": [
+    {
+      "short": "One leader",
+      "chapter": "setup",
+      "title": "One node gives the orders",
+      "body": [
+        "<b>Ferrylane</b> matches riders with drivers. Who-drives-whom lives in a small store replicated on three nodes in three data centres, so losing one building doesn't lose the data.",
+        "Exactly one node is the <span class=\"term\">leader</span>: it accepts every write and copies it to the two <span class=\"term\">followers</span>. One writer means one order of events — driver 4411 can only be assigned once."
+      ],
+      "metrics": {
+        "leaders": 1,
+        "term": 1,
+        "canLose": "a follower",
+        "writes": "ok"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 1",
+                "tone": "gray",
+                "icon": "hash"
+              }
+            ]
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 1",
+                "tone": "gray"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 1",
+                "tone": "gray"
+              }
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n1",
+            "pts": [
+              "disp",
+              "n1"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n1",
+            "to": "n2",
+            "pts": [
+              "n1",
+              "n2"
+            ],
+            "label": "replicate"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "label": "replicate"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r",
+              "w"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "a"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "b"
+                ],
+                "kind": "write"
+              }
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Leader down",
+      "chapter": "problem",
+      "title": "03:12, the leader dies",
+      "body": [
+        "Node 1's host fails. Nodes 2 and 3 have every assignment, but neither knows whether it's <em>allowed</em> to take over, so they wait.",
+        "Every booking fails until someone is paged, confirms Node 1 is really dead, and promotes a follower by hand. Twenty minutes of no rides at the busiest time of the night."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Replicas protect the data. They don't, by themselves, keep the system writable."
+      },
+      "changes": [
+        "~ Node 1 down",
+        "~ Followers wait — no rule says who's next"
+      ],
+      "metrics": {
+        "leaders": 0,
+        "term": 1,
+        "canLose": "nothing",
+        "writes": "failing"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · waiting",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · waiting",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n1",
+            "pts": [
+              "disp",
+              "n1"
+            ],
+            "label": "assign driver",
+            "fail": 1
+          },
+          "a": {
+            "from": "n1",
+            "to": "n2",
+            "pts": [
+              "n1",
+              "n2"
+            ],
+            "style": "cut"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "cut"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r",
+              "w"
+            ],
+            "kind": "write",
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Split brain",
+      "chapter": "problem",
+      "title": "Promote whoever notices first?",
+      "body": [
+        "So the team automates it: a follower that stops hearing from the leader promotes itself. Then a flaky switch cuts Node 1 off from the others — without killing it.",
+        "Node 2 promotes itself. Node 1 never noticed anything wrong. Now dispatch servers on each side of the split write to a different leader: <span class=\"term\">split brain</span>. Driver 4411 gets sent to two pickups."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "From the inside, 'the leader is dead' and 'I can't reach the leader' look exactly the same."
+      },
+      "changes": [
+        "~ Network split isolates Node 1",
+        "~ Node 2 promotes itself",
+        "+ Two leaders accepting writes"
+      ],
+      "metrics": {
+        "leaders": 2,
+        "term": 1,
+        "canLose": "?",
+        "writes": "diverging"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.78,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "red",
+                "icon": "flag"
+              },
+              {
+                "text": "term 1",
+                "tone": "gray",
+                "icon": "hash"
+              }
+            ],
+            "heat": 0.35
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.78,
+            "tags": [
+              {
+                "text": "leader (self-promoted)",
+                "tone": "red",
+                "icon": "flag"
+              }
+            ],
+            "heat": 0.35
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 1",
+                "tone": "gray"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Two bosses",
+            "icon": "alert",
+            "lines": [
+              "Node 1: driver 4411 → ride to the airport",
+              "Node 2: driver 4411 → ride to the station",
+              "! one driver, two pickups"
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n1",
+            "pts": [
+              "disp",
+              "n1"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n1",
+            "to": "n2",
+            "pts": [
+              "n1",
+              "n2"
+            ],
+            "style": "cut",
+            "label": "network split"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "cut"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "heads": "both",
+            "label": "replicate"
+          },
+          "w2": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "r",
+                  "w"
+                ]
+              },
+              {
+                "path": [
+                  "r",
+                  "w2"
+                ]
+              }
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.8
+          },
+          {
+            "route": [
+              "c"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Majority",
+      "chapter": "technique",
+      "title": "Win a majority, or wait",
+      "body": [
+        "Consensus protocols like <span class=\"term\">Raft</span> add one rule: you're leader only if a <b>majority</b> of the cluster voted for you. Time is split into numbered <span class=\"term\">terms</span>; a candidate bumps the term, votes for itself and asks the others, and each node votes at most once per term.",
+        "Two different majorities of three always share a node, so two leaders can't win the same term. Node 1, alone on its side of the split, can't reach 2 of 3 — it can never win again. Writes pause briefly while the vote happens."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Voters also refuse candidates whose log is behind their own, so a new leader always has every committed entry."
+      },
+      "changes": [
+        "~ Node 2 runs for term 2",
+        "~ Node 3 votes for it → 2 of 3",
+        "~ Node 1 can't gather a majority"
+      ],
+      "metrics": {
+        "leaders": 0,
+        "term": 2,
+        "canLose": "1 node",
+        "writes": "paused"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "alone: 1 of 3",
+                "tone": "gray",
+                "icon": "unplug"
+              }
+            ],
+            "dim": 0.5
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "candidate · term 2",
+                "tone": "amber",
+                "icon": "flag"
+              },
+              {
+                "text": "votes 2 of 3",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "voted Node 2",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Election rules",
+            "icon": "flag",
+            "lines": [
+              "a candidate votes for itself, then asks the rest",
+              "each node votes at most once per term",
+              "= leader only with a majority: 2 of 3",
+              "# Node 1 alone can never win again"
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver",
+            "style": "off"
+          },
+          "a": {
+            "from": "n1",
+            "to": "n2",
+            "pts": [
+              "n1",
+              "n2"
+            ],
+            "style": "cut",
+            "label": "network split"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "cut"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "heads": "both",
+            "label": "vote for me? (term 2)"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "c"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "hold": 0.4,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Heartbeats",
+      "chapter": "technique",
+      "title": "Heartbeats and timeouts",
+      "body": [
+        "The new leader proves it's alive by sending <span class=\"term\">heartbeats</span> every 50 ms. A follower that hears nothing for its <b>election timeout</b> assumes the leader is gone and starts an election.",
+        "Each follower picks its timeout at random — say between 150 and 300 ms — so one usually wakes up first and wins before anyone else even becomes a candidate. That avoids split votes where nobody reaches a majority."
+      ],
+      "changes": [
+        "+ Heartbeats from Node 2",
+        "~ Dispatch writes go to Node 2"
+      ],
+      "metrics": {
+        "leaders": 1,
+        "term": 2,
+        "canLose": "1 node",
+        "writes": "ok"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "alone: 1 of 3",
+                "tone": "gray",
+                "icon": "unplug"
+              }
+            ],
+            "dim": 0.5
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 2",
+                "tone": "gray",
+                "icon": "hash"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 2",
+                "tone": "gray"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Staying in charge",
+            "icon": "heartPulse",
+            "lines": [
+              "leader heartbeat: every 50 ms",
+              "follower timeout: random 150–300 ms",
+              "# silence past the timeout → start an election",
+              "# randomness means one node usually times out first"
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n2",
+            "to": "n1",
+            "pts": [
+              "n2",
+              "n1"
+            ],
+            "style": "cut",
+            "label": "network split"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "cut"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "style": "beat",
+            "label": "heartbeat · 50 ms"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "c"
+            ],
+            "kind": "ping",
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "r",
+              "w"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Log commit",
+      "chapter": "technique",
+      "title": "Commit means a majority has it",
+      "body": [
+        "Writes become entries in a replicated <span class=\"term\">log</span>. The leader appends entry #42, sends it to the followers, and once a majority (itself plus Node 3) has stored it, the entry is <b>committed</b>: applied to the store and acknowledged to dispatch.",
+        "Node 1 is still unreachable and that's fine — a majority is enough. And because any future leader needs votes from that same majority, a committed entry can never be lost."
+      ],
+      "changes": [
+        "~ Entry #42: leader → Node 3 → committed"
+      ],
+      "metrics": {
+        "leaders": 1,
+        "term": 2,
+        "canLose": "1 node",
+        "writes": "ok"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "alone: 1 of 3",
+                "tone": "gray",
+                "icon": "unplug"
+              }
+            ],
+            "dim": 0.5
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 2",
+                "tone": "gray",
+                "icon": "hash"
+              },
+              {
+                "text": "#42 stored",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 2",
+                "tone": "gray"
+              },
+              {
+                "text": "#42 stored",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Node 2's log",
+            "icon": "listOrdered",
+            "lines": [
+              "#41 · driver 902 → ride 7731 · committed",
+              "#42 · driver 4411 → ride 7740 · 2 of 3 stored",
+              "= majority stored → committed → reply to dispatch",
+              "# committed entries survive any future election"
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n2",
+            "to": "n1",
+            "pts": [
+              "n2",
+              "n1"
+            ],
+            "style": "cut",
+            "label": "network split"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "cut"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "label": "append #42"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r",
+              "w",
+              "c"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stale leader",
+      "chapter": "insight",
+      "title": "The old leader comes back",
+      "body": [
+        "The switch recovers. Node 1 still believes it leads term 1, and during the split it even appended a write — which never reached a majority, so it was never committed and its client never got a success.",
+        "The first message from Node 2 carries <b>term 2</b>. A higher term always wins: Node 1 steps down, discards its uncommitted entry and copies the leader's log. No human involved, nothing committed lost."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Terms act as a logical clock for leadership: any message from an older term is ignored, any newer term forces a step-down."
+      },
+      "changes": [
+        "~ Network split heals",
+        "~ Node 1 becomes a follower in term 2",
+        "- Node 1's uncommitted entry"
+      ],
+      "metrics": {
+        "leaders": 1,
+        "term": 2,
+        "canLose": "1 node",
+        "writes": "ok"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "steps down · term 2",
+                "tone": "violet",
+                "icon": "undo"
+              },
+              {
+                "text": "drops its uncommitted #42",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 2",
+                "tone": "gray",
+                "icon": "hash"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 2",
+                "tone": "gray"
+              }
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n2",
+            "to": "n1",
+            "pts": [
+              "n2",
+              "n1"
+            ],
+            "style": "beat",
+            "label": "term 2 heartbeat"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "off"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "style": "beat"
+          }
+        },
+        "flows": [
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "a"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "c"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "a"
+            ],
+            "kind": "write",
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "r",
+              "w"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Odd sizes",
+      "chapter": "tradeoff",
+      "title": "Why 3 or 5, never 4",
+      "body": [
+        "Ferrylane grows the cluster to five nodes. A majority is now 3, so it survives <b>two</b> failures — here Nodes 1 and 3 are down and writes still commit.",
+        "A fourth node doesn't help: four needs a majority of 3, tolerating only one failure, the same as three nodes, with one more machine to wait on. And every node added makes each write wait on a bigger majority, so consensus groups stay small."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Use a consensus store (etcd, ZooKeeper, Consul) for small, critical data — leadership, locks, config — not for bulk traffic."
+      },
+      "changes": [
+        "+ Nodes 4 and 5",
+        "~ Nodes 1 and 3 down — still a majority of 3"
+      ],
+      "metrics": {
+        "leaders": 1,
+        "term": 3,
+        "canLose": "2 nodes",
+        "writes": "ok"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 3",
+                "tone": "gray",
+                "icon": "hash"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "n4": {
+            "type": "block",
+            "x": -14,
+            "y": -8,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 4"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 3",
+                "tone": "gray"
+              }
+            ]
+          },
+          "n5": {
+            "type": "block",
+            "x": 14,
+            "y": -8,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 5"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 3",
+                "tone": "gray"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Cluster size vs. failures",
+            "icon": "layers",
+            "lines": [
+              "# majority needed → failures tolerated"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "3 nodes",
+                "note": "majority 2 · can lose 1",
+                "to": 0.33,
+                "tone": "green"
+              },
+              {
+                "label": "4 nodes",
+                "note": "majority 3 · can lose 1",
+                "to": 0.33,
+                "tone": "amber"
+              },
+              {
+                "label": "5 nodes",
+                "note": "majority 3 · can lose 2",
+                "to": 0.66,
+                "tone": "green",
+                "bold": true
+              },
+              {
+                "label": "6 nodes",
+                "note": "majority 4 · can lose 2",
+                "to": 0.66,
+                "tone": "amber"
+              }
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n2",
+            "to": "n1",
+            "pts": [
+              "n2",
+              "n1"
+            ],
+            "style": "cut"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "off"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "style": "cut"
+          },
+          "d": {
+            "from": "n2",
+            "to": "n4",
+            "pts": [
+              "n2",
+              "n4"
+            ],
+            "label": "append"
+          },
+          "e": {
+            "from": "n2",
+            "to": "n5",
+            "pts": [
+              "n2",
+              [
+                -9,
+                -12
+              ],
+              [
+                9,
+                -12
+              ],
+              "n5"
+            ],
+            "label": "append"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r",
+              "w"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1.1
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "d"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "e"
+                ],
+                "kind": "write"
+              }
+            ],
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "One leader, by majority",
+      "body": [
+        "<ul class=\"takeaways\"><li>A single leader keeps writes in one order; failover must be automatic.</li><li>Naive failover creates split brain, because 'dead' and 'unreachable' look the same.</li><li>Majority votes and terms guarantee at most one leader per term.</li><li>Writes commit once a majority stores them — so they survive any election.</li><li>Odd sizes: 3 nodes survive 1 failure, 5 survive 2.</li></ul>"
+      ],
+      "metrics": {
+        "leaders": 1,
+        "term": 3,
+        "canLose": "2 nodes",
+        "writes": "ok"
+      },
+      "scene": {
+        "entities": {
+          "riders": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -33,
+            "y1": -27,
+            "count": 10,
+            "label": "Riders"
+          },
+          "disp": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Dispatch",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "n1": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 1"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 3",
+                "tone": "gray"
+              }
+            ]
+          },
+          "n2": {
+            "type": "block",
+            "x": -9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 2"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 3",
+                "tone": "gray",
+                "icon": "hash"
+              }
+            ]
+          },
+          "n3": {
+            "type": "block",
+            "x": 9,
+            "y": 5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 3"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 3",
+                "tone": "gray"
+              }
+            ]
+          },
+          "n4": {
+            "type": "block",
+            "x": -14,
+            "y": -8,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 4"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 3",
+                "tone": "gray"
+              }
+            ]
+          },
+          "n5": {
+            "type": "block",
+            "x": 14,
+            "y": -8,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "database",
+            "label": [
+              "Node 5"
+            ],
+            "h": 38,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "follower · term 3",
+                "tone": "gray"
+              }
+            ]
+          }
+        },
+        "links": {
+          "r": {
+            "from": "riders",
+            "to": "disp",
+            "pts": [
+              "riders",
+              "disp"
+            ],
+            "label": "book ride"
+          },
+          "w": {
+            "from": "disp",
+            "to": "n2",
+            "pts": [
+              "disp",
+              "n2"
+            ],
+            "label": "assign driver"
+          },
+          "a": {
+            "from": "n2",
+            "to": "n1",
+            "pts": [
+              "n2",
+              "n1"
+            ],
+            "style": "beat"
+          },
+          "b": {
+            "from": "n1",
+            "to": "n3",
+            "pts": [
+              "n1",
+              "n3"
+            ],
+            "style": "off"
+          },
+          "c": {
+            "from": "n2",
+            "to": "n3",
+            "pts": [
+              "n2",
+              "n3"
+            ],
+            "style": "beat"
+          },
+          "d": {
+            "from": "n2",
+            "to": "n4",
+            "pts": [
+              "n2",
+              "n4"
+            ],
+            "label": ""
+          },
+          "e": {
+            "from": "n2",
+            "to": "n5",
+            "pts": [
+              "n2",
+              [
+                -9,
+                -12
+              ],
+              [
+                9,
+                -12
+              ],
+              "n5"
+            ],
+            "label": ""
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r",
+              "w"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "a"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "c"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "d"
+                ],
+                "kind": "ping"
+              },
+              {
+                "path": [
+                  "e"
+                ],
+                "kind": "ping"
+              }
+            ],
+            "rate": 0.9
+          }
+        ]
+      }
+    }
+  ]
+}

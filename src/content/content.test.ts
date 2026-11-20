@@ -3,9 +3,11 @@
 import { describe, expect, it } from "vitest";
 import { ICON_NAMES } from "../icons";
 import type { Entity, Flow, Lesson, PointRef } from "../types/lesson";
-import { CALLOUTS, CHAPTERS, COURSE, FLAT, LEGEND, LEVELS, METRICS, getLesson } from "./index";
+import { CALLOUTS, CHAPTERS, COURSE, FLAT, LEGEND, LEVELS, METRICS, getLesson, lessonMeta, loadLesson } from "./index";
 import { FREE_MODULES } from "./course";
-import { LESSONS } from "./lessons";
+import { lessonMeta as deriveMeta } from "./derive";
+import { LOADERS } from "./lessons";
+import { LESSONS } from "./lessons/all";
 
 const ICONS = new Set<string>(ICON_NAMES);
 const ENTITY_TYPES = new Set(["block", "crowd", "ghost", "device", "db", "zone", "queue", "panel", "ring"]);
@@ -98,12 +100,29 @@ describe("course", () => {
     const refs = COURSE.flatMap((m) => m.lessons.map((l) => l.id));
     expect(new Set(refs).size).toBe(refs.length);
     for (const ref of FLAT) {
-      const lesson = getLesson(ref.id);
+      const lesson = LESSONS[ref.id];
       expect(lesson, ref.id).toBeDefined();
       expect(lesson!.title).toBe(ref.title);
     }
     expect(Object.keys(LESSONS).sort()).toEqual([...refs].sort());
     expect(Object.keys(RAW).sort()).toEqual([...refs].sort());
+  });
+
+  it("names every lesson file after its id, with matching lazy loader and metadata", () => {
+    expect(Object.keys(RAW).sort()).toEqual(Object.keys(LESSONS).sort());
+    expect(Object.keys(LOADERS).sort()).toEqual(Object.keys(LESSONS).sort());
+    for (const lesson of Object.values(LESSONS)) expect(lessonMeta(lesson.id), lesson.id).toEqual(deriveMeta(lesson));
+  });
+
+  it("loads lessons on demand, once", async () => {
+    const id = Object.keys(LESSONS)[0];
+    expect(getLesson(id)).toBeUndefined();
+    const pending = loadLesson(id);
+    expect(loadLesson(id)).toBe(pending);
+    const lesson = await pending;
+    expect(lesson).toEqual(LESSONS[id]);
+    expect(getLesson(id)).toBe(lesson);
+    await expect(loadLesson("no-such-lesson")).rejects.toThrow();
   });
 
   it("only frees modules that exist", () => {

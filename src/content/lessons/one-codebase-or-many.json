@@ -1,0 +1,2497 @@
+{
+  "id": "one-codebase-or-many",
+  "title": "One Codebase or Many",
+  "summary": "Brightbasket, a grocery-delivery startup, outgrows its single app. When should one codebase become many services, and what does the split cost?",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "deploys",
+    "blast",
+    "hops",
+    "opsCost"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "slow",
+    [
+      "write",
+      "code change"
+    ],
+    "msg",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Name what a monolith couples: deploys, failures and data",
+      "step": 2
+    },
+    {
+      "text": "Split safely with a modular monolith and the strangler fig",
+      "step": 4
+    },
+    {
+      "text": "Count the network and data costs of microservices",
+      "step": 6
+    },
+    {
+      "text": "Choose an architecture from your team shape",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "One app",
+      "chapter": "setup",
+      "title": "Everything in one box",
+      "body": [
+        "<b>Brightbasket</b> delivers groceries in three cities. The whole product — catalog, cart, payments, recommendations — is one codebase, built into one artifact and deployed as one process. That's a <span class=\"term\">monolith</span>.",
+        "For a team of six, it's the right call: one repo to search, one thing to deploy, one database where any feature can JOIN any table, and calls between features are plain function calls that cost nanoseconds."
+      ],
+      "metrics": {
+        "deploys": 3,
+        "blast": "whole site",
+        "hops": 1,
+        "opsCost": "low"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "mono": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 6,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Monolith"
+            ],
+            "h": 56,
+            "sub": "all features",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "one schema"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "mono",
+            "pts": [
+              "lb",
+              "mono"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "mono",
+            "to": "db",
+            "pts": [
+              "mono",
+              "db"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "mono",
+            "kind": "api_server",
+            "label": "Monolith",
+            "sub": "catalog · cart · pay · recs"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "one schema"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "mono"
+          },
+          {
+            "from": "mono",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Deploy queue",
+      "chapter": "problem",
+      "title": "Sixty people, one release",
+      "body": [
+        "Two years later there are eight teams and sixty engineers, all merging into the same artifact. A change to the cart can't ship until everyone else's changes are tested together, so releases batch up into a weekly <b>release train</b>.",
+        "This is <span class=\"term\">deploy coupling</span>: unrelated work shares one pipeline, one test suite and one rollout. Bigger batches mean riskier releases, which means more caution, which means even bigger batches."
+      ],
+      "changes": [
+        "+ 8 teams merging into one codebase",
+        "+ Queue of changes waiting for the release train"
+      ],
+      "metrics": {
+        "deploys": "<1",
+        "blast": "whole site",
+        "hops": 1,
+        "opsCost": "low"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "mono": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 6,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Monolith"
+            ],
+            "h": 56,
+            "sub": "all features",
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "release train · Tuesdays",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "one schema"
+              }
+            ]
+          },
+          "teams": {
+            "type": "crowd",
+            "x0": -18,
+            "x1": -11,
+            "y0": -1,
+            "y1": 5,
+            "count": 9,
+            "label": "8 teams · 60 devs"
+          },
+          "train": {
+            "type": "queue",
+            "x": -7.4,
+            "y": 2,
+            "n": 9,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#9b7fd1"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "mono",
+            "pts": [
+              "lb",
+              "mono"
+            ],
+            "label": "route"
+          },
+          "e3": {
+            "from": "mono",
+            "to": "db",
+            "pts": [
+              "mono",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "e4": {
+            "from": "teams",
+            "to": "mono",
+            "pts": [
+              "teams",
+              "mono"
+            ],
+            "label": "merge & wait",
+            "labelAt": 0.3
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "rate": 1.2,
+            "kind": "write",
+            "speed": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "mono",
+            "kind": "api_server",
+            "label": "Monolith",
+            "sub": "catalog · cart · pay · recs",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "one schema"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "mono"
+          },
+          {
+            "from": "mono",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Blast radius",
+      "chapter": "problem",
+      "title": "One bug, whole site",
+      "body": [
+        "Tuesday's train carries a memory leak in the recommendations widget — a <i>nice-to-have</i> feature. The leak grows until the process is killed, and because everything shares one process, <b>checkout dies with it</b>.",
+        "The monolith also couples <span class=\"term\">blast radius</span> and scaling: you can't give recommendations more memory, or run payments on more machines, without scaling every feature together."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "In one process, the least important code can take down the most important code."
+      },
+      "changes": [
+        "~ Monolith overloaded by a leak in one module",
+        "~ Load balancer returns 502s"
+      ],
+      "metrics": {
+        "deploys": 0,
+        "blast": "whole site",
+        "hops": 1,
+        "opsCost": "low"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "mono": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 6,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Monolith"
+            ],
+            "h": 56,
+            "sub": "all features",
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "recs: memory leak",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ],
+            "heat": 1
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "one schema"
+              }
+            ]
+          },
+          "teams": {
+            "type": "crowd",
+            "x0": -18,
+            "x1": -11,
+            "y0": -1,
+            "y1": 5,
+            "count": 9,
+            "label": "8 teams · 60 devs"
+          },
+          "train": {
+            "type": "queue",
+            "x": -7.4,
+            "y": 2,
+            "n": 9,
+            "gap": 0.9,
+            "dir": [
+              -1,
+              0
+            ],
+            "color": "#9b7fd1"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "mono",
+            "pts": [
+              "lb",
+              "mono"
+            ],
+            "label": "502",
+            "fail": 0.7
+          },
+          "e3": {
+            "from": "mono",
+            "to": "db",
+            "pts": [
+              "mono",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "e4": {
+            "from": "teams",
+            "to": "mono",
+            "pts": [
+              "teams",
+              "mono"
+            ],
+            "label": "merge & wait",
+            "labelAt": 0.3
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 2,
+            "bounce": true,
+            "kind": "slow"
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "mono",
+            "kind": "api_server",
+            "label": "Monolith",
+            "sub": "catalog · cart · pay · recs",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "one schema",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "mono"
+          },
+          {
+            "from": "mono",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Modularize",
+      "chapter": "technique",
+      "title": "Draw the seams first",
+      "body": [
+        "Before reaching for the network, Brightbasket splits the code <i>inside</i> the monolith: a <span class=\"term\">modular monolith</span>. Each module owns its own tables and exposes a small public interface; nothing reaches into another module's internals or schema.",
+        "Teams can now work in parallel with far fewer collisions, and the boundaries are cheap to move while you're still learning where they belong. It's still one deploy, though — so blast radius hasn't changed yet."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "If you can't keep modules apart inside one process, separate services will just become a distributed mess."
+      },
+      "changes": [
+        "~ Monolith split into Catalog, Cart and Payments modules",
+        "~ One schema per module",
+        "- Cross-module table access"
+      ],
+      "metrics": {
+        "deploys": 3,
+        "blast": "whole site",
+        "hops": 1,
+        "opsCost": "low"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "box": {
+            "type": "zone",
+            "x0": -11,
+            "x1": 11,
+            "y0": -2.5,
+            "y1": 6.5,
+            "label": "ONE DEPLOY · MODULAR MONOLITH"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "3 schemas, one per module"
+              }
+            ]
+          },
+          "mCat": {
+            "type": "block",
+            "x": -7,
+            "y": 2,
+            "s": 3.2,
+            "color": "orange",
+            "glyph": "book",
+            "label": [
+              "Catalog"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "public API only",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "mCart": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 3.2,
+            "color": "blue",
+            "glyph": "cart",
+            "label": [
+              "Cart"
+            ],
+            "h": 34
+          },
+          "mPay": {
+            "type": "block",
+            "x": 7,
+            "y": 2,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "creditCard",
+            "label": [
+              "Payments"
+            ],
+            "h": 34
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "mCart",
+            "pts": [
+              "lb",
+              "mCart"
+            ],
+            "label": "route"
+          },
+          "m1": {
+            "from": "mCart",
+            "to": "mCat",
+            "pts": [
+              "mCart",
+              "mCat"
+            ],
+            "style": "dashed",
+            "heads": "end"
+          },
+          "m2": {
+            "from": "mCart",
+            "to": "mPay",
+            "pts": [
+              "mCart",
+              "mPay"
+            ],
+            "style": "dashed"
+          },
+          "e3": {
+            "from": "mCart",
+            "to": "db",
+            "pts": [
+              "mCart",
+              "db"
+            ],
+            "label": "own schema"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "m1"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Strangler fig",
+      "chapter": "solution",
+      "title": "Carve off one piece",
+      "body": [
+        "Rewriting everything at once is how migrations die. Instead they use the <span class=\"term\">strangler fig</span> pattern: put a router in front, build one new service beside the old app, and send just its traffic there.",
+        "Recommendations go first — they're low-risk and were the ones leaking memory. If the new service misbehaves, the router flips <code>/recs</code> back. Piece by piece, the monolith shrinks until nothing is left to route to it."
+      ],
+      "changes": [
+        "+ Edge router sends /recs to the new service",
+        "+ Recs service with its own store",
+        "~ Monolith no longer serves recommendations"
+      ],
+      "metrics": {
+        "deploys": 8,
+        "blast": "all but recs",
+        "hops": 2,
+        "opsCost": "medium"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Edge",
+              "Router"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "/recs → new service",
+                "tone": "green",
+                "icon": "route"
+              }
+            ]
+          },
+          "mono": {
+            "type": "block",
+            "x": 0,
+            "y": 2,
+            "s": 5,
+            "color": "blue",
+            "glyph": "boxes",
+            "label": [
+              "Monolith"
+            ],
+            "h": 56,
+            "sub": "minus recs",
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "one schema"
+              }
+            ]
+          },
+          "recs": {
+            "type": "block",
+            "x": 10.5,
+            "y": 2,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "server",
+            "label": [
+              "Recs"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "recsDb": {
+            "type": "db",
+            "x": 10.5,
+            "y": 15,
+            "label": "Recs store"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "e2": {
+            "from": "lb",
+            "to": "mono",
+            "pts": [
+              "lb",
+              "mono"
+            ],
+            "label": "everything else"
+          },
+          "e3": {
+            "from": "mono",
+            "to": "db",
+            "pts": [
+              "mono",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "r1": {
+            "from": "lb",
+            "to": "recs",
+            "pts": [
+              "lb",
+              [
+                "recs",
+                "lb"
+              ],
+              "recs"
+            ],
+            "label": "/recs"
+          },
+          "r2": {
+            "from": "recs",
+            "to": "recsDb",
+            "pts": [
+              "recs",
+              "recsDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "e2",
+                  "e3"
+                ],
+                "weight": 3
+              },
+              {
+                "path": [
+                  "e1",
+                  "r1",
+                  "r2"
+                ],
+                "weight": 1
+              }
+            ],
+            "rate": 2,
+            "pick": "weights",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Edge Router"
+          },
+          {
+            "id": "mono",
+            "kind": "api_server",
+            "label": "Monolith",
+            "sub": "catalog · cart · pay"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          },
+          {
+            "id": "recs",
+            "kind": "api_server",
+            "label": "Recs",
+            "sub": "own deploy"
+          },
+          {
+            "id": "recsDb",
+            "kind": "mongodb",
+            "label": "Recs store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "mono"
+          },
+          {
+            "from": "mono",
+            "to": "db"
+          },
+          {
+            "from": "lb",
+            "to": "recs"
+          },
+          {
+            "from": "recs",
+            "to": "recsDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Services",
+      "chapter": "solution",
+      "title": "Many small deployables",
+      "body": [
+        "A year on, each area is its own <span class=\"term\">microservice</span>: its own repo, pipeline, deploy schedule and database. An API gateway hides the split from the apps.",
+        "Each team ships when it's ready — dozens of deploys a day — and a crash in Recs now takes down <b>one feature</b>, not the store. Payments can run on twenty instances while Recs runs on three."
+      ],
+      "changes": [
+        "+ Catalog, Cart, Payments and Recs services",
+        "+ A database per service",
+        "~ Load balancer is now an API gateway",
+        "- Monolith retired"
+      ],
+      "metrics": {
+        "deploys": 40,
+        "blast": "one feature",
+        "hops": 4,
+        "opsCost": "high"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32
+          },
+          "cat": {
+            "type": "block",
+            "x": -15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Catalog"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "catDb": {
+            "type": "db",
+            "x": -15,
+            "y": 14,
+            "label": "Catalog DB"
+          },
+          "cart": {
+            "type": "block",
+            "x": -5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Cart"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "cartDb": {
+            "type": "db",
+            "x": -5,
+            "y": 14,
+            "label": "Cart DB"
+          },
+          "pay": {
+            "type": "block",
+            "x": 5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "payDb": {
+            "type": "db",
+            "x": 5,
+            "y": 14,
+            "label": "Payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Recs"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "recsDb": {
+            "type": "db",
+            "x": 15,
+            "y": 14,
+            "label": "Recs store"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "g_cat": {
+            "from": "lb",
+            "to": "cat",
+            "pts": [
+              "lb",
+              "cat"
+            ]
+          },
+          "d_cat": {
+            "from": "cat",
+            "to": "catDb",
+            "pts": [
+              "cat",
+              "catDb"
+            ]
+          },
+          "g_cart": {
+            "from": "lb",
+            "to": "cart",
+            "pts": [
+              "lb",
+              "cart"
+            ]
+          },
+          "d_cart": {
+            "from": "cart",
+            "to": "cartDb",
+            "pts": [
+              "cart",
+              "cartDb"
+            ]
+          },
+          "g_pay": {
+            "from": "lb",
+            "to": "pay",
+            "pts": [
+              "lb",
+              "pay"
+            ]
+          },
+          "d_pay": {
+            "from": "pay",
+            "to": "payDb",
+            "pts": [
+              "pay",
+              "payDb"
+            ]
+          },
+          "g_recs": {
+            "from": "lb",
+            "to": "recs",
+            "pts": [
+              "lb",
+              "recs"
+            ]
+          },
+          "d_recs": {
+            "from": "recs",
+            "to": "recsDb",
+            "pts": [
+              "recs",
+              "recsDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "g_cat",
+                  "d_cat"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_cart",
+                  "d_cart"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_pay",
+                  "d_pay"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_recs",
+                  "d_recs"
+                ]
+              }
+            ],
+            "rate": 2.4,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "API Gateway"
+          },
+          {
+            "id": "cat",
+            "kind": "api_server",
+            "label": "Catalog",
+            "sub": "own deploy"
+          },
+          {
+            "id": "catDb",
+            "kind": "postgres",
+            "label": "Catalog DB"
+          },
+          {
+            "id": "cart",
+            "kind": "api_server",
+            "label": "Cart",
+            "sub": "own deploy"
+          },
+          {
+            "id": "cartDb",
+            "kind": "postgres",
+            "label": "Cart DB"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "own deploy"
+          },
+          {
+            "id": "payDb",
+            "kind": "postgres",
+            "label": "Payments DB"
+          },
+          {
+            "id": "recs",
+            "kind": "api_server",
+            "label": "Recs",
+            "sub": "own deploy"
+          },
+          {
+            "id": "recsDb",
+            "kind": "postgres",
+            "label": "Recs store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "cat"
+          },
+          {
+            "from": "cat",
+            "to": "catDb"
+          },
+          {
+            "from": "lb",
+            "to": "cart"
+          },
+          {
+            "from": "cart",
+            "to": "cartDb"
+          },
+          {
+            "from": "lb",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "payDb"
+          },
+          {
+            "from": "lb",
+            "to": "recs"
+          },
+          {
+            "from": "recs",
+            "to": "recsDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Network tax",
+      "chapter": "tradeoff",
+      "title": "Function calls became network calls",
+      "body": [
+        "The cart page used to make in-process calls to get prices and payment limits. Now each is a network hop with serialization, timeouts and retries — thousands of times slower, and any hop can fail.",
+        "Chains of calls multiply tail latency: if each of six calls has a 1% chance of being slow, about 6% of page loads hit at least one slow call. Every new service needs timeouts, retries with backoff and tracing just to stay as reliable as the monolith was for free."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Avoid chatty chains: design service APIs so one page needs a few coarse calls, not many tiny ones."
+      },
+      "changes": [
+        "+ Cart calls Catalog and Payments per request",
+        "~ Cart → Catalog drops some calls"
+      ],
+      "metrics": {
+        "deploys": 40,
+        "blast": "one feature",
+        "hops": 6,
+        "opsCost": "high"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32
+          },
+          "cat": {
+            "type": "block",
+            "x": -15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Catalog"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "catDb": {
+            "type": "db",
+            "x": -15,
+            "y": 14,
+            "label": "Catalog DB"
+          },
+          "cart": {
+            "type": "block",
+            "x": -5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Cart"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "cartDb": {
+            "type": "db",
+            "x": -5,
+            "y": 14,
+            "label": "Cart DB"
+          },
+          "pay": {
+            "type": "block",
+            "x": 5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "payDb": {
+            "type": "db",
+            "x": 5,
+            "y": 14,
+            "label": "Payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Recs"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "recsDb": {
+            "type": "db",
+            "x": 15,
+            "y": 14,
+            "label": "Recs store"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The network tax",
+            "icon": "network",
+            "lines": [
+              "# one page view, before vs after the split",
+              "! every hop can be slow, or fail"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "In-process call",
+                "note": "~0.0001 ms",
+                "to": 0.03,
+                "tone": "green"
+              },
+              {
+                "label": "Network call (same zone)",
+                "note": "~0.5–2 ms",
+                "to": 0.35,
+                "tone": "amber"
+              },
+              {
+                "label": "Cart page: 6 calls, p99",
+                "note": "~40 ms",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "g_cat": {
+            "from": "lb",
+            "to": "cat",
+            "pts": [
+              "lb",
+              "cat"
+            ]
+          },
+          "d_cat": {
+            "from": "cat",
+            "to": "catDb",
+            "pts": [
+              "cat",
+              "catDb"
+            ]
+          },
+          "g_cart": {
+            "from": "lb",
+            "to": "cart",
+            "pts": [
+              "lb",
+              "cart"
+            ],
+            "label": "GET /basket"
+          },
+          "d_cart": {
+            "from": "cart",
+            "to": "cartDb",
+            "pts": [
+              "cart",
+              "cartDb"
+            ]
+          },
+          "g_pay": {
+            "from": "lb",
+            "to": "pay",
+            "pts": [
+              "lb",
+              "pay"
+            ]
+          },
+          "d_pay": {
+            "from": "pay",
+            "to": "payDb",
+            "pts": [
+              "pay",
+              "payDb"
+            ]
+          },
+          "g_recs": {
+            "from": "lb",
+            "to": "recs",
+            "pts": [
+              "lb",
+              "recs"
+            ]
+          },
+          "d_recs": {
+            "from": "recs",
+            "to": "recsDb",
+            "pts": [
+              "recs",
+              "recsDb"
+            ]
+          },
+          "c1": {
+            "from": "cart",
+            "to": "cat",
+            "pts": [
+              "cart",
+              "cat"
+            ],
+            "label": "price?",
+            "labelTone": "amber",
+            "fail": 0.12
+          },
+          "c2": {
+            "from": "cart",
+            "to": "pay",
+            "pts": [
+              "cart",
+              "pay"
+            ],
+            "label": "limits?",
+            "labelTone": "amber"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "g_cart",
+                  "c1"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_cart",
+                  "c2"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "bounce": true,
+            "kind": "slow"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "g_recs",
+                  "d_recs"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_cat",
+                  "d_cat"
+                ]
+              }
+            ],
+            "rate": 1,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Data owned",
+      "chapter": "tradeoff",
+      "title": "No more JOINs across the line",
+      "body": [
+        "With <span class=\"term\">data ownership</span>, only Catalog may touch the products table. Cart can't simply <code>JOIN</code> to it any more; reaching into another service's database would re-couple everything you just separated.",
+        "Instead Cart asks Catalog's API, or keeps its own copy of the few fields it needs, updated from events like <code>PriceChanged</code>. That copy is briefly stale — you've traded one transaction across everything for eventual consistency between services."
+      ],
+      "changes": [
+        "+ Catalog publishes PriceChanged events",
+        "+ Cart keeps a local copy of prices",
+        "- Direct reads of another service's tables"
+      ],
+      "metrics": {
+        "deploys": 40,
+        "blast": "one feature",
+        "hops": 4,
+        "opsCost": "high"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32
+          },
+          "cat": {
+            "type": "block",
+            "x": -15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Catalog"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy",
+            "tags": [
+              {
+                "text": "sole owner of products",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "catDb": {
+            "type": "db",
+            "x": -15,
+            "y": 14,
+            "label": "Catalog DB"
+          },
+          "cart": {
+            "type": "block",
+            "x": -5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Cart"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy",
+            "tags": [
+              {
+                "text": "keeps a price copy",
+                "tone": "violet",
+                "icon": "layers"
+              }
+            ]
+          },
+          "cartDb": {
+            "type": "db",
+            "x": -5,
+            "y": 14,
+            "label": "Cart DB"
+          },
+          "pay": {
+            "type": "block",
+            "x": 5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "payDb": {
+            "type": "db",
+            "x": 5,
+            "y": 14,
+            "label": "Payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Recs"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "recsDb": {
+            "type": "db",
+            "x": 15,
+            "y": 14,
+            "label": "Recs store"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "g_cat": {
+            "from": "lb",
+            "to": "cat",
+            "pts": [
+              "lb",
+              "cat"
+            ]
+          },
+          "d_cat": {
+            "from": "cat",
+            "to": "catDb",
+            "pts": [
+              "cat",
+              "catDb"
+            ]
+          },
+          "g_cart": {
+            "from": "lb",
+            "to": "cart",
+            "pts": [
+              "lb",
+              "cart"
+            ]
+          },
+          "d_cart": {
+            "from": "cart",
+            "to": "cartDb",
+            "pts": [
+              "cart",
+              "cartDb"
+            ]
+          },
+          "g_pay": {
+            "from": "lb",
+            "to": "pay",
+            "pts": [
+              "lb",
+              "pay"
+            ]
+          },
+          "d_pay": {
+            "from": "pay",
+            "to": "payDb",
+            "pts": [
+              "pay",
+              "payDb"
+            ]
+          },
+          "g_recs": {
+            "from": "lb",
+            "to": "recs",
+            "pts": [
+              "lb",
+              "recs"
+            ]
+          },
+          "d_recs": {
+            "from": "recs",
+            "to": "recsDb",
+            "pts": [
+              "recs",
+              "recsDb"
+            ]
+          },
+          "bad": {
+            "from": "cart",
+            "to": "catDb",
+            "pts": [
+              "cart",
+              "catDb"
+            ],
+            "label": "JOIN products?",
+            "style": "cut",
+            "labelTone": "red"
+          },
+          "ev": {
+            "from": "cat",
+            "to": "cart",
+            "pts": [
+              "cat",
+              "cart"
+            ],
+            "label": "PriceChanged"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ev"
+            ],
+            "rate": 0.9,
+            "kind": "msg"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "g_cart",
+                  "d_cart"
+                ]
+              }
+            ],
+            "rate": 1.4,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Team shape",
+      "chapter": "insight",
+      "title": "Architecture follows the org chart",
+      "body": [
+        "Services mostly solve a <b>people</b> problem: letting many teams ship independently. Systems end up mirroring the communication structure of the teams that build them, so draw service lines where team lines are.",
+        "A five-person startup with ten microservices pays the full operational bill — deploy pipelines, observability, on-call for each — without the benefit. Start modular, split when deploy queues and blast radius actually hurt."
+      ],
+      "changes": [
+        "~ Each service owned by exactly one team"
+      ],
+      "metrics": {
+        "deploys": 40,
+        "blast": "one feature",
+        "hops": 4,
+        "opsCost": "high"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32
+          },
+          "cat": {
+            "type": "block",
+            "x": -15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Catalog"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy",
+            "tags": [
+              {
+                "text": "Team Shelf",
+                "tone": "violet",
+                "icon": "users"
+              }
+            ]
+          },
+          "catDb": {
+            "type": "db",
+            "x": -15,
+            "y": 14,
+            "label": "Catalog DB"
+          },
+          "cart": {
+            "type": "block",
+            "x": -5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Cart"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy",
+            "tags": [
+              {
+                "text": "Team Basket",
+                "tone": "violet",
+                "icon": "users"
+              }
+            ]
+          },
+          "cartDb": {
+            "type": "db",
+            "x": -5,
+            "y": 14,
+            "label": "Cart DB"
+          },
+          "pay": {
+            "type": "block",
+            "x": 5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy",
+            "tags": [
+              {
+                "text": "Team Till",
+                "tone": "violet",
+                "icon": "users"
+              }
+            ]
+          },
+          "payDb": {
+            "type": "db",
+            "x": 5,
+            "y": 14,
+            "label": "Payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Recs"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy",
+            "tags": [
+              {
+                "text": "Team Picks",
+                "tone": "violet",
+                "icon": "users"
+              }
+            ]
+          },
+          "recsDb": {
+            "type": "db",
+            "x": 15,
+            "y": 14,
+            "label": "Recs store"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Pick by team shape",
+            "icon": "users",
+            "lines": [
+              "# rough guide, not a law"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "1–2 teams",
+                "note": "monolith",
+                "to": 0.3,
+                "tone": "green"
+              },
+              {
+                "label": "3–8 teams",
+                "note": "modular monolith",
+                "to": 0.6,
+                "tone": "blue"
+              },
+              {
+                "label": "Many teams, uneven load",
+                "note": "services",
+                "to": 1,
+                "tone": "violet",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "g_cat": {
+            "from": "lb",
+            "to": "cat",
+            "pts": [
+              "lb",
+              "cat"
+            ]
+          },
+          "d_cat": {
+            "from": "cat",
+            "to": "catDb",
+            "pts": [
+              "cat",
+              "catDb"
+            ]
+          },
+          "g_cart": {
+            "from": "lb",
+            "to": "cart",
+            "pts": [
+              "lb",
+              "cart"
+            ]
+          },
+          "d_cart": {
+            "from": "cart",
+            "to": "cartDb",
+            "pts": [
+              "cart",
+              "cartDb"
+            ]
+          },
+          "g_pay": {
+            "from": "lb",
+            "to": "pay",
+            "pts": [
+              "lb",
+              "pay"
+            ]
+          },
+          "d_pay": {
+            "from": "pay",
+            "to": "payDb",
+            "pts": [
+              "pay",
+              "payDb"
+            ]
+          },
+          "g_recs": {
+            "from": "lb",
+            "to": "recs",
+            "pts": [
+              "lb",
+              "recs"
+            ]
+          },
+          "d_recs": {
+            "from": "recs",
+            "to": "recsDb",
+            "pts": [
+              "recs",
+              "recsDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "g_cat",
+                  "d_cat"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_cart",
+                  "d_cart"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_pay",
+                  "d_pay"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_recs",
+                  "d_recs"
+                ]
+              }
+            ],
+            "rate": 2.4,
+            "bounce": true
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "One codebase or many: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Monolith</b> → simple and fast, but deploys, failures and scaling are coupled</li><li><b>Modular monolith</b> → clean seams and owned schemas, still one deploy</li><li><b>Strangler fig</b> → migrate one route at a time behind a router</li><li><b>Microservices</b> → independent deploys and small blast radius</li><li><b>The bill</b> → network hops, no cross-service JOINs, much more to operate</li></ul>"
+      ],
+      "metrics": {
+        "deploys": 40,
+        "blast": "one feature",
+        "hops": 4,
+        "opsCost": "high"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -25,
+            "y1": -19,
+            "count": 10,
+            "label": "Shoppers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -11,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "h": 32
+          },
+          "cat": {
+            "type": "block",
+            "x": -15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Catalog"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "catDb": {
+            "type": "db",
+            "x": -15,
+            "y": 14,
+            "label": "Catalog DB"
+          },
+          "cart": {
+            "type": "block",
+            "x": -5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Cart"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "cartDb": {
+            "type": "db",
+            "x": -5,
+            "y": 14,
+            "label": "Cart DB"
+          },
+          "pay": {
+            "type": "block",
+            "x": 5,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Payments"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "payDb": {
+            "type": "db",
+            "x": 5,
+            "y": 14,
+            "label": "Payments DB"
+          },
+          "recs": {
+            "type": "block",
+            "x": 15,
+            "y": 2,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Recs"
+            ],
+            "cpu": 0.3,
+            "sub": "own deploy"
+          },
+          "recsDb": {
+            "type": "db",
+            "x": 15,
+            "y": 14,
+            "label": "Recs store"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "GET /aisle"
+          },
+          "g_cat": {
+            "from": "lb",
+            "to": "cat",
+            "pts": [
+              "lb",
+              "cat"
+            ]
+          },
+          "d_cat": {
+            "from": "cat",
+            "to": "catDb",
+            "pts": [
+              "cat",
+              "catDb"
+            ]
+          },
+          "g_cart": {
+            "from": "lb",
+            "to": "cart",
+            "pts": [
+              "lb",
+              "cart"
+            ]
+          },
+          "d_cart": {
+            "from": "cart",
+            "to": "cartDb",
+            "pts": [
+              "cart",
+              "cartDb"
+            ]
+          },
+          "g_pay": {
+            "from": "lb",
+            "to": "pay",
+            "pts": [
+              "lb",
+              "pay"
+            ]
+          },
+          "d_pay": {
+            "from": "pay",
+            "to": "payDb",
+            "pts": [
+              "pay",
+              "payDb"
+            ]
+          },
+          "g_recs": {
+            "from": "lb",
+            "to": "recs",
+            "pts": [
+              "lb",
+              "recs"
+            ]
+          },
+          "d_recs": {
+            "from": "recs",
+            "to": "recsDb",
+            "pts": [
+              "recs",
+              "recsDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "g_cat",
+                  "d_cat"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_cart",
+                  "d_cart"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_pay",
+                  "d_pay"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "g_recs",
+                  "d_recs"
+                ]
+              }
+            ],
+            "rate": 2.4,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 300000,
+        "rps": 1800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "API Gateway"
+          },
+          {
+            "id": "cat",
+            "kind": "api_server",
+            "label": "Catalog",
+            "sub": "own deploy"
+          },
+          {
+            "id": "catDb",
+            "kind": "postgres",
+            "label": "Catalog DB"
+          },
+          {
+            "id": "cart",
+            "kind": "api_server",
+            "label": "Cart",
+            "sub": "own deploy"
+          },
+          {
+            "id": "cartDb",
+            "kind": "postgres",
+            "label": "Cart DB"
+          },
+          {
+            "id": "pay",
+            "kind": "api_server",
+            "label": "Payments",
+            "sub": "own deploy"
+          },
+          {
+            "id": "payDb",
+            "kind": "postgres",
+            "label": "Payments DB"
+          },
+          {
+            "id": "recs",
+            "kind": "api_server",
+            "label": "Recs",
+            "sub": "own deploy"
+          },
+          {
+            "id": "recsDb",
+            "kind": "postgres",
+            "label": "Recs store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "cat"
+          },
+          {
+            "from": "cat",
+            "to": "catDb"
+          },
+          {
+            "from": "lb",
+            "to": "cart"
+          },
+          {
+            "from": "cart",
+            "to": "cartDb"
+          },
+          {
+            "from": "lb",
+            "to": "pay"
+          },
+          {
+            "from": "pay",
+            "to": "payDb"
+          },
+          {
+            "from": "lb",
+            "to": "recs"
+          },
+          {
+            "from": "recs",
+            "to": "recsDb"
+          }
+        ]
+      }
+    }
+  ]
+}

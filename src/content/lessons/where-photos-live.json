@@ -1,0 +1,2175 @@
+{
+  "id": "where-photos-live",
+  "title": "Where Photos Live",
+  "summary": "Crumbly's recipe photos are stored inside the database and streamed through the API. Moving the bytes out changes cost, speed and reliability at once.",
+  "minutes": 11,
+  "level": "beginner",
+  "metrics": [
+    "dbGrowth",
+    "appTraffic",
+    "respond",
+    "imgLoad",
+    "storeCost"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "heavy",
+      "photo bytes"
+    ],
+    [
+      "write",
+      "metadata / variant"
+    ],
+    [
+      "msg",
+      "upload event"
+    ],
+    [
+      "slow",
+      "slow / CDN miss"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why big files don't belong in the database",
+      "step": 1
+    },
+    {
+      "text": "Store bytes in object storage, metadata in the DB",
+      "step": 3
+    },
+    {
+      "text": "Upload straight to storage with pre-signed URLs",
+      "step": 4
+    },
+    {
+      "text": "Process images asynchronously and serve them from a CDN",
+      "step": 5
+    }
+  ],
+  "steps": [
+    {
+      "short": "Photos in DB",
+      "chapter": "setup",
+      "title": "Every photo in a table",
+      "body": [
+        "<b>Crumbly</b> is where 2 million home cooks share recipes, and every recipe has photos. Each upload goes to the API, gets resized inside the request, and is saved as a <span class=\"term\">BLOB</span> in the same Postgres that holds the recipes.",
+        "One system, one backup, transactions for free. It worked fine for the first ten thousand photos."
+      ],
+      "metrics": {
+        "dbGrowth": "+2 TB / month",
+        "appTraffic": "every photo byte",
+        "respond": 3800,
+        "imgLoad": 850,
+        "storeCost": "$1,900"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes + photo bytes"
+              }
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST photo · 4 MB"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT bytes"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes + photos"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "DB bloat",
+      "chapter": "problem",
+      "title": "A database full of pixels",
+      "body": [
+        "Photos are now 97% of the database by size: 18 TB. Nightly backups take nine hours, a new replica needs two days to copy, and expensive replicated SSD is storing JPEGs.",
+        "Worse, image pages crowd recipe rows out of the database's memory cache. Queries that used to be served from RAM now hit disk — the photos slow down everything else."
+      ],
+      "changes": [
+        "~ Database: 18 TB, 97% of it photos",
+        "~ Backups and replicas slow down"
+      ],
+      "metrics": {
+        "dbGrowth": "+2 TB / month",
+        "appTraffic": "every photo byte",
+        "respond": 4200,
+        "imgLoad": 1400,
+        "storeCost": "$1,900"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "18 TB · backup 9 h",
+                "tone": "red",
+                "icon": "database"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "What 18 TB of photos costs",
+            "icon": "database",
+            "lines": [
+              "backups: 9 hours, every night",
+              "new replica: 2 days to copy",
+              "RAM cache full of image pages",
+              "! recipe queries now miss memory"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST photo · 4 MB"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT bytes"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "18 TB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "App as pipe",
+      "chapter": "problem",
+      "title": "API servers become pipes",
+      "body": [
+        "Every byte also passes through the API. A 4 MB photo on a weak mobile connection holds an API thread for eight seconds, then burns CPU on resizing. Thirty slow uploads and a server is full.",
+        "Recipe requests — the fast, cheap ones — start queuing behind uploads and timing out."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Moving large bytes is a different job from running business logic. Don't make one server do both."
+      },
+      "changes": [
+        "~ API threads tied up by uploads",
+        "+ Timeouts on unrelated requests"
+      ],
+      "metrics": {
+        "dbGrowth": "+2 TB / month",
+        "appTraffic": "every photo byte",
+        "respond": 6500,
+        "imgLoad": 1400,
+        "storeCost": "$1,900"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.97,
+            "sub": "6 servers",
+            "heat": 1,
+            "tags": [
+              {
+                "text": "threads busy uploading",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "18 TB · backup 9 h",
+                "tone": "red",
+                "icon": "database"
+              }
+            ],
+            "cpu": 0.97,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Time on an API thread",
+            "icon": "timer",
+            "lines": [
+              "# per request"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Recipe JSON",
+                "note": "20 ms",
+                "to": 0.03,
+                "tone": "green"
+              },
+              {
+                "label": "Photo over mobile",
+                "note": "8 s + resize",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST photo · 4 MB",
+            "fail": 0.25
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT bytes"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "hold": 1.2,
+            "rate": 1.1
+          },
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "18 TB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Buckets",
+      "chapter": "technique",
+      "title": "Bytes in a bucket, facts in the DB",
+      "body": [
+        "<span class=\"term\">Object storage</span> (S3, Google Cloud Storage, Azure Blob) stores files by key in a flat namespace, replicates them for very high durability, scales without capacity planning and costs a fraction of database SSD.",
+        "The database keeps only <span class=\"term\">metadata</span>: which recipe, who uploaded it, the object key, size and status. A few hundred bytes per photo instead of four megabytes."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Keep the database as the source of truth for what exists; the bucket just holds the bytes behind each key."
+      },
+      "changes": [
+        "+ Object storage for photo bytes",
+        "~ Database stores metadata rows only"
+      ],
+      "metrics": {
+        "dbGrowth": "+3 GB / month",
+        "appTraffic": "every photo byte",
+        "respond": 3500,
+        "imgLoad": 700,
+        "storeCost": "$420"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.78,
+            "sub": "6 servers",
+            "tags": [
+              {
+                "text": "still relaying bytes",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ],
+            "heat": 0.35
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes"
+              },
+              {
+                "text": "photo rows: key + size",
+                "tone": "violet",
+                "icon": "listOrdered"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "obj": {
+            "type": "block",
+            "x": 11,
+            "y": -8,
+            "s": 4,
+            "color": "store",
+            "glyph": "package",
+            "label": [
+              "Object",
+              "storage"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "photos table",
+            "icon": "listOrdered",
+            "lines": [
+              "id · recipe_id · owner_id",
+              "key = photos/2026/11/8f3c….jpg",
+              "bytes · content_type · status",
+              "= a few hundred bytes per photo"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "POST photo · 4 MB"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT metadata"
+          },
+          "o": {
+            "from": "api",
+            "to": "obj",
+            "pts": [
+              "api",
+              "obj"
+            ],
+            "label": "PUT bytes"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "o"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "d"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers",
+            "status": "warn"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Pre-signed",
+      "chapter": "technique",
+      "title": "Let the client upload directly",
+      "body": [
+        "The API still relays every byte. Instead, the app asks: <i>I'd like to upload a 4 MB JPEG.</i> The API checks permissions, inserts a <code>pending</code> row, and returns a <span class=\"term\">pre-signed URL</span> — a link that allows one PUT to one key for ten minutes.",
+        "The phone uploads straight to storage. The API only handles a small JSON request, and storage absorbs slow connections and retries."
+      ],
+      "changes": [
+        "+ Pre-signed upload URLs",
+        "~ Photo bytes bypass the API entirely"
+      ],
+      "metrics": {
+        "dbGrowth": "+3 GB / month",
+        "appTraffic": "small JSON only",
+        "respond": 60,
+        "imgLoad": 700,
+        "storeCost": "$420"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes"
+              },
+              {
+                "text": "status: pending",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "obj": {
+            "type": "block",
+            "x": 11,
+            "y": -8,
+            "s": 4,
+            "color": "store",
+            "glyph": "package",
+            "label": [
+              "Object",
+              "storage"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "ask for upload URL"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT pending row"
+          },
+          "up": {
+            "from": "users",
+            "to": "obj",
+            "pts": [
+              "users",
+              [
+                11,
+                "users"
+              ],
+              "obj"
+            ],
+            "label": "PUT · signed URL · 10 min"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Async work",
+      "chapter": "technique",
+      "title": "Resize after, not during",
+      "body": [
+        "When an object lands, the bucket emits an <b>object created</b> event onto a queue. <span class=\"term\">Image workers</span> pick it up, generate thumbnails at a few sizes, strip location data from the metadata, and write the variants back to storage.",
+        "Finally a worker flips the row to <code>ready</code>. The feed shows a placeholder for a second or two; nobody's request waits on resizing."
+      ],
+      "changes": [
+        "+ Upload events → queue",
+        "+ Image workers write thumbnails",
+        "~ Row status pending → ready"
+      ],
+      "metrics": {
+        "dbGrowth": "+3 GB / month",
+        "appTraffic": "small JSON only",
+        "respond": 60,
+        "imgLoad": 400,
+        "storeCost": "$440"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes"
+              },
+              {
+                "text": "status: ready",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "obj": {
+            "type": "block",
+            "x": 11,
+            "y": -8,
+            "s": 4,
+            "color": "store",
+            "glyph": "package",
+            "label": [
+              "Object",
+              "storage"
+            ]
+          },
+          "q": {
+            "type": "block",
+            "x": 11,
+            "y": 4,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Queue"
+            ],
+            "h": 34
+          },
+          "wk": {
+            "type": "block",
+            "x": 11,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Image",
+              "workers"
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "ask for upload URL"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT pending row"
+          },
+          "up": {
+            "from": "users",
+            "to": "obj",
+            "pts": [
+              "users",
+              [
+                11,
+                "users"
+              ],
+              "obj"
+            ],
+            "label": "PUT · signed URL"
+          },
+          "ev": {
+            "from": "obj",
+            "to": "q",
+            "pts": [
+              "obj",
+              "q"
+            ],
+            "label": "object created"
+          },
+          "wq": {
+            "from": "q",
+            "to": "wk",
+            "pts": [
+              "q",
+              "wk"
+            ],
+            "label": "job"
+          },
+          "wo": {
+            "from": "wk",
+            "to": "obj",
+            "pts": [
+              "wk",
+              [
+                17,
+                "wk"
+              ],
+              [
+                17,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "thumbnails"
+          },
+          "wd": {
+            "from": "wk",
+            "to": "db",
+            "pts": [
+              "wk",
+              [
+                "db",
+                "wk"
+              ],
+              "db"
+            ],
+            "label": "status = ready"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.7
+          },
+          {
+            "route": [
+              "ev",
+              "wq"
+            ],
+            "kind": "msg",
+            "rate": 0.7
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "wo"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "wd"
+                ],
+                "kind": "write"
+              }
+            ],
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Queue",
+            "sub": "object created"
+          },
+          {
+            "id": "wk",
+            "kind": "worker",
+            "label": "Image workers",
+            "sub": "thumbnails"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "wk"
+          },
+          {
+            "from": "wk",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "CDN",
+      "chapter": "solution",
+      "title": "Serve from the edge",
+      "body": [
+        "Photos are read thousands of times more often than they're written, and never change once processed. A <span class=\"term\">CDN</span> caches each variant near the viewer; only about one view in twenty reaches the bucket.",
+        "Because a processed variant never changes, its key can include a version or hash and be cached for a year."
+      ],
+      "changes": [
+        "+ CDN in front of object storage",
+        "~ Photo views served from the edge"
+      ],
+      "metrics": {
+        "dbGrowth": "+3 GB / month",
+        "appTraffic": "small JSON only",
+        "respond": 60,
+        "imgLoad": 45,
+        "storeCost": "$440"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes"
+              },
+              {
+                "text": "status: ready",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "obj": {
+            "type": "block",
+            "x": 11,
+            "y": -8,
+            "s": 4,
+            "color": "store",
+            "glyph": "package",
+            "label": [
+              "Object",
+              "storage"
+            ]
+          },
+          "q": {
+            "type": "block",
+            "x": 11,
+            "y": 4,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Queue"
+            ],
+            "h": 34
+          },
+          "wk": {
+            "type": "block",
+            "x": 11,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Image",
+              "workers"
+            ],
+            "cpu": 0.3
+          },
+          "cdn": {
+            "type": "block",
+            "x": -11,
+            "y": -22,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "tags": [
+              {
+                "text": "95% hits",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "ask for upload URL"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT pending row"
+          },
+          "up": {
+            "from": "users",
+            "to": "obj",
+            "pts": [
+              "users",
+              [
+                11,
+                "users"
+              ],
+              "obj"
+            ],
+            "label": "PUT · signed URL"
+          },
+          "ev": {
+            "from": "obj",
+            "to": "q",
+            "pts": [
+              "obj",
+              "q"
+            ],
+            "label": "object created"
+          },
+          "wq": {
+            "from": "q",
+            "to": "wk",
+            "pts": [
+              "q",
+              "wk"
+            ],
+            "label": "job"
+          },
+          "wo": {
+            "from": "wk",
+            "to": "obj",
+            "pts": [
+              "wk",
+              [
+                17,
+                "wk"
+              ],
+              [
+                17,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "thumbnails"
+          },
+          "wd": {
+            "from": "wk",
+            "to": "db",
+            "pts": [
+              "wk",
+              [
+                "db",
+                "wk"
+              ],
+              "db"
+            ],
+            "label": "status = ready"
+          },
+          "cv": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET photo"
+          },
+          "co": {
+            "from": "cdn",
+            "to": "obj",
+            "pts": [
+              "cdn",
+              [
+                -11,
+                -34
+              ],
+              [
+                22,
+                -34
+              ],
+              [
+                22,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "miss only",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "cv"
+                ],
+                "weight": 19
+              },
+              {
+                "path": [
+                  "cv",
+                  "co"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.5
+          },
+          {
+            "route": [
+              "ev",
+              "wq"
+            ],
+            "kind": "msg",
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Queue",
+            "sub": "object created"
+          },
+          {
+            "id": "wk",
+            "kind": "worker",
+            "label": "Image workers",
+            "sub": "thumbnails"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "95% hits"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "wk"
+          },
+          {
+            "from": "wk",
+            "to": "db"
+          },
+          {
+            "from": "users",
+            "to": "cdn"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Gotchas",
+      "chapter": "tradeoff",
+      "title": "What the bucket won't do for you",
+      "body": [
+        "Direct uploads move trust to the client, so constrain the signed URL: short expiry, maximum size, allowed content types — and verify the file in the worker anyway.",
+        "Some uploads never finish, leaving <b>orphans</b>: pending rows and stray objects that a lifecycle rule cleans up after a day. Rarely viewed originals can move to a cheaper storage tier, and private photos need short-lived signed links instead of public URLs."
+      ],
+      "changes": [
+        "+ Lifecycle rules: orphans, older originals",
+        "~ Signed URLs limited by size, type and time"
+      ],
+      "metrics": {
+        "dbGrowth": "+3 GB / month",
+        "appTraffic": "small JSON only",
+        "respond": 60,
+        "imgLoad": 45,
+        "storeCost": "$260"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes"
+              },
+              {
+                "text": "status: ready",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "obj": {
+            "type": "block",
+            "x": 11,
+            "y": -8,
+            "s": 4,
+            "color": "store",
+            "glyph": "package",
+            "label": [
+              "Object",
+              "storage"
+            ],
+            "tags": [
+              {
+                "text": "lifecycle rules",
+                "tone": "violet",
+                "icon": "clock"
+              }
+            ]
+          },
+          "q": {
+            "type": "block",
+            "x": 11,
+            "y": 4,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Queue"
+            ],
+            "h": 34
+          },
+          "wk": {
+            "type": "block",
+            "x": 11,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Image",
+              "workers"
+            ],
+            "cpu": 0.3
+          },
+          "cdn": {
+            "type": "block",
+            "x": -11,
+            "y": -22,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "tags": [
+              {
+                "text": "95% hits",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Before you ship it",
+            "icon": "listChecks",
+            "lines": [
+              "signed URL: 10 min, ≤ 15 MB, image/* only",
+              "pending > 24 h → delete the orphan",
+              "originals > 90 days → cheaper storage tier",
+              "private photos → short-lived signed links",
+              "! never trust the client's file type — check it"
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "ask for upload URL"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT pending row"
+          },
+          "up": {
+            "from": "users",
+            "to": "obj",
+            "pts": [
+              "users",
+              [
+                11,
+                "users"
+              ],
+              "obj"
+            ],
+            "label": "PUT · signed URL"
+          },
+          "ev": {
+            "from": "obj",
+            "to": "q",
+            "pts": [
+              "obj",
+              "q"
+            ],
+            "label": "object created"
+          },
+          "wq": {
+            "from": "q",
+            "to": "wk",
+            "pts": [
+              "q",
+              "wk"
+            ],
+            "label": "job"
+          },
+          "wo": {
+            "from": "wk",
+            "to": "obj",
+            "pts": [
+              "wk",
+              [
+                17,
+                "wk"
+              ],
+              [
+                17,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "thumbnails"
+          },
+          "wd": {
+            "from": "wk",
+            "to": "db",
+            "pts": [
+              "wk",
+              [
+                "db",
+                "wk"
+              ],
+              "db"
+            ],
+            "label": "status = ready"
+          },
+          "cv": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET photo"
+          },
+          "co": {
+            "from": "cdn",
+            "to": "obj",
+            "pts": [
+              "cdn",
+              [
+                -11,
+                -34
+              ],
+              [
+                22,
+                -34
+              ],
+              [
+                22,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "miss only",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "cv"
+                ],
+                "weight": 19
+              },
+              {
+                "path": [
+                  "cv",
+                  "co"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.5
+          },
+          {
+            "route": [
+              "ev",
+              "wq"
+            ],
+            "kind": "msg",
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Queue",
+            "sub": "object created"
+          },
+          {
+            "id": "wk",
+            "kind": "worker",
+            "label": "Image workers",
+            "sub": "thumbnails"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "95% hits"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "wk"
+          },
+          {
+            "from": "wk",
+            "to": "db"
+          },
+          {
+            "from": "users",
+            "to": "cdn"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Where the photos live now",
+      "body": [
+        "<ul class=\"takeaways\"><li>Big files in the database bloat backups, replicas and memory.</li><li>Object storage holds the bytes; the database holds metadata and status.</li><li>Pre-signed URLs let clients upload directly, keeping API servers light.</li><li>Process asynchronously from upload events; serve variants through a CDN.</li></ul>"
+      ],
+      "metrics": {
+        "dbGrowth": "+3 GB / month",
+        "appTraffic": "small JSON only",
+        "respond": 60,
+        "imgLoad": 45,
+        "storeCost": "$260"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -31,
+            "y1": -25,
+            "count": 10,
+            "label": "Home cooks"
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "API"
+            ],
+            "cpu": 0.3,
+            "sub": "6 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": -1,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "recipes"
+              },
+              {
+                "text": "status: ready",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "obj": {
+            "type": "block",
+            "x": 11,
+            "y": -8,
+            "s": 4,
+            "color": "store",
+            "glyph": "package",
+            "label": [
+              "Object",
+              "storage"
+            ],
+            "tags": [
+              {
+                "text": "lifecycle rules",
+                "tone": "violet",
+                "icon": "clock"
+              }
+            ]
+          },
+          "q": {
+            "type": "block",
+            "x": 11,
+            "y": 4,
+            "s": 3.2,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Queue"
+            ],
+            "h": 34
+          },
+          "wk": {
+            "type": "block",
+            "x": 11,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Image",
+              "workers"
+            ],
+            "cpu": 0.3
+          },
+          "cdn": {
+            "type": "block",
+            "x": -11,
+            "y": -22,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "CDN"
+            ],
+            "tags": [
+              {
+                "text": "95% hits",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          }
+        },
+        "links": {
+          "u": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "ask for upload URL"
+          },
+          "d": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "INSERT pending row"
+          },
+          "up": {
+            "from": "users",
+            "to": "obj",
+            "pts": [
+              "users",
+              [
+                11,
+                "users"
+              ],
+              "obj"
+            ],
+            "label": "PUT · signed URL"
+          },
+          "ev": {
+            "from": "obj",
+            "to": "q",
+            "pts": [
+              "obj",
+              "q"
+            ],
+            "label": "object created"
+          },
+          "wq": {
+            "from": "q",
+            "to": "wk",
+            "pts": [
+              "q",
+              "wk"
+            ],
+            "label": "job"
+          },
+          "wo": {
+            "from": "wk",
+            "to": "obj",
+            "pts": [
+              "wk",
+              [
+                17,
+                "wk"
+              ],
+              [
+                17,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "thumbnails"
+          },
+          "wd": {
+            "from": "wk",
+            "to": "db",
+            "pts": [
+              "wk",
+              [
+                "db",
+                "wk"
+              ],
+              "db"
+            ],
+            "label": "status = ready"
+          },
+          "cv": {
+            "from": "users",
+            "to": "cdn",
+            "pts": [
+              "users",
+              "cdn"
+            ],
+            "label": "GET photo"
+          },
+          "co": {
+            "from": "cdn",
+            "to": "obj",
+            "pts": [
+              "cdn",
+              [
+                -11,
+                -34
+              ],
+              [
+                22,
+                -34
+              ],
+              [
+                22,
+                "obj"
+              ],
+              "obj"
+            ],
+            "label": "miss only",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "cv"
+                ],
+                "weight": 19
+              },
+              {
+                "path": [
+                  "cv",
+                  "co"
+                ],
+                "kind": "slow",
+                "weight": 1
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "u",
+              "d"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "heavy",
+            "bounce": true,
+            "rate": 0.5
+          },
+          {
+            "route": [
+              "ev",
+              "wq"
+            ],
+            "kind": "msg",
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 6000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Home cooks"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "API",
+            "sub": "6 servers"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "recipes"
+          },
+          {
+            "id": "q",
+            "kind": "sqs",
+            "label": "Queue",
+            "sub": "object created"
+          },
+          {
+            "id": "wk",
+            "kind": "worker",
+            "label": "Image workers",
+            "sub": "thumbnails"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN",
+            "sub": "95% hits"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "q"
+          },
+          {
+            "from": "q",
+            "to": "wk"
+          },
+          {
+            "from": "wk",
+            "to": "db"
+          },
+          {
+            "from": "users",
+            "to": "cdn"
+          }
+        ]
+      }
+    }
+  ]
+}

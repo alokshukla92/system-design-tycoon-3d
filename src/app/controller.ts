@@ -1,11 +1,11 @@
 // Imperative classroom controller: routing → state, engine wiring, and the DOM animations that the
 // original drove by hand (guide slide, chip count-up, fresh sections, sidebar scroll, title shrink).
 import { flushSync } from "react-dom";
-import { METRICS, getLesson, lessonRef } from "../content";
+import { METRICS, getLesson, lessonRef, loadLesson, nextLesson, prefetchLesson } from "../content";
 import type { EngineApi } from "../engine";
 import { isRtl, t } from "../i18n";
 import type { Lesson, MetricValue } from "../types/lesson";
-import { defaultLessonId, go, hrefFor, isLabHash, isLocked, resolveRoute } from "./router";
+import { defaultLessonId, go, hrefFor, isAvailable, isLabHash, isLocked, resolveRoute } from "./router";
 import { storage } from "./storage";
 import { getState, setState, showToast } from "./store";
 import type { Layout, Theme } from "./store";
@@ -20,6 +20,8 @@ let lastChapter: string | null = null;
 /** Lesson to scroll to the top of the sidebar after a search pick. */
 let reveal: string | null = null;
 let rendered = false;
+/** Route revision: a lesson chunk that arrives after a newer navigation is discarded (original: same counter). */
+let routeRev = 0;
 
 export const getEngine = () => engine;
 
@@ -60,6 +62,7 @@ export function rerouteFresh(): void {
 // ── Route → render ───────────────────────────────────────────────────────────
 export function route(): void {
   if (isLabHash()) return;
+  const rev = ++routeRev;
   const prev = getState();
   let { lessonId, step } = resolveRoute();
 
@@ -71,12 +74,27 @@ export function route(): void {
   }
 
   const lesson = lessonId ? getLesson(lessonId) : undefined;
+  if (!lesson && lessonId && isAvailable(lessonId)) {
+    // Not loaded yet: keep the current lesson on screen, fetch its chunk, then route again.
+    const id = lessonId;
+    if (prev.loadingLesson !== id) setState({ loadingLesson: id });
+    loadLesson(id).then(
+      () => {
+        if (rev === routeRev) route();
+      },
+      (err: unknown) => {
+        if (rev !== routeRev) return;
+        console.warn(`[lesson] could not load "${id}"`, err);
+        setState({ loadingLesson: null });
+        lessonFailed(id);
+      },
+    );
+    return;
+  }
+  if (prev.loadingLesson) setState({ loadingLesson: null });
   if (!lesson) {
-    if (lessonId) showToast(t("This lesson could not be loaded. Please try again."));
-    if (!prev.lessonId) {
-      const fallback = defaultLessonId();
-      if (fallback && fallback !== lessonId) go(fallback, 0);
-    }
+    if (lessonId) lessonFailed(lessonId);
+    else if (!prev.lessonId) fallBack(lessonId);
     return;
   }
 
@@ -164,6 +182,19 @@ export function route(): void {
     ghost.scrollTop = box.scroll;
     setTimeout(() => ghost.remove(), 200);
   }
+
+  prefetchLesson(nextLesson(lesson.id)?.id);
+}
+
+/** Original error path: toast, and on first load (nothing on screen yet) go to the default lesson. */
+function lessonFailed(lessonId: string): void {
+  showToast(t("This lesson could not be loaded. Please try again."));
+  if (!getState().lessonId) fallBack(lessonId);
+}
+
+function fallBack(failed: string | null): void {
+  const fallback = defaultLessonId();
+  if (fallback && fallback !== failed) go(fallback, 0);
 }
 
 // ── Sidebar scroll (640 ms easeInOutCubic; a wheel cancels it) ───────────────

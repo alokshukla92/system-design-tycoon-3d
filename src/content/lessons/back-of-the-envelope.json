@@ -1,0 +1,2122 @@
+{
+  "id": "back-of-the-envelope",
+  "title": "Back of the Envelope",
+  "summary": "Turn daily users into requests per second, servers, storage and bandwidth — in five minutes, with round numbers.",
+  "minutes": 10,
+  "level": "beginner",
+  "metrics": [
+    "avg",
+    "peak",
+    "servers",
+    "storage",
+    "payload"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "write",
+      "upload"
+    ],
+    [
+      "heavy",
+      "photo download"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Turn daily users into requests per second",
+      "step": 1
+    },
+    {
+      "text": "Size for the peak, not the average",
+      "step": 2
+    },
+    {
+      "text": "Estimate servers from per-machine capacity",
+      "step": 3
+    },
+    {
+      "text": "Estimate storage and bandwidth",
+      "step": 5
+    }
+  ],
+  "steps": [
+    {
+      "short": "The question",
+      "chapter": "setup",
+      "title": "Will it fit — before you build it?",
+      "body": [
+        "Snapgrain, a photo-journal app, is planning its launch. The investors ask: how many servers? How much storage? How much bandwidth? Nobody can know exactly — but you can get within a factor of two in five minutes.",
+        "That's a <span class=\"term\">back-of-the-envelope estimate</span>: round every number, multiply, and keep the units honest. The goal is the right <b>order of magnitude</b>, not three decimal places."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Estimates exist to make decisions: <i>one</i> database or <i>fifty</i>? A CDN or not? You only need enough precision to choose."
+      },
+      "metrics": {
+        "avg": "?",
+        "peak": "?",
+        "servers": "?",
+        "storage": "?",
+        "payload": "?"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 6,
+            "label": "users?"
+          },
+          "gsrv": {
+            "type": "ghost",
+            "x": 0,
+            "y": 0,
+            "s": 8,
+            "h": 70,
+            "label": "how many servers?"
+          },
+          "gsto": {
+            "type": "ghost",
+            "x": 14,
+            "y": 4,
+            "s": 6,
+            "h": 56,
+            "label": "how much storage?"
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "gsrv",
+            "pts": [
+              "users",
+              "gsrv"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          }
+        },
+        "flows": []
+      }
+    },
+    {
+      "short": "Requests / s",
+      "chapter": "technique",
+      "title": "From users to requests per second",
+      "body": [
+        "Start with <span class=\"term\">daily active users</span> (DAU). Snapgrain expects 10 million. A typical user opens the app a few times and makes about 40 requests a day — feeds, likes, a post now and then.",
+        "10M × 40 = 400 million requests a day. A day has 86,400 seconds — call it 10⁵ — so the <b>average is about 4,600 requests per second</b>."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Handy shortcut: <b>1 million requests a day ≈ 12 per second</b>."
+      },
+      "changes": [
+        "~ Users: 10 million a day",
+        "+ Average request rate"
+      ],
+      "metrics": {
+        "avg": 4630,
+        "peak": "?",
+        "servers": "?",
+        "storage": "?",
+        "payload": "?"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 12,
+            "label": "10M daily users (DAU)"
+          },
+          "gsrv": {
+            "type": "ghost",
+            "x": 0,
+            "y": 0,
+            "s": 8,
+            "h": 70,
+            "label": "how many servers?"
+          },
+          "gsto": {
+            "type": "ghost",
+            "x": 14,
+            "y": 4,
+            "s": 6,
+            "h": 56,
+            "label": "how much storage?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Average load",
+            "icon": "activity",
+            "lines": [
+              "10,000,000 users × 40 req/day",
+              "= 400,000,000 req/day",
+              "÷ 86,400 s/day (≈ 10⁵)",
+              "= ≈ 4,600 req/s on average"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "gsrv",
+            "pts": [
+              "users",
+              "gsrv"
+            ],
+            "label": "≈4,600 req/s avg",
+            "heads": "both",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Peak",
+      "chapter": "problem",
+      "title": "Nobody uses an app on average",
+      "body": [
+        "Traffic follows the sun: quiet at 4 a.m., busiest in the evening, with spikes when a post goes viral. You must survive the <span class=\"term\">peak</span>, not the average.",
+        "A common rule of thumb for consumer apps is peak ≈ 2–3× the average (more for launches and sales). Using 3×: <b>about 14,000 requests per second</b>."
+      ],
+      "changes": [
+        "~ Evening crowd arrives",
+        "+ Peak = 3 × average"
+      ],
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": "?",
+        "storage": "?",
+        "payload": "?"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 18,
+            "label": "10M daily users (DAU)"
+          },
+          "gsrv": {
+            "type": "ghost",
+            "x": 0,
+            "y": 0,
+            "s": 8,
+            "h": 70,
+            "label": "how many servers?"
+          },
+          "gsto": {
+            "type": "ghost",
+            "x": 14,
+            "y": 4,
+            "s": 6,
+            "h": 56,
+            "label": "how much storage?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "A day of traffic (req/s)",
+            "icon": "trendingUp",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "04:00",
+                "note": "1,500",
+                "to": 0.11,
+                "tone": "gray"
+              },
+              {
+                "label": "09:00",
+                "note": "4,000",
+                "to": 0.29,
+                "tone": "green"
+              },
+              {
+                "label": "13:00",
+                "note": "5,500",
+                "to": 0.4,
+                "tone": "green"
+              },
+              {
+                "label": "average",
+                "note": "4,600",
+                "to": 0.33,
+                "tone": "blue"
+              },
+              {
+                "label": "21:00 peak",
+                "note": "13,900",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "gsrv",
+            "pts": [
+              "users",
+              "gsrv"
+            ],
+            "label": "≈14,000 req/s peak",
+            "heads": "both",
+            "style": "dashed",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Servers",
+      "chapter": "technique",
+      "title": "Divide by what one machine can do",
+      "body": [
+        "Next, one server's capacity. Say a request costs ~5 ms of CPU: one core handles 200 per second, an 8-core server 1,600. Planning to run at ~60% busy, to stay off the latency knee, leaves <b>~1,000 req/s per server</b>.",
+        "14,000 ÷ 1,000 = 14 servers for the peak. Add two spares so a crash or a deploy doesn't overload the rest: <b>16 servers</b>."
+      ],
+      "changes": [
+        "- Ghost server",
+        "+ 16 web servers",
+        "~ Peak divided by safe per-server capacity"
+      ],
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": 16,
+        "storage": "?",
+        "payload": "?"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 18,
+            "label": "10M daily users (DAU)"
+          },
+          "web": {
+            "type": "zone",
+            "x0": -6.5,
+            "x1": 6.5,
+            "y0": -5.5,
+            "y1": 7.5,
+            "label": "WEB TIER · 16 × 8-CORE"
+          },
+          "w0": {
+            "type": "block",
+            "x": -4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w1": {
+            "type": "block",
+            "x": -4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w2": {
+            "type": "block",
+            "x": -4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w3": {
+            "type": "block",
+            "x": -4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w4": {
+            "type": "block",
+            "x": -1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w5": {
+            "type": "block",
+            "x": -1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w6": {
+            "type": "block",
+            "x": -1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w7": {
+            "type": "block",
+            "x": -1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w8": {
+            "type": "block",
+            "x": 1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w9": {
+            "type": "block",
+            "x": 1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w10": {
+            "type": "block",
+            "x": 1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w11": {
+            "type": "block",
+            "x": 1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w12": {
+            "type": "block",
+            "x": 4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w13": {
+            "type": "block",
+            "x": 4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w14": {
+            "type": "block",
+            "x": 4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w15": {
+            "type": "block",
+            "x": 4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "gsto": {
+            "type": "ghost",
+            "x": 14,
+            "y": 4,
+            "s": 6,
+            "h": 56,
+            "label": "how much storage?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Servers",
+            "icon": "server",
+            "lines": [
+              "5 ms CPU → 200 req/s per core",
+              "× 8 cores × 60% target ≈ 1,000 req/s",
+              "14,000 ÷ 1,000 = 14",
+              "= 14 + 2 spare = 16 servers"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "≈14,000 req/s at peak",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 3,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 10000000,
+        "rps": 13900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "10M daily users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "web",
+            "kind": "api_server",
+            "label": "Web tier",
+            "sub": "16 × 8-core"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Metadata DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "web"
+          },
+          {
+            "from": "web",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Storage",
+      "chapter": "technique",
+      "title": "What piles up every day",
+      "body": [
+        "Storage grows with what users create. If half of them post one photo a day, that's 5 million photos. At ~300 KB each (compressed, plus a thumbnail) that's <b>1.5 TB a day</b>.",
+        "Over a year: 1.5 TB × 365 ≈ <b>550 TB</b>. The metadata — caption, owner, timestamps, ~1 KB per photo — adds only 5 GB a day, under 2 TB a year. The bytes are in the photos."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Durable storage keeps copies. With 3 <span class=\"term\">replicas</span>, 550 TB of photos needs about 1.6 PB of raw disk."
+      },
+      "changes": [
+        "- Ghost storage",
+        "+ Photo store (object storage)",
+        "+ Metadata database"
+      ],
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": 16,
+        "storage": "≈ 550 TB",
+        "payload": "?"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 16,
+            "label": "10M daily users (DAU)"
+          },
+          "web": {
+            "type": "zone",
+            "x0": -6.5,
+            "x1": 6.5,
+            "y0": -5.5,
+            "y1": 7.5,
+            "label": "WEB TIER · 16 × 8-CORE"
+          },
+          "w0": {
+            "type": "block",
+            "x": -4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w1": {
+            "type": "block",
+            "x": -4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w2": {
+            "type": "block",
+            "x": -4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w3": {
+            "type": "block",
+            "x": -4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w4": {
+            "type": "block",
+            "x": -1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w5": {
+            "type": "block",
+            "x": -1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w6": {
+            "type": "block",
+            "x": -1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w7": {
+            "type": "block",
+            "x": -1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w8": {
+            "type": "block",
+            "x": 1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w9": {
+            "type": "block",
+            "x": 1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w10": {
+            "type": "block",
+            "x": 1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w11": {
+            "type": "block",
+            "x": 1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w12": {
+            "type": "block",
+            "x": 4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w13": {
+            "type": "block",
+            "x": 4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w14": {
+            "type": "block",
+            "x": 4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w15": {
+            "type": "block",
+            "x": 4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "store": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 4.6,
+            "h": 44,
+            "color": "store",
+            "glyph": "box",
+            "label": [
+              "Photo",
+              "store"
+            ],
+            "sub": "≈550 TB / year"
+          },
+          "meta": {
+            "type": "db",
+            "x": 15,
+            "y": 10,
+            "label": "Metadata DB",
+            "tags": [
+              {
+                "text": "< 2 TB / year"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Storage per year",
+            "icon": "database",
+            "lines": [
+              "5M photos/day × 300 KB = 1.5 TB/day",
+              "× 365 days ≈ 550 TB/year",
+              "# metadata: 5M × 1 KB = 5 GB/day",
+              "! × 3 replicas ≈ 1.6 PB of raw disk"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "≈14,000 req/s at peak",
+            "heads": "both"
+          },
+          "up": {
+            "from": "web",
+            "to": "store",
+            "pts": [
+              "web",
+              "store"
+            ],
+            "label": "1.5 TB / day",
+            "heads": "end"
+          },
+          "md": {
+            "from": "web",
+            "to": "meta",
+            "pts": [
+              "web",
+              "meta"
+            ],
+            "label": "5 GB / day"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "write",
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "md"
+            ],
+            "kind": "write",
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 10000000,
+        "rps": 13900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "10M daily users"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "web",
+            "kind": "api_server",
+            "label": "Web tier",
+            "sub": "16 × 8-core"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Metadata DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "web"
+          },
+          {
+            "from": "web",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Bandwidth",
+      "chapter": "problem",
+      "title": "Reading is heavier than writing",
+      "body": [
+        "Each user scrolls past about 100 photos a day. Served at ~150 KB (a screen-sized version), that's 10M × 100 × 150 KB = <b>150 TB leaving Snapgrain every day</b>.",
+        "150 TB ÷ 86,400 s ≈ 1.7 GB/s — about 14 Gbit/s on average and ~40 Gbit/s at a 3× peak. That number, more than the server count, says Snapgrain will want a CDN."
+      ],
+      "changes": [
+        "+ Photo downloads flowing back to users",
+        "~ Bandwidth estimated"
+      ],
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": 16,
+        "storage": "≈ 550 TB",
+        "payload": "150 TB / day"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 16,
+            "label": "10M daily users (DAU)"
+          },
+          "web": {
+            "type": "zone",
+            "x0": -6.5,
+            "x1": 6.5,
+            "y0": -5.5,
+            "y1": 7.5,
+            "label": "WEB TIER · 16 × 8-CORE"
+          },
+          "w0": {
+            "type": "block",
+            "x": -4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w1": {
+            "type": "block",
+            "x": -4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w2": {
+            "type": "block",
+            "x": -4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w3": {
+            "type": "block",
+            "x": -4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w4": {
+            "type": "block",
+            "x": -1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w5": {
+            "type": "block",
+            "x": -1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w6": {
+            "type": "block",
+            "x": -1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w7": {
+            "type": "block",
+            "x": -1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w8": {
+            "type": "block",
+            "x": 1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w9": {
+            "type": "block",
+            "x": 1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w10": {
+            "type": "block",
+            "x": 1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w11": {
+            "type": "block",
+            "x": 1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w12": {
+            "type": "block",
+            "x": 4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w13": {
+            "type": "block",
+            "x": 4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w14": {
+            "type": "block",
+            "x": 4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w15": {
+            "type": "block",
+            "x": 4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "store": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 4.6,
+            "h": 44,
+            "color": "store",
+            "glyph": "box",
+            "label": [
+              "Photo",
+              "store"
+            ],
+            "sub": "≈550 TB / year",
+            "heat": 0.5,
+            "tags": [
+              {
+                "text": "egress-heavy",
+                "tone": "amber",
+                "icon": "activity"
+              }
+            ]
+          },
+          "meta": {
+            "type": "db",
+            "x": 15,
+            "y": 10,
+            "label": "Metadata DB",
+            "tags": [
+              {
+                "text": "< 2 TB / year"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Egress",
+            "icon": "activity",
+            "lines": [
+              "10M × 100 photos × 150 KB",
+              "= 150 TB/day out",
+              "÷ 86,400 s ≈ 1.7 GB/s ≈ 14 Gbit/s",
+              "! peak × 3 ≈ 40 Gbit/s"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "≈14,000 req/s at peak",
+            "heads": "both"
+          },
+          "up": {
+            "from": "web",
+            "to": "store",
+            "pts": [
+              "web",
+              "store"
+            ],
+            "label": "1.5 TB / day",
+            "heads": "end"
+          },
+          "md": {
+            "from": "web",
+            "to": "meta",
+            "pts": [
+              "web",
+              "meta"
+            ],
+            "label": "5 GB / day"
+          },
+          "out": {
+            "from": "store",
+            "to": "users",
+            "pts": [
+              "store",
+              "users"
+            ],
+            "label": "≈40 Gbit/s at peak",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 2
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "write",
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "out"
+            ],
+            "kind": "heavy",
+            "rate": 2.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cheat sheet",
+      "chapter": "insight",
+      "title": "Numbers worth remembering",
+      "body": [
+        "Estimates go quickly when a few anchors live in your head. Powers of ten turn multiplication into counting zeros; rough latency numbers tell you which operations you can afford inside a single request.",
+        "<table class=\"compare numbers\"><tbody><tr><td>Read from main memory</td><td>~100 ns</td></tr><tr><td>Random read from SSD</td><td>~100 µs</td></tr><tr><td>Round trip inside a data centre</td><td>~0.5 ms</td></tr><tr><td>Read 1 MB sequentially from SSD</td><td>~1 ms</td></tr><tr><td>Round trip across an ocean</td><td>~80–150 ms</td></tr></tbody></table>"
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Memory is ~1,000× faster than SSD, which is ~1,000× faster than a cross-ocean round trip. A few of those per request is fine; thousands is not."
+      },
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": 16,
+        "storage": "≈ 550 TB",
+        "payload": "150 TB / day"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 16,
+            "label": "10M daily users (DAU)"
+          },
+          "web": {
+            "type": "zone",
+            "x0": -6.5,
+            "x1": 6.5,
+            "y0": -5.5,
+            "y1": 7.5,
+            "label": "WEB TIER · 16 × 8-CORE"
+          },
+          "w0": {
+            "type": "block",
+            "x": -4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w1": {
+            "type": "block",
+            "x": -4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w2": {
+            "type": "block",
+            "x": -4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w3": {
+            "type": "block",
+            "x": -4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w4": {
+            "type": "block",
+            "x": -1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w5": {
+            "type": "block",
+            "x": -1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w6": {
+            "type": "block",
+            "x": -1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w7": {
+            "type": "block",
+            "x": -1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w8": {
+            "type": "block",
+            "x": 1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w9": {
+            "type": "block",
+            "x": 1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w10": {
+            "type": "block",
+            "x": 1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w11": {
+            "type": "block",
+            "x": 1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w12": {
+            "type": "block",
+            "x": 4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w13": {
+            "type": "block",
+            "x": 4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w14": {
+            "type": "block",
+            "x": 4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w15": {
+            "type": "block",
+            "x": 4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "store": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 4.6,
+            "h": 44,
+            "color": "store",
+            "glyph": "box",
+            "label": [
+              "Photo",
+              "store"
+            ],
+            "sub": "≈550 TB / year"
+          },
+          "meta": {
+            "type": "db",
+            "x": 15,
+            "y": 10,
+            "label": "Metadata DB",
+            "tags": [
+              {
+                "text": "< 2 TB / year"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Powers of ten",
+            "icon": "hash",
+            "lines": [
+              "1 day = 86,400 s ≈ 10⁵ s",
+              "1M per day ≈ 12 per second",
+              "KB 10³ · MB 10⁶ · GB 10⁹ · TB 10¹²",
+              "1 Gbit/s ≈ 125 MB/s",
+              "# 1 year ≈ 3 × 10⁷ s"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "≈14,000 req/s at peak",
+            "heads": "both"
+          },
+          "up": {
+            "from": "web",
+            "to": "store",
+            "pts": [
+              "web",
+              "store"
+            ],
+            "label": "1.5 TB / day",
+            "heads": "end"
+          },
+          "md": {
+            "from": "web",
+            "to": "meta",
+            "pts": [
+              "web",
+              "meta"
+            ],
+            "label": "5 GB / day"
+          },
+          "out": {
+            "from": "store",
+            "to": "users",
+            "pts": [
+              "store",
+              "users"
+            ],
+            "label": "≈40 Gbit/s at peak"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 2
+          },
+          {
+            "route": [
+              "out"
+            ],
+            "kind": "heavy",
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sanity check",
+      "chapter": "tradeoff",
+      "title": "Good enough — and knowing why",
+      "body": [
+        "Every input could be off by 2×: maybe users make 80 requests a day, maybe photos average 500 KB. That's fine. The estimate's job is to show which problems are <b>big</b> (egress, photo storage) and which are <b>small</b> (metadata, a modest web tier).",
+        "Write the assumptions next to the result. When real traffic arrives, swap in measured numbers and the same arithmetic tells you what to change."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "If two designs differ by 10× in the estimate, the estimate decides. If they differ by 20%, go and measure."
+      },
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": 16,
+        "storage": "≈ 550 TB",
+        "payload": "150 TB / day"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 16,
+            "label": "10M daily users (DAU)"
+          },
+          "web": {
+            "type": "zone",
+            "x0": -6.5,
+            "x1": 6.5,
+            "y0": -5.5,
+            "y1": 7.5,
+            "label": "WEB TIER · 16 × 8-CORE"
+          },
+          "w0": {
+            "type": "block",
+            "x": -4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w1": {
+            "type": "block",
+            "x": -4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w2": {
+            "type": "block",
+            "x": -4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w3": {
+            "type": "block",
+            "x": -4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w4": {
+            "type": "block",
+            "x": -1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w5": {
+            "type": "block",
+            "x": -1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w6": {
+            "type": "block",
+            "x": -1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w7": {
+            "type": "block",
+            "x": -1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w8": {
+            "type": "block",
+            "x": 1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w9": {
+            "type": "block",
+            "x": 1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w10": {
+            "type": "block",
+            "x": 1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w11": {
+            "type": "block",
+            "x": 1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w12": {
+            "type": "block",
+            "x": 4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w13": {
+            "type": "block",
+            "x": 4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w14": {
+            "type": "block",
+            "x": 4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w15": {
+            "type": "block",
+            "x": 4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "store": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 4.6,
+            "h": 44,
+            "color": "store",
+            "glyph": "box",
+            "label": [
+              "Photo",
+              "store"
+            ],
+            "sub": "≈550 TB / year"
+          },
+          "meta": {
+            "type": "db",
+            "x": 15,
+            "y": 10,
+            "label": "Metadata DB",
+            "tags": [
+              {
+                "text": "< 2 TB / year"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "If an assumption is 2× off",
+            "icon": "scale",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "40 → 80 req/user",
+                "note": "16 → 30 servers",
+                "to": 0.5,
+                "tone": "amber"
+              },
+              {
+                "label": "300 → 500 KB/photo",
+                "note": "550 → 900 TB/yr",
+                "to": 0.6,
+                "tone": "amber"
+              },
+              {
+                "label": "egress vs metadata",
+                "note": "~30,000× apart",
+                "to": 1,
+                "tone": "violet",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "= the big terms stay big"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "≈14,000 req/s at peak",
+            "heads": "both"
+          },
+          "up": {
+            "from": "web",
+            "to": "store",
+            "pts": [
+              "web",
+              "store"
+            ],
+            "label": "1.5 TB / day",
+            "heads": "end"
+          },
+          "md": {
+            "from": "web",
+            "to": "meta",
+            "pts": [
+              "web",
+              "meta"
+            ],
+            "label": "5 GB / day"
+          },
+          "out": {
+            "from": "store",
+            "to": "users",
+            "pts": [
+              "store",
+              "users"
+            ],
+            "label": "≈40 Gbit/s at peak"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 2
+          },
+          {
+            "route": [
+              "out"
+            ],
+            "kind": "heavy",
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Estimating on one page",
+      "body": [
+        "<ul class=\"takeaways\"><li>DAU × requests per user ÷ ~10⁵ s = average req/s; multiply by 2–3 for the peak.</li><li>Servers = peak ÷ safe per-server capacity, plus spares.</li><li>Storage per year = items per day × size × 365 (× replicas).</li><li>Bandwidth = reads × size — often the biggest number of all.</li><li>Round hard, write assumptions down, and look for the term that dominates.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next module: when the numbers say one server isn't enough — do you make it bigger, or add more?"
+      },
+      "metrics": {
+        "avg": 4630,
+        "peak": 13900,
+        "servers": 16,
+        "storage": "≈ 550 TB",
+        "payload": "150 TB / day"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -6,
+            "x1": 6,
+            "y0": -24,
+            "y1": -15,
+            "count": 16,
+            "label": "10M daily users (DAU)"
+          },
+          "web": {
+            "type": "zone",
+            "x0": -6.5,
+            "x1": 6.5,
+            "y0": -5.5,
+            "y1": 7.5,
+            "label": "WEB TIER · 16 × 8-CORE"
+          },
+          "w0": {
+            "type": "block",
+            "x": -4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w1": {
+            "type": "block",
+            "x": -4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w2": {
+            "type": "block",
+            "x": -4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w3": {
+            "type": "block",
+            "x": -4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w4": {
+            "type": "block",
+            "x": -1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w5": {
+            "type": "block",
+            "x": -1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w6": {
+            "type": "block",
+            "x": -1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w7": {
+            "type": "block",
+            "x": -1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w8": {
+            "type": "block",
+            "x": 1.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w9": {
+            "type": "block",
+            "x": 1.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w10": {
+            "type": "block",
+            "x": 1.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w11": {
+            "type": "block",
+            "x": 1.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w12": {
+            "type": "block",
+            "x": 4.5,
+            "y": -3.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w13": {
+            "type": "block",
+            "x": 4.5,
+            "y": -0.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w14": {
+            "type": "block",
+            "x": 4.5,
+            "y": 2.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "w15": {
+            "type": "block",
+            "x": 4.5,
+            "y": 5.5,
+            "s": 2.2,
+            "h": 24,
+            "color": "blue",
+            "glyph": "server",
+            "label": []
+          },
+          "store": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 4.6,
+            "h": 44,
+            "color": "store",
+            "glyph": "box",
+            "label": [
+              "Photo",
+              "store"
+            ],
+            "sub": "≈550 TB / year"
+          },
+          "meta": {
+            "type": "db",
+            "x": 15,
+            "y": 10,
+            "label": "Metadata DB",
+            "tags": [
+              {
+                "text": "< 2 TB / year"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "web",
+            "pts": [
+              "users",
+              "web"
+            ],
+            "label": "≈14,000 req/s at peak",
+            "heads": "both"
+          },
+          "up": {
+            "from": "web",
+            "to": "store",
+            "pts": [
+              "web",
+              "store"
+            ],
+            "label": "1.5 TB / day",
+            "heads": "end"
+          },
+          "md": {
+            "from": "web",
+            "to": "meta",
+            "pts": [
+              "web",
+              "meta"
+            ],
+            "label": "5 GB / day"
+          },
+          "out": {
+            "from": "store",
+            "to": "users",
+            "pts": [
+              "store",
+              "users"
+            ],
+            "label": "≈40 Gbit/s at peak"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in"
+            ],
+            "rate": 2
+          },
+          {
+            "route": [
+              "up"
+            ],
+            "kind": "write",
+            "rate": 0.6
+          },
+          {
+            "route": [
+              "out"
+            ],
+            "kind": "heavy",
+            "rate": 1.6
+          }
+        ]
+      }
+    }
+  ]
+}

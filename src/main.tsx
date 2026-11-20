@@ -16,6 +16,12 @@ import { configureMetricFormat } from "./content/registries";
 import { setEngineLocale } from "./engine/locale";
 import { getLocale, isRtl, loadLocale, localeFromPath, t } from "./i18n";
 import { App } from "./app/App";
+import { isLabHash, resolveRoute } from "./app/router";
+import { prefetchLesson } from "./content";
+import { pageForPath } from "./pages";
+
+// Start fetching the opening lesson's chunk while the dictionary loads.
+if (!pageForPath(location.pathname) && !isLabHash()) prefetchLesson(resolveRoute().lessonId);
 
 // Original fg(): the page's locale comes from its path prefix (/es/…); load that dictionary, then render.
 // index.html marks localized pages `data-lang-pending` until then.

@@ -15,6 +15,7 @@ import {
   tokenize,
 } from "./index";
 import { SearchModal } from "./SearchModal";
+import { searchLesson } from "../content/derive";
 
 const step = (p: Partial<Step> & Pick<Step, "title" | "short">): Step => ({
   chapter: "setup",
@@ -107,6 +108,9 @@ describe("text processing", () => {
 });
 
 describe("index", () => {
+  it("builds the same index from the lazy search corpus as from full lessons", () => {
+    expect(buildIndex([LB, CACHE].map(searchLesson), () => MODULE)).toEqual(index);
+  });
   it("builds lesson, step and de-duplicated concept docs", () => {
     expect(index.counts).toEqual({ lessons: 2, steps: 3, concepts: 2 });
     const lbConcept = index.docs.find((d) => d.kind === "concept" && d.title === "Load balancer");

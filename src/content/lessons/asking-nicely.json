@@ -1,0 +1,2141 @@
+{
+  "id": "asking-nicely",
+  "title": "Asking Nicely",
+  "summary": "REST, GraphQL and gRPC — how the shape of an API decides round trips, bytes and safe retries on a flaky phone network.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "trips",
+    "payload",
+    "screenMs",
+    "unused"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "heavy",
+      "oversized response"
+    ],
+    "write"
+  ],
+  "goals": [
+    {
+      "text": "Describe resources and verbs in a REST API",
+      "step": 0
+    },
+    {
+      "text": "Spot over-fetching and under-fetching",
+      "step": 2
+    },
+    {
+      "text": "Explain why round trips hurt most on mobile",
+      "step": 3
+    },
+    {
+      "text": "Choose between a screen API, GraphQL and gRPC",
+      "step": 6
+    },
+    {
+      "text": "Make retries safe with idempotency keys",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "REST",
+      "chapter": "setup",
+      "title": "Things with addresses",
+      "body": [
+        "<b>Trailmix</b> is a hiking app: trails, reviews, weather at the trailhead. Its first backend speaks <span class=\"term\">REST</span>: every <i>thing</i> (a trail, a user, a review) is a resource with a URL, and plain HTTP verbs say what to do with it.",
+        "Because the rules are shared by the whole web, a REST API is easy to explore with a browser, easy to cache (a <code>GET</code> is safe to store) and every language already has a client."
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "3 KB",
+        "screenMs": 240,
+        "unused": 20
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app"
+          },
+          "trails": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails",
+              "API"
+            ],
+            "cpu": 0.2
+          },
+          "tdb": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "trails DB"
+          },
+          "card": {
+            "type": "panel",
+            "title": "REST in one card",
+            "icon": "globe",
+            "lines": [
+              "GET    /trails/42   → read one",
+              "GET    /trails      → list",
+              "POST   /trails      → create",
+              "PUT    /trails/42   → replace",
+              "DELETE /trails/42   → remove",
+              "# nouns live in the URL, verbs come from HTTP"
+            ]
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "trails",
+            "pts": [
+              "app",
+              "trails"
+            ],
+            "label": "GET /trails/42",
+            "heads": "both"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p",
+              "td"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "speed": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Trailmix app"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Screen API",
+            "sub": "REST"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "trails DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Over-fetch",
+      "chapter": "problem",
+      "title": "A truck to deliver a postcard",
+      "body": [
+        "The new <i>Nearby</i> screen lists 20 trails with a name, distance and star rating. The only endpoint available is <code>GET /trails</code>, which returns each trail in full — GPS track, elevation profile, photo list.",
+        "That is <span class=\"term\">over-fetching</span>: the server sends 1.6 MB so the phone can draw 8 KB worth of text. On a metered data plan the user pays for it, and the screen waits for every byte."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Adding <code>?fields=name,km</code> helps, but every new screen then needs its own field list."
+      },
+      "changes": [
+        "~ Screen now lists 20 trails",
+        "~ Response grows to 1.6 MB"
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "1.6 MB",
+        "screenMs": 2100,
+        "unused": 99
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "list: 20 trails",
+                "tone": "paper",
+                "icon": "listOrdered"
+              }
+            ]
+          },
+          "trails": {
+            "type": "block",
+            "x": 0,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails",
+              "API"
+            ],
+            "cpu": 0.46
+          },
+          "tdb": {
+            "type": "db",
+            "x": 0,
+            "y": 2,
+            "label": "trails DB"
+          },
+          "card": {
+            "type": "panel",
+            "title": "One list screen",
+            "icon": "layers",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Sent: 20 full trails",
+                "note": "1.6 MB",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "Shown: name · km · stars",
+                "note": "8 KB",
+                "to": 0.04,
+                "tone": "green"
+              }
+            ],
+            "lines": [
+              "! GPS tracks and photo lists ride along unused"
+            ]
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "trails",
+            "pts": [
+              "app",
+              "trails"
+            ],
+            "label": "GET /trails?near=me",
+            "heads": "both",
+            "labelTone": "amber"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p",
+              "td"
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 0.6,
+            "kind": "heavy"
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Trailmix app"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Screen API",
+            "sub": "REST · full objects"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "trails DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Under-fetch",
+      "chapter": "problem",
+      "title": "Four questions, one screen",
+      "body": [
+        "The trail detail screen needs the trail, its author, the latest reviews and a forecast. With one endpoint per resource, the app has to call four of them — <span class=\"term\">under-fetching</span>.",
+        "Worse, the calls depend on each other: the app only learns the author's id and the trailhead coordinates from the first reply, so the requests run one after another in a waterfall."
+      ],
+      "changes": [
+        "+ Users, Reviews and Weather services",
+        "~ App makes 4 calls per screen"
+      ],
+      "metrics": {
+        "trips": 4,
+        "payload": "64 KB",
+        "screenMs": 1500,
+        "unused": 70
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "trail detail",
+                "tone": "paper",
+                "icon": "map"
+              }
+            ]
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "app",
+            "to": "trails",
+            "pts": [
+              "app",
+              "trails"
+            ],
+            "label": "1 · /trails/42",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "a2": {
+            "from": "app",
+            "to": "people",
+            "pts": [
+              "app",
+              "people"
+            ],
+            "label": "2 · /users/7",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "a3": {
+            "from": "app",
+            "to": "reviews",
+            "pts": [
+              "app",
+              "reviews"
+            ],
+            "label": "3 · /reviews",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "a4": {
+            "from": "app",
+            "to": "weather",
+            "pts": [
+              "app",
+              "weather"
+            ],
+            "label": "4 · /weather",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "a1",
+                "a2",
+                "a3",
+                "a4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.1,
+            "speed": 0.55
+          }
+        ]
+      }
+    },
+    {
+      "short": "Round trips",
+      "chapter": "insight",
+      "title": "Latency beats bandwidth",
+      "body": [
+        "On a phone, the cost of a request is mostly the <span class=\"term\">round trip</span>: radio wake-up, the signal travelling to a tower and on to the data center and back. A weak 3G link can add 300–400 ms per trip before a single byte of data arrives.",
+        "Four sequential round trips cost four times that wait. Shaving bytes barely matters; removing trips does."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Design mobile APIs around <b>one round trip per screen</b>. Data-center hops between your own services cost ~1 ms; the phone's hop costs hundreds."
+      },
+      "changes": [
+        "+ Round-trip budget card"
+      ],
+      "metrics": {
+        "trips": 4,
+        "payload": "64 KB",
+        "screenMs": 1500,
+        "unused": 70
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "1 bar of signal",
+                "tone": "amber",
+                "icon": "signal"
+              }
+            ]
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Time spent waiting",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Wi-Fi · 4 × 25 ms",
+                "note": "100 ms",
+                "to": 0.07,
+                "tone": "green"
+              },
+              {
+                "label": "City 4G · 4 × 90 ms",
+                "note": "360 ms",
+                "to": 0.26,
+                "tone": "amber"
+              },
+              {
+                "label": "Trailhead 3G · 4 × 350 ms",
+                "note": "1.4 s",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "# bytes are small; the round trips dominate"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "app",
+            "to": "trails",
+            "pts": [
+              "app",
+              "trails"
+            ],
+            "label": "1 · /trails/42",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "a2": {
+            "from": "app",
+            "to": "people",
+            "pts": [
+              "app",
+              "people"
+            ],
+            "label": "2 · /users/7",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "a3": {
+            "from": "app",
+            "to": "reviews",
+            "pts": [
+              "app",
+              "reviews"
+            ],
+            "label": "3 · /reviews",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "a4": {
+            "from": "app",
+            "to": "weather",
+            "pts": [
+              "app",
+              "weather"
+            ],
+            "label": "4 · /weather",
+            "heads": "both",
+            "labelAt": 0.7
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "a1",
+                "a2",
+                "a3",
+                "a4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.1,
+            "speed": 0.55
+          }
+        ]
+      }
+    },
+    {
+      "short": "Screen API",
+      "chapter": "solution",
+      "title": "Let the server do the running around",
+      "body": [
+        "A <span class=\"term\">backend for frontend</span> (BFF) is a thin API shaped like the app's screens. The phone makes one call; the BFF fans out to Trails, Users, Reviews and Weather inside the data center, where each hop takes a millisecond or two, and returns exactly what the screen draws.",
+        "The cost: every new screen means BFF work, and a web app and a phone app often end up with a BFF each."
+      ],
+      "changes": [
+        "+ Screen API (BFF) in front of the services",
+        "~ 4 phone round trips → 1"
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "22 KB",
+        "screenMs": 420,
+        "unused": 30
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "trail detail",
+                "tone": "paper",
+                "icon": "map"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "orange",
+            "glyph": "layers",
+            "label": [
+              "Screen",
+              "API"
+            ],
+            "sub": "backend for frontend"
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "GET /screens/trail/42",
+            "heads": "both",
+            "labelTone": "green"
+          },
+          "b1": {
+            "from": "bff",
+            "to": "trails",
+            "pts": [
+              "bff",
+              "trails"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "bff",
+            "to": "people",
+            "pts": [
+              "bff",
+              "people"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "bff",
+            "to": "reviews",
+            "pts": [
+              "bff",
+              "reviews"
+            ],
+            "heads": "both"
+          },
+          "b4": {
+            "from": "bff",
+            "to": "weather",
+            "pts": [
+              "bff",
+              "weather"
+            ],
+            "heads": "both"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 0.55,
+            "hold": 0.7
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "b3"
+                ]
+              },
+              {
+                "path": [
+                  "b4"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Trailmix app"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Screen API",
+            "sub": "backend for frontend"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "trails DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "GraphQL",
+      "chapter": "technique",
+      "title": "The client writes the order",
+      "body": [
+        "<span class=\"term\">GraphQL</span> turns the BFF idea into a general tool. The server publishes a typed schema of everything it knows; the client sends a query naming exactly the fields it wants, through one endpoint. Resolvers on the server fetch each piece.",
+        "No over-fetching, no under-fetching, and front-end teams can change a screen without waiting for a new endpoint."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "The bill comes later: one POST endpoint defeats ordinary HTTP caching, naive resolvers cause N+1 queries (batch them), and a hostile query can be enormous — enforce depth and cost limits."
+      },
+      "changes": [
+        "~ Screen API → GraphQL endpoint",
+        "~ Response carries only requested fields"
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "6 KB",
+        "screenMs": 330,
+        "unused": 0
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "trail detail",
+                "tone": "paper",
+                "icon": "map"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "purple",
+            "glyph": "braces",
+            "label": [
+              "GraphQL"
+            ],
+            "sub": "one endpoint"
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The app asks for a shape",
+            "icon": "braces",
+            "lines": [
+              "trail(id: 42) { name  km  climbM }",
+              "  author { name }",
+              "  reviews(last: 3) { stars  text }",
+              "  forecast { tempC  rainPct }",
+              "= one trip, 6 KB, nothing unused"
+            ]
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "POST /graphql",
+            "heads": "both",
+            "labelTone": "green"
+          },
+          "b1": {
+            "from": "bff",
+            "to": "trails",
+            "pts": [
+              "bff",
+              "trails"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "bff",
+            "to": "people",
+            "pts": [
+              "bff",
+              "people"
+            ],
+            "heads": "both"
+          },
+          "b3": {
+            "from": "bff",
+            "to": "reviews",
+            "pts": [
+              "bff",
+              "reviews"
+            ],
+            "heads": "both"
+          },
+          "b4": {
+            "from": "bff",
+            "to": "weather",
+            "pts": [
+              "bff",
+              "weather"
+            ],
+            "heads": "both"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 0.55,
+            "hold": 0.7
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "b3"
+                ]
+              },
+              {
+                "path": [
+                  "b4"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 1.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "gRPC",
+      "chapter": "technique",
+      "title": "Calling a function on another machine",
+      "body": [
+        "Between your own services, a <span class=\"term\">remote procedure call</span> style often fits better than resources. With <span class=\"term\">gRPC</span> you describe functions and messages in a <code>.proto</code> file; tools generate typed client and server code, and calls travel as compact binary over HTTP/2.",
+        "You get strict contracts, smaller payloads, multiplexed connections, deadlines and streaming. Browsers can't speak it natively, so it usually lives behind the BFF or GraphQL layer."
+      ],
+      "changes": [
+        "~ Internal calls now gRPC over HTTP/2",
+        "~ Payloads ~3.5× smaller"
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "6 KB",
+        "screenMs": 300,
+        "unused": 0
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "trail detail",
+                "tone": "paper",
+                "icon": "map"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "purple",
+            "glyph": "braces",
+            "label": [
+              "GraphQL"
+            ],
+            "sub": "one endpoint",
+            "tags": [
+              {
+                "text": "HTTP/2 · protobuf",
+                "tone": "violet",
+                "icon": "code"
+              }
+            ]
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          },
+          "card": {
+            "type": "panel",
+            "title": "One review, two encodings",
+            "icon": "code",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "JSON text",
+                "note": "412 B",
+                "to": 1,
+                "tone": "amber"
+              },
+              {
+                "label": "Protobuf binary",
+                "note": "118 B",
+                "to": 0.29,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": [
+              "# typed .proto contract, generated client stubs"
+            ]
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "POST /graphql",
+            "heads": "both",
+            "labelTone": "green"
+          },
+          "b1": {
+            "from": "bff",
+            "to": "trails",
+            "pts": [
+              "bff",
+              "trails"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b2": {
+            "from": "bff",
+            "to": "people",
+            "pts": [
+              "bff",
+              "people"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b3": {
+            "from": "bff",
+            "to": "reviews",
+            "pts": [
+              "bff",
+              "reviews"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b4": {
+            "from": "bff",
+            "to": "weather",
+            "pts": [
+              "bff",
+              "weather"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 0.55,
+            "hold": 0.7
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "b3"
+                ]
+              },
+              {
+                "path": [
+                  "b4"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 1.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Versioning",
+      "chapter": "tradeoff",
+      "title": "Old apps never die",
+      "body": [
+        "Web pages update on refresh; installed apps don't. A year from now some hikers will still run v1, which reads <code>distance</code> in miles. If you rename it to <code>distanceKm</code>, their app breaks on the trail.",
+        "So APIs evolve <span class=\"term\">additively</span>: add new fields, keep old ones until usage drops, and reserve a new version (<code>/v2</code> or a header) for changes that truly can't be additive. GraphQL marks fields <code>@deprecated</code>; protobuf never reuses a field number."
+      ],
+      "changes": [
+        "+ Old app v1 still in the wild",
+        "~ API answers both versions"
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "6 KB",
+        "screenMs": 300,
+        "unused": 0
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": -6,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "app v1 · 2024",
+            "tags": [
+              {
+                "text": "expects miles",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "purple",
+            "glyph": "braces",
+            "label": [
+              "GraphQL"
+            ],
+            "sub": "one endpoint",
+            "tags": [
+              {
+                "text": "serves both",
+                "tone": "amber",
+                "icon": "gitBranch"
+              }
+            ]
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Change without breaking",
+            "icon": "gitBranch",
+            "lines": [
+              "+ add a field (distanceKm): safe",
+              "! rename or remove a field: old apps crash",
+              "# big breaks: /v2/… path or a version header",
+              "# deprecate → watch usage → sunset date"
+            ]
+          },
+          "app2": {
+            "type": "device",
+            "form": "phone",
+            "x": 6,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "app v2",
+            "tags": [
+              {
+                "text": "expects km",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "",
+            "heads": "both",
+            "labelTone": "green"
+          },
+          "b1": {
+            "from": "bff",
+            "to": "trails",
+            "pts": [
+              "bff",
+              "trails"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b2": {
+            "from": "bff",
+            "to": "people",
+            "pts": [
+              "bff",
+              "people"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b3": {
+            "from": "bff",
+            "to": "reviews",
+            "pts": [
+              "bff",
+              "reviews"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b4": {
+            "from": "bff",
+            "to": "weather",
+            "pts": [
+              "bff",
+              "weather"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          },
+          "p2": {
+            "from": "app2",
+            "to": "bff",
+            "pts": [
+              "app2",
+              "bff"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.5,
+            "speed": 0.55,
+            "hold": 0.5
+          },
+          {
+            "route": [
+              "p2"
+            ],
+            "bounce": true,
+            "rate": 0.5,
+            "speed": 0.55,
+            "hold": 0.5
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "b3"
+                ]
+              },
+              {
+                "path": [
+                  "b4"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 1.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lost reply",
+      "chapter": "problem",
+      "title": "Did it work? Try again!",
+      "body": [
+        "A hiker books a campsite as the train enters a tunnel. The server books it and charges the card, but the reply never reaches the phone. The app times out and does the reasonable thing: it retries.",
+        "<code>POST</code> is not <span class=\"term\">idempotent</span>: doing it twice does the thing twice. Networks lose replies all the time, so any API that clients retry must handle this."
+      ],
+      "changes": [
+        "+ Bookings API",
+        "~ The retry creates a second booking"
+      ],
+      "metrics": {
+        "trips": 2,
+        "payload": "2 KB",
+        "screenMs": 2600,
+        "unused": 0
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "Book campsite",
+                "tone": "paper",
+                "icon": "ticket"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "orange",
+            "glyph": "ticket",
+            "label": [
+              "Bookings",
+              "API"
+            ]
+          },
+          "bdb": {
+            "type": "db",
+            "x": 0,
+            "y": 1,
+            "label": "bookings",
+            "tags": [
+              {
+                "text": "2 bookings",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "A tunnel, a retry",
+            "icon": "replay",
+            "lines": [
+              "1. POST /bookings → booked, card charged",
+              "2. reply lost: phone loses signal",
+              "3. app times out, sends POST again",
+              "! two bookings, charged twice"
+            ]
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "POST /bookings",
+            "heads": "both",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "bff",
+            "to": "bdb",
+            "pts": [
+              "bff",
+              "bdb"
+            ],
+            "label": "INSERT"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p",
+              "d"
+            ],
+            "rate": 0.9,
+            "speed": 0.6,
+            "pattern": [
+              "write",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Idempotency",
+      "chapter": "solution",
+      "title": "Same key, same answer",
+      "body": [
+        "The app generates an <span class=\"term\">idempotency key</span> once per user action and sends it with every attempt. The server records each key with its result; a repeat with a known key gets the stored reply instead of a new booking.",
+        "Now the client may retry freely — on timeouts, on app restarts, even days later within the key's lifetime."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Store the key and the booking in the same transaction, or a crash between the two reopens the gap."
+      },
+      "changes": [
+        "+ Seen-keys store",
+        "~ Requests carry an Idempotency-Key",
+        "~ Bookings 2 → 1"
+      ],
+      "metrics": {
+        "trips": 2,
+        "payload": "2 KB",
+        "screenMs": 2600,
+        "unused": 0
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "Book campsite",
+                "tone": "paper",
+                "icon": "ticket"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "orange",
+            "glyph": "ticket",
+            "label": [
+              "Bookings",
+              "API"
+            ]
+          },
+          "bdb": {
+            "type": "db",
+            "x": 0,
+            "y": 1,
+            "label": "bookings",
+            "tags": [
+              {
+                "text": "1 booking",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Idempotency key",
+            "icon": "key",
+            "lines": [
+              "app makes a key once: 7f3c-…",
+              "new key → book, store the reply",
+              "same key again → return stored reply",
+              "= retry as often as you like",
+              "# GET, PUT, DELETE are idempotent by design"
+            ]
+          },
+          "keys": {
+            "type": "block",
+            "x": -8,
+            "y": -12,
+            "s": 3.2,
+            "color": "orange",
+            "glyph": "key",
+            "label": [
+              "Seen",
+              "keys"
+            ],
+            "h": 34,
+            "sub": "24 h TTL"
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "POST + Idempotency-Key",
+            "heads": "both",
+            "labelTone": "green"
+          },
+          "d": {
+            "from": "bff",
+            "to": "bdb",
+            "pts": [
+              "bff",
+              "bdb"
+            ],
+            "label": "INSERT"
+          },
+          "k": {
+            "from": "bff",
+            "to": "keys",
+            "pts": [
+              "bff",
+              "keys"
+            ],
+            "label": "key seen?",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p",
+              "k"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "speed": 0.6,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "d"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Pick the style per hop",
+      "body": [
+        "<table class=\"compare numbers\"><thead><tr><th>Style</th><th>Best at</th></tr></thead><tbody><tr><td>REST</td><td>public APIs, cacheable reads, simple CRUD</td></tr><tr><td>Screen API / GraphQL</td><td>phone and web clients — one trip per screen</td></tr><tr><td>gRPC</td><td>service-to-service: typed, binary, streaming</td></tr></tbody></table>",
+        "<ul class=\"takeaways\"><li>Over-fetching wastes bytes; under-fetching wastes round trips — on mobile the trips hurt more.</li><li>Evolve APIs additively; old clients live for years.</li><li>Anything a client may retry needs an idempotency story.</li></ul>"
+      ],
+      "metrics": {
+        "trips": 1,
+        "payload": "6 KB",
+        "screenMs": 300,
+        "unused": 0
+      },
+      "scene": {
+        "entities": {
+          "app": {
+            "type": "device",
+            "form": "phone",
+            "x": 0,
+            "y": -24,
+            "w": 4,
+            "d": 4,
+            "label": "Trailmix app",
+            "tags": [
+              {
+                "text": "trail detail",
+                "tone": "paper",
+                "icon": "map"
+              }
+            ]
+          },
+          "bff": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 4,
+            "color": "purple",
+            "glyph": "braces",
+            "label": [
+              "GraphQL"
+            ],
+            "sub": "one endpoint",
+            "tags": [
+              {
+                "text": "HTTP/2 · protobuf",
+                "tone": "violet",
+                "icon": "code"
+              }
+            ]
+          },
+          "trails": {
+            "type": "block",
+            "x": -10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "map",
+            "label": [
+              "Trails"
+            ],
+            "h": 40
+          },
+          "people": {
+            "type": "block",
+            "x": -3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "user",
+            "label": [
+              "Users"
+            ],
+            "h": 40
+          },
+          "reviews": {
+            "type": "block",
+            "x": 3.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "message",
+            "label": [
+              "Reviews"
+            ],
+            "h": 40
+          },
+          "weather": {
+            "type": "block",
+            "x": 10.5,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "sun",
+            "label": [
+              "Weather"
+            ],
+            "h": 40
+          },
+          "tdb": {
+            "type": "db",
+            "x": -10.5,
+            "y": 10,
+            "label": "trails DB"
+          },
+          "keys": {
+            "type": "block",
+            "x": -8,
+            "y": -12,
+            "s": 3.2,
+            "color": "orange",
+            "glyph": "key",
+            "label": [
+              "Seen",
+              "keys"
+            ],
+            "h": 34,
+            "sub": "24 h TTL"
+          }
+        },
+        "links": {
+          "p": {
+            "from": "app",
+            "to": "bff",
+            "pts": [
+              "app",
+              "bff"
+            ],
+            "label": "POST /graphql",
+            "heads": "both",
+            "labelTone": "green"
+          },
+          "b1": {
+            "from": "bff",
+            "to": "trails",
+            "pts": [
+              "bff",
+              "trails"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b2": {
+            "from": "bff",
+            "to": "people",
+            "pts": [
+              "bff",
+              "people"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b3": {
+            "from": "bff",
+            "to": "reviews",
+            "pts": [
+              "bff",
+              "reviews"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "b4": {
+            "from": "bff",
+            "to": "weather",
+            "pts": [
+              "bff",
+              "weather"
+            ],
+            "heads": "both",
+            "label": "gRPC"
+          },
+          "td": {
+            "from": "trails",
+            "to": "tdb",
+            "pts": [
+              "trails",
+              "tdb"
+            ]
+          },
+          "k": {
+            "from": "bff",
+            "to": "keys",
+            "pts": [
+              "bff",
+              "keys"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "p"
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 0.55,
+            "hold": 0.7
+          },
+          {
+            "fanout": true,
+            "routes": [
+              {
+                "path": [
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "b2"
+                ]
+              },
+              {
+                "path": [
+                  "b3"
+                ]
+              },
+              {
+                "path": [
+                  "b4"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 0.7,
+            "speed": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 30000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Trailmix app"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Screen API",
+            "sub": "GraphQL · gRPC inside"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "trails DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1688 @@
+{
+  "id": "how-a-click-travels",
+  "title": "How a Click Travels",
+  "summary": "Follow one page load from Lisbon to Virginia, hop by hop, and see where the half-second really goes.",
+  "minutes": 10,
+  "level": "beginner",
+  "metrics": [
+    "dns",
+    "connect",
+    "request",
+    "download",
+    "total"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "ping",
+      "handshake"
+    ],
+    [
+      "heavy",
+      "response bytes"
+    ],
+    [
+      "slow",
+      "round trip"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Name the five stages of a page load",
+      "step": 0
+    },
+    {
+      "text": "See why every handshake costs a full round trip",
+      "step": 2
+    },
+    {
+      "text": "Find where the time actually goes",
+      "step": 6
+    },
+    {
+      "text": "Cut round trips with HTTP/3 and connection reuse",
+      "step": 7
+    }
+  ],
+  "steps": [
+    {
+      "short": "One click",
+      "chapter": "setup",
+      "title": "What happens when you press Enter?",
+      "body": [
+        "Ines, in Lisbon, types <code>plotline.app</code> — a garden-planning site — and presses Enter. Half a second later her garden appears. It feels like one action, but it is a <b>relay of five jobs</b>, each waiting for the one before it.",
+        "The plotline server sits in a data centre in Virginia, about 6,000 km away. Keep that distance in mind: it will matter far more than how fast the server is."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A <span class=\"term\">round trip</span> (RTT) is one message there and the reply back. Lisbon ⇄ Virginia costs about <b>90 ms</b>, however small the message."
+      },
+      "metrics": {
+        "dns": null,
+        "connect": null,
+        "request": null,
+        "download": null,
+        "total": null
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon"
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2
+          },
+          "card": {
+            "type": "panel",
+            "title": "One page load",
+            "icon": "listOrdered",
+            "lines": [
+              "1  DNS — find the address",
+              "2  TCP — open a connection",
+              "3  TLS — make it private",
+              "4  Request — ask, server works",
+              "5  Download — the bytes arrive",
+              "# each job waits for the previous one"
+            ]
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "6,000 km · ~90 ms round trip",
+            "labelTone": "amber",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.6,
+            "speed": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "DNS",
+      "chapter": "technique",
+      "title": "First, find the address",
+      "body": [
+        "Computers connect to IP addresses, not names. So the browser first asks a <span class=\"term\">DNS resolver</span> — usually run by the ISP or a public DNS service — to turn <code>plotline.app</code> into a number like <code>203.0.113.7</code>.",
+        "If the resolver hasn't seen the name recently, it asks the domain's <span class=\"term\">authoritative name server</span> and caches the reply for as long as the record's TTL allows. Both servers are near Ines, so this costs about <b>30 ms</b>."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Answers are cached at every layer — browser, operating system, resolver. On a repeat visit this step usually costs nothing."
+      },
+      "changes": [
+        "+ DNS resolver at Ines's ISP",
+        "+ Authoritative name server for plotline.app",
+        "~ Laptop now knows 203.0.113.7"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": null,
+        "request": null,
+        "download": null,
+        "total": 30
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "203.0.113.7",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "dim": 0.5
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ]
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ]
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "6,000 km · ~90 ms round trip",
+            "labelTone": "amber",
+            "style": "off"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "q1",
+              "q2"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "short": "TCP",
+      "chapter": "technique",
+      "title": "Shake hands across the ocean",
+      "body": [
+        "Next the laptop opens a <span class=\"term\">TCP connection</span> to that address. TCP promises the bytes arrive complete and in order, but first both sides agree to talk: <code>SYN</code>, <code>SYN-ACK</code>, <code>ACK</code>.",
+        "The client may send data right behind its final ACK, so the handshake costs exactly <b>one round trip — 90 ms</b>. Nothing useful has been exchanged yet."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A faster connection doesn't help here. The handshake is tiny; what it pays for is <b>distance</b>."
+      },
+      "changes": [
+        "~ DNS answer cached, resolvers idle",
+        "+ TCP handshake laptop ⇄ server",
+        "~ Connect 0 → 90 ms"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": 90,
+        "request": null,
+        "download": null,
+        "total": 120
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "203.0.113.7",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "port 443"
+              }
+            ]
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ],
+            "dim": 0.7
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ],
+            "dim": 0.7
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "SYN → SYN-ACK → ACK",
+            "labelTone": "amber"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both",
+            "style": "off"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.8,
+            "speed": 0.7
+          }
+        ]
+      }
+    },
+    {
+      "short": "TLS",
+      "chapter": "technique",
+      "title": "Agree on a secret",
+      "body": [
+        "The address is <code>https://</code>, so before any page is requested the two sides run a <span class=\"term\">TLS handshake</span>: the server proves who it is with a certificate, and both derive shared encryption keys.",
+        "With TLS 1.3 this costs <b>one more round trip</b> (TLS 1.2 needed two). Connect time is now 180 ms — and Ines still hasn't asked for her garden."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Two of the jobs so far are pure ceremony, and <b>every new connection</b> to a far-away server pays for them again."
+      },
+      "changes": [
+        "~ Wire now carries the TLS hello and certificate",
+        "+ Timeline card",
+        "~ Connect 90 → 180 ms"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": 180,
+        "request": null,
+        "download": null,
+        "total": 210
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "203.0.113.7",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "port 443"
+              },
+              {
+                "text": "certificate",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ],
+            "dim": 0.7
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ],
+            "dim": 0.7
+          },
+          "card": {
+            "type": "panel",
+            "title": "So far: 210 ms",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "DNS",
+                "note": "30 ms",
+                "from": 0,
+                "to": 0.054,
+                "tone": "blue"
+              },
+              {
+                "label": "TCP handshake",
+                "note": "90 ms",
+                "from": 0.054,
+                "to": 0.214,
+                "tone": "amber"
+              },
+              {
+                "label": "TLS handshake",
+                "note": "90 ms",
+                "from": 0.214,
+                "to": 0.375,
+                "tone": "amber"
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "TLS hello · certificate · keys",
+            "labelTone": "amber"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both",
+            "style": "off"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w"
+            ],
+            "pattern": [
+              "ping",
+              "write"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "speed": 0.7
+          }
+        ]
+      }
+    },
+    {
+      "short": "Request",
+      "chapter": "technique",
+      "title": "Finally, the question",
+      "body": [
+        "Over the encrypted connection the browser sends <code>GET /garden</code>. Half a round trip to get there, half to come back: <b>90 ms</b> of travel.",
+        "In between, the server does the real work — checks the session, asks Postgres for Ines's planting beds, renders HTML. That <span class=\"term\">server time</span> is about <b>60 ms</b>, so the request phase totals 150 ms."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Those 60 ms are the only part the backend team directly controls. Hold on to that number."
+      },
+      "changes": [
+        "+ Postgres behind the web server",
+        "~ Request + server 0 → 150 ms"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": 180,
+        "request": 150,
+        "download": null,
+        "total": 360
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "203.0.113.7",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "60 ms of work",
+                "tone": "violet",
+                "icon": "cpu"
+              }
+            ]
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ],
+            "dim": 0.7
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ],
+            "dim": 0.7
+          },
+          "pg": {
+            "type": "db",
+            "x": 10,
+            "y": 14,
+            "label": "Postgres"
+          },
+          "card": {
+            "type": "panel",
+            "title": "So far: 360 ms",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "DNS",
+                "note": "30 ms",
+                "from": 0,
+                "to": 0.054,
+                "tone": "blue"
+              },
+              {
+                "label": "TCP handshake",
+                "note": "90 ms",
+                "from": 0.054,
+                "to": 0.214,
+                "tone": "amber"
+              },
+              {
+                "label": "TLS handshake",
+                "note": "90 ms",
+                "from": 0.214,
+                "to": 0.375,
+                "tone": "amber"
+              },
+              {
+                "label": "Request + server",
+                "note": "150 ms",
+                "from": 0.375,
+                "to": 0.643,
+                "tone": "violet"
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "GET /garden",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "srv",
+            "to": "pg",
+            "pts": [
+              "srv",
+              "pg"
+            ],
+            "label": "SELECT beds",
+            "heads": "both"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both",
+            "style": "off"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w",
+              "d"
+            ],
+            "bounce": true,
+            "hold": 0.3,
+            "rate": 0.9,
+            "speed": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1,
+        "rps": 2,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Ines"
+          },
+          {
+            "id": "web",
+            "kind": "api_server",
+            "label": "plotline web server",
+            "sub": "Virginia"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "web"
+          },
+          {
+            "from": "web",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Download",
+      "chapter": "technique",
+      "title": "Bytes don't arrive all at once",
+      "body": [
+        "The reply is 64 KB of HTML. A brand-new connection doesn't know how much the path can carry, so the server starts cautiously — about 14 KB — then waits for acknowledgements before sending more. This ramp-up is <span class=\"term\">slow start</span>.",
+        "The sending window roughly doubles each round trip (14 KB, then 28 KB, then the rest), so 64 KB needs about <b>two more round trips — 180 ms</b>. Bigger pages need more."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "On a fresh long-distance connection, size costs <b>round trips</b>, not just bandwidth. Trimming 30 KB can save a whole RTT."
+      },
+      "changes": [
+        "+ 64 KB response streaming back",
+        "~ Download 0 → 180 ms"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": 180,
+        "request": 150,
+        "download": 180,
+        "total": 540
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "page arriving…",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "14 → 28 → 22 KB",
+                "tone": "amber",
+                "icon": "layers"
+              }
+            ]
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ],
+            "dim": 0.7
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ],
+            "dim": 0.7
+          },
+          "pg": {
+            "type": "db",
+            "x": 10,
+            "y": 14,
+            "label": "Postgres"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Page loaded: 540 ms",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "DNS",
+                "note": "30 ms",
+                "from": 0,
+                "to": 0.054,
+                "tone": "blue"
+              },
+              {
+                "label": "TCP handshake",
+                "note": "90 ms",
+                "from": 0.054,
+                "to": 0.214,
+                "tone": "amber"
+              },
+              {
+                "label": "TLS handshake",
+                "note": "90 ms",
+                "from": 0.214,
+                "to": 0.375,
+                "tone": "amber"
+              },
+              {
+                "label": "Request + server",
+                "note": "150 ms",
+                "from": 0.375,
+                "to": 0.643,
+                "tone": "violet"
+              },
+              {
+                "label": "Download",
+                "note": "180 ms",
+                "from": 0.643,
+                "to": 0.964,
+                "tone": "green"
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "ACKs",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "srv",
+            "to": "pg",
+            "pts": [
+              "srv",
+              "pg"
+            ],
+            "label": "SELECT beds",
+            "heads": "both",
+            "style": "off"
+          },
+          "r": {
+            "from": "srv",
+            "to": "dev",
+            "pts": [
+              [
+                "srv+2.4",
+                "srv"
+              ],
+              [
+                "dev+2.4",
+                "dev"
+              ]
+            ],
+            "label": "64 KB of HTML"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both",
+            "style": "off"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r"
+            ],
+            "kind": "heavy",
+            "rate": 1.4,
+            "speed": 0.8
+          },
+          {
+            "route": [
+              "w"
+            ],
+            "kind": "ping",
+            "rate": 0.7,
+            "speed": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Time spent",
+      "chapter": "insight",
+      "title": "Where the 540 ms went",
+      "body": [
+        "Add it up: 30 ms DNS, 180 ms of handshakes, 150 ms request, 180 ms download — <b>540 ms</b>. The server's own work was 60 ms, about <b>11%</b> of the wait.",
+        "Almost everything else is light crossing an ocean: six round trips at 90 ms each. A server twice as fast saves 30 ms; removing one round trip saves 90."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "User-facing latency is mostly <b>round trips × distance</b>. To go faster, make fewer trips or shorter ones."
+      },
+      "changes": [
+        "~ Timeline regrouped: travel vs. work",
+        "~ Server work highlighted"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": 180,
+        "request": 150,
+        "download": 180,
+        "total": 540
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "page ready",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "60 ms of work",
+                "tone": "violet",
+                "icon": "cpu"
+              }
+            ]
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ],
+            "dim": 0.7
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ],
+            "dim": 0.7
+          },
+          "pg": {
+            "type": "db",
+            "x": 10,
+            "y": 14,
+            "label": "Postgres"
+          },
+          "card": {
+            "type": "panel",
+            "title": "540 ms, broken down",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "DNS",
+                "note": "30 ms",
+                "from": 0,
+                "to": 0.054,
+                "tone": "blue"
+              },
+              {
+                "label": "Handshakes",
+                "note": "180 ms",
+                "from": 0.054,
+                "to": 0.375,
+                "tone": "amber"
+              },
+              {
+                "label": "Request travel",
+                "note": "90 ms",
+                "from": 0.375,
+                "to": 0.536,
+                "tone": "amber"
+              },
+              {
+                "label": "Server work",
+                "note": "60 ms",
+                "from": 0.536,
+                "to": 0.643,
+                "tone": "violet",
+                "bold": true
+              },
+              {
+                "label": "Download",
+                "note": "180 ms",
+                "from": 0.643,
+                "to": 0.964,
+                "tone": "amber"
+              }
+            ],
+            "lines": [
+              "! 6 round trips × 90 ms = 480 ms"
+            ]
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "6 round trips × 90 ms",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "srv",
+            "to": "pg",
+            "pts": [
+              "srv",
+              "pg"
+            ],
+            "label": "SELECT beds",
+            "heads": "both",
+            "style": "off"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both",
+            "style": "off"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.7
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fewer trips",
+      "chapter": "solution",
+      "title": "Merge the handshakes",
+      "body": [
+        "Newer protocols attack the round-trip count directly. <span class=\"term\">HTTP/3</span> runs over QUIC, which performs the transport and encryption handshakes <b>together, in one round trip</b>.",
+        "On a first visit, connect drops from 180 to 90 ms and the page lands in 450 ms. Returning clients can even send their first request with zero handshake round trips."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Zero-round-trip (0-RTT) data can be replayed by an attacker, so servers accept it only for safe requests such as plain GETs."
+      },
+      "changes": [
+        "~ TCP + TLS handshakes merged (QUIC)",
+        "~ Connect 180 → 90 ms",
+        "~ Total 540 → 450 ms"
+      ],
+      "metrics": {
+        "dns": 30,
+        "connect": 90,
+        "request": 150,
+        "download": 180,
+        "total": 450
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "HTTP/3",
+                "tone": "violet",
+                "icon": "zap"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "QUIC · 1 RTT",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "res": {
+            "type": "block",
+            "x": 11,
+            "y": -9,
+            "s": 4,
+            "h": 40,
+            "color": "yellow",
+            "glyph": "globe",
+            "label": [
+              "DNS",
+              "resolver"
+            ],
+            "dim": 0.7
+          },
+          "ns": {
+            "type": "block",
+            "x": 20,
+            "y": -1,
+            "s": 4,
+            "h": 40,
+            "color": "purple",
+            "glyph": "signpost",
+            "label": [
+              "Name",
+              "server"
+            ],
+            "dim": 0.7
+          },
+          "pg": {
+            "type": "db",
+            "x": 10,
+            "y": 14,
+            "label": "Postgres"
+          },
+          "card": {
+            "type": "panel",
+            "title": "First visit: 450 ms",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "DNS",
+                "note": "30 ms",
+                "from": 0,
+                "to": 0.054,
+                "tone": "blue"
+              },
+              {
+                "label": "QUIC handshake",
+                "note": "90 ms",
+                "from": 0.054,
+                "to": 0.214,
+                "tone": "green",
+                "bold": true
+              },
+              {
+                "label": "Request + server",
+                "note": "150 ms",
+                "from": 0.214,
+                "to": 0.482,
+                "tone": "violet"
+              },
+              {
+                "label": "Download",
+                "note": "180 ms",
+                "from": 0.482,
+                "to": 0.804,
+                "tone": "amber"
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "QUIC: transport + TLS in 1 RTT",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "srv",
+            "to": "pg",
+            "pts": [
+              "srv",
+              "pg"
+            ],
+            "label": "SELECT beds",
+            "heads": "both"
+          },
+          "q1": {
+            "from": "dev",
+            "to": "res",
+            "pts": [
+              "dev",
+              "res"
+            ],
+            "label": "plotline.app = ?",
+            "heads": "both",
+            "style": "off"
+          },
+          "q2": {
+            "from": "res",
+            "to": "ns",
+            "pts": [
+              "res",
+              "ns"
+            ],
+            "label": "not cached → ask",
+            "heads": "both",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w",
+              "d"
+            ],
+            "bounce": true,
+            "hold": 0.3,
+            "rate": 0.9,
+            "speed": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Second click",
+      "chapter": "solution",
+      "title": "The second click is cheaper",
+      "body": [
+        "Ines clicks through to her seed list. The address is already in her browser's DNS cache, and the connection is still open — browsers keep it alive and <span class=\"term\">reuse</span> it. DNS and connect both drop to <b>zero</b>.",
+        "The sending window is already wide open too, so the next 64 KB arrives in about one round trip. Total: <b>240 ms</b>, under half the first visit."
+      ],
+      "changes": [
+        "- DNS servers (answer cached in the browser)",
+        "~ Connection reused (keep-alive)",
+        "~ Total 450 → 240 ms"
+      ],
+      "metrics": {
+        "dns": 0,
+        "connect": 0,
+        "request": 150,
+        "download": 90,
+        "total": 240
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "connection open",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2,
+            "tags": [
+              {
+                "text": "same connection",
+                "tone": "green",
+                "icon": "network"
+              }
+            ]
+          },
+          "pg": {
+            "type": "db",
+            "x": 10,
+            "y": 14,
+            "label": "Postgres"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Second click: 240 ms",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "DNS",
+                "note": "0 ms · reused",
+                "from": 0,
+                "to": 0,
+                "tone": "blue"
+              },
+              {
+                "label": "Connect",
+                "note": "0 ms · reused",
+                "from": 0,
+                "to": 0,
+                "tone": "green"
+              },
+              {
+                "label": "Request + server",
+                "note": "150 ms",
+                "from": 0,
+                "to": 0.268,
+                "tone": "violet"
+              },
+              {
+                "label": "Download",
+                "note": "90 ms",
+                "from": 0.268,
+                "to": 0.429,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "GET /seeds (reused)",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "srv",
+            "to": "pg",
+            "pts": [
+              "srv",
+              "pg"
+            ],
+            "label": "SELECT seeds",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w",
+              "d"
+            ],
+            "bounce": true,
+            "hold": 0.3,
+            "rate": 1.1,
+            "speed": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 1,
+        "rps": 2,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Ines"
+          },
+          {
+            "id": "web",
+            "kind": "api_server",
+            "label": "plotline web server",
+            "sub": "Virginia"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "web"
+          },
+          {
+            "from": "web",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "One click, five jobs",
+      "body": [
+        "<ul class=\"takeaways\"><li>A page load is a relay: <b>DNS → TCP → TLS → request → download</b>, each waiting on the last.</li><li>Every handshake costs a full round trip, and distance sets the price of a round trip.</li><li>Server work is often a small slice of what the user waits for.</li><li>Go faster with <b>fewer trips</b> (connection reuse, HTTP/3, caching) or <b>shorter trips</b> (servers closer to users).</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "One user is fast. Next: what happens when thousands of them arrive at once?"
+      },
+      "metrics": {
+        "dns": 0,
+        "connect": 0,
+        "request": 150,
+        "download": 90,
+        "total": 240
+      },
+      "scene": {
+        "entities": {
+          "dev": {
+            "type": "device",
+            "x": 0,
+            "y": -14,
+            "label": "Ines · Lisbon",
+            "tags": [
+              {
+                "text": "connection open",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "srv": {
+            "type": "block",
+            "x": 0,
+            "y": 12,
+            "s": 4.4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "plotline",
+              "web server"
+            ],
+            "sub": "Virginia, US",
+            "cpu": 0.2
+          },
+          "pg": {
+            "type": "db",
+            "x": 10,
+            "y": 14,
+            "label": "Postgres"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Same page, three ways",
+            "icon": "timer",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "First visit · HTTP/2",
+                "note": "540 ms",
+                "to": 0.964,
+                "tone": "red"
+              },
+              {
+                "label": "First visit · HTTP/3",
+                "note": "450 ms",
+                "to": 0.804,
+                "tone": "amber"
+              },
+              {
+                "label": "Second click",
+                "note": "240 ms",
+                "to": 0.429,
+                "tone": "green",
+                "bold": true
+              }
+            ],
+            "lines": []
+          }
+        },
+        "links": {
+          "w": {
+            "from": "dev",
+            "to": "srv",
+            "pts": [
+              "dev",
+              "srv"
+            ],
+            "heads": "both",
+            "label": "6,000 km · ~90 ms round trip",
+            "labelTone": "amber"
+          },
+          "d": {
+            "from": "srv",
+            "to": "pg",
+            "pts": [
+              "srv",
+              "pg"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w",
+              "d"
+            ],
+            "bounce": true,
+            "hold": 0.3,
+            "rate": 1,
+            "speed": 0.8
+          }
+        ]
+      }
+    }
+  ]
+}

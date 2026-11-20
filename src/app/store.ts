@@ -19,6 +19,8 @@ export interface ToastState {
 
 export interface ClassroomState {
   lessonId: string | null;
+  /** Lesson whose chunk is being fetched; the current lesson stays on screen meanwhile (original: no spinner). */
+  loadingLesson: string | null;
   /** 0-based step index. */
   step: number;
   done: Set<string>;
@@ -44,6 +46,7 @@ const initialLayout = (): Layout => (document.documentElement.dataset.layout as 
 
 export const useClassroom = create<ClassroomState>(() => ({
   lessonId: null,
+  loadingLesson: null,
   step: 0,
   done: new Set(storage.get<string[]>("done", [])),
   openModule: null,
