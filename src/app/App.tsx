@@ -24,7 +24,7 @@ import {
   syncThemeColor,
   togglePause,
 } from "./controller";
-import { go, hrefFor, isLabHash, isLocked } from "./router";
+import { go, hashStep, hrefFor, isLabHash, isLocked } from "./router";
 import { getState, setState, useClassroom } from "./store";
 import { useLabRoute } from "./useHash";
 
@@ -43,7 +43,7 @@ function onKey(e: KeyboardEvent): void {
   if (!lesson) return;
   const flip = isRtl() ? -1 : 1;
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-    const n = s.step + (e.key === "ArrowRight" ? 1 : -1) * flip;
+    const n = hashStep(lesson.id, s.step) + (e.key === "ArrowRight" ? 1 : -1) * flip;
     if (n >= 0 && n < lesson.steps.length) go(lesson.id, n);
   } else if (e.key === "r" || e.key === "R") replay();
   else if (e.key === "0") fit();

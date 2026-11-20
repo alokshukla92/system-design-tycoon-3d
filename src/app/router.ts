@@ -33,6 +33,12 @@ export function resolveRoute(): RecentEntry {
   return { lessonId: defaultLessonId(), step: 0 };
 }
 
+/** Step currently in the URL for this lesson (ahead of the store until `hashchange` fires), else `fallback`. */
+export function hashStep(lessonId: string, fallback: number): number {
+  const m = HASH_RE.exec(location.hash);
+  return m && m[1] === lessonId ? Math.max(0, Number(m[2]) - 1) : fallback;
+}
+
 export function go(lessonId: string, step: number): void {
   location.hash = hrefFor(lessonId, step);
 }
