@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { setDrawer } from "../../app/controller";
 import { Icon } from "../../components/Icon";
 import { NavItems } from "../../components/Topbar";
+import { D, t } from "../../i18n";
 import { CATALOG, PALETTE_ORDER } from "../sim/catalog/components";
 import type { EventSeverity } from "../sim/types";
 import { plain } from "../model";
@@ -41,7 +42,7 @@ function Palette() {
   const from = nodes.find((n) => n.id === selectedId);
 
   return (
-    <nav className="course lab-palette" id="lab-course" aria-label="Components">
+    <nav className="course lab-palette" id="lab-course" aria-label={t("Components")}>
       {PALETTE_ORDER.map(({ category, label }) => {
         const items = Object.values(CATALOG).filter((c) => c.category === category && (!available || available.includes(c.kind)));
         if (!items.length) return null;
@@ -64,8 +65,8 @@ function Palette() {
             >
               <Icon name="chevronRight" size={15} stroke={2.2} cls="mod__chev" />
               <Folder color={CATEGORY_COLOR[category] ?? "sand"} />
-              <span className="mod__title">{label}</span>
-              <span className="mod__count">{used ? `${used} in use` : items.length}</span>
+              <span className="mod__title">{t(label)}</span>
+              <span className="mod__count">{used ? t("{n} in use", { n: used }) : items.length}</span>
             </button>
             <div className="mod__body">
               <div className="mod__clip">
@@ -74,7 +75,7 @@ function Palette() {
                     <li key={c.kind} className="lesson" data-kind={c.kind}>
                       <button
                         type="button"
-                        title={`${plain(c.description)}${from ? `\nAdds it connected from ${plain(from.data.label)}.` : ""}`}
+                        title={`${plain(c.description)}${from ? `\n${t("Adds it connected from {name}.", { name: plain(from.data.label) })}` : ""}`}
                         onClick={() => {
                           addNode(c.kind, from && from.data.kind !== "monitoring" ? from.id : null);
                           setDrawer(false);
@@ -85,7 +86,7 @@ function Palette() {
                         </span>
                         <span className="lesson__title">{c.shortName}</span>
                         <span className="lab-palette__add" aria-hidden="true">
-                          Add
+                          {t("Add")}
                         </span>
                       </button>
                     </li>
@@ -96,17 +97,17 @@ function Palette() {
           </section>
         );
       })}
-      {mode === "campaign" && <p className="lab-palette__note">More components unlock as your company grows.</p>}
+      {mode === "campaign" && <p className="lab-palette__note">{t("More components unlock as your company grows.")}</p>}
     </nav>
   );
 }
 
 const SEV: Record<EventSeverity, { label: string; tone: string; icon: string }> = {
-  info: { label: "info", tone: "blue", icon: "info" },
-  warn: { label: "warn", tone: "amber", icon: "alert" },
-  crit: { label: "alert", tone: "red", icon: "siren" },
-  resolve: { label: "resolved", tone: "green", icon: "circleCheck" },
-  mentor: { label: "mentor", tone: "violet", icon: "bot" },
+  info: { label: D("info"), tone: "blue", icon: "info" },
+  warn: { label: D("warn"), tone: "amber", icon: "alert" },
+  crit: { label: D("alert"), tone: "red", icon: "siren" },
+  resolve: { label: D("resolved"), tone: "green", icon: "circleCheck" },
+  mentor: { label: D("mentor"), tone: "violet", icon: "bot" },
 };
 
 const MENTOR_ICON = { question: "message", observation: "eye", tradeoff: "scale", praise: "sparkles" } as const;
@@ -128,23 +129,23 @@ function Feed() {
   const unread = messages.length - seenMentor;
 
   return (
-    <section className="card lab-feed" aria-label="Events and mentor">
+    <section className="card lab-feed" aria-label={t("Events and mentor")}>
       <div className="lab-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === "events"} className={tab === "events" ? "is-on" : undefined} onClick={() => setTab("events")}>
           <Icon name="radio" size={13} stroke={2} />
-          Events
+          {t("Events")}
           {events.length > 0 && <span className="lab-tabs__n">{events.length}</span>}
         </button>
         <button type="button" role="tab" aria-selected={tab === "mentor"} className={tab === "mentor" ? "is-on" : undefined} onClick={() => setTab("mentor")}>
           <Icon name="bot" size={13} stroke={2} />
-          Mentor
+          {t("Mentor")}
           {unread > 0 && <span className="lab-tabs__n lab-tabs__n--hot">{unread}</span>}
         </button>
       </div>
       <div className="lab-feed__list" ref={list}>
         {tab === "events" ? (
           events.length === 0 ? (
-            <p className="muted-copy lab-feed__empty">Incidents and alerts stream in here. Quiet… for now.</p>
+            <p className="muted-copy lab-feed__empty">{t("Incidents and alerts stream in here. Quiet… for now.")}</p>
           ) : (
             events.map((e) => {
               const m = SEV[e.severity];
@@ -154,7 +155,7 @@ function Feed() {
                     <span className="lab-event__t">t+{e.tick}m</span>
                     <span className={`lab-event__sev lab-event__sev--${m.tone}`}>
                       <Icon name={m.icon} size={10} stroke={2.4} />
-                      {m.label}
+                      {t(m.label)}
                     </span>
                   </div>
                   <div className="lab-event__title">{plain(e.title)}</div>
@@ -171,13 +172,12 @@ function Feed() {
               </span>
               <div>
                 <b>Priya</b>
-                <div className="lab-mentor__role">Staff Engineer · asks, never tells</div>
+                <div className="lab-mentor__role">{t("Staff Engineer · asks, never tells")}</div>
               </div>
             </div>
             {messages.length === 0 && (
               <p className="lab-mentor__msg">
-                “I’ll be watching your design. When I see something interesting, I’ll ask you about it. I won’t give you answers — that’s not how
-                you’ll learn this.”
+                {t("“I’ll be watching your design. When I see something interesting, I’ll ask you about it. I won’t give you answers — that’s not how you’ll learn this.”")}
               </p>
             )}
             {messages.map((m) => (
@@ -200,19 +200,19 @@ export function LabSidebar() {
   const available = availableOf({ mode, level });
   const n = available ? available.length : Object.keys(CATALOG).length - 1;
   return (
-    <aside className="sidebar lab-side" id="sidebar" aria-label="Components">
-      <nav className="drawer-nav" aria-label="Sections">
+    <aside className="sidebar lab-side" id="sidebar" aria-label={t("Components")}>
+      <nav className="drawer-nav" aria-label={t("Sections")}>
         <NavItems size={16} />
       </nav>
       <div className="tree-root">
         <Icon name="boxes" size={18} stroke={2} />
-        <span>Components</span>
-        <span className="tree-root__meta">{n} available</span>
-        <button className="drawer-close" id="drawer-close" type="button" aria-label="Close the menu" onClick={() => setDrawer(false)}>
+        <span>{t("Components")}</span>
+        <span className="tree-root__meta">{t("{n} available", { n })}</span>
+        <button className="drawer-close" id="drawer-close" type="button" aria-label={t("Close the menu")} onClick={() => setDrawer(false)}>
           <Icon name="close" size={18} stroke={2.2} />
         </button>
       </div>
-      <p className="lab-side__hint">Click to add. New blocks connect from the selected one.</p>
+      <p className="lab-side__hint">{t("Click to add. New blocks connect from the selected one.")}</p>
       <Palette />
       <Feed />
     </aside>

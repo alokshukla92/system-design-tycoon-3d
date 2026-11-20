@@ -1,6 +1,7 @@
 // Pricing plans — edit this file to change what /pricing/ shows. No checkout exists: a plan's CTA either links
 // somewhere (`href`) or shows a toast (`toast`), like the classroom's "coming soon" items.
 import { COURSE, FLAT } from "../content";
+import { D } from "../i18n";
 
 export interface PlanCta {
   label: string;
@@ -28,29 +29,32 @@ export interface Plan {
 const lessons = FLAT.length;
 const modules = COURSE.length;
 
+/** `{lessons}` / `{modules}` in feature lines. Strings are UI keys (D), translated by the pricing page. */
+export const FEATURE_VARS = { lessons, modules };
+
 export const PLANS: Plan[] = [
   {
     id: "free",
-    name: "Free",
-    price: "$0",
-    description: "Everything that exists today. No account, no card, no trial clock.",
+    name: D("Free"),
+    price: D("$0"),
+    description: D("Everything that exists today. No account, no card, no trial clock."),
     features: [
-      `All ${lessons} current lessons across ${modules} ${modules === 1 ? "module" : "modules"}`,
-      "Design Lab — a free-form sandbox to build and stress your own architecture",
-      "Practice — campaigns, incident drills and interview scenarios",
-      "Progress saved in your browser",
+      modules === 1 ? D("All {lessons} current lessons across {modules} module") : D("All {lessons} current lessons across {modules} modules"),
+      D("Design Lab — a free-form sandbox to build and stress your own architecture"),
+      D("Practice — campaigns, incident drills and interview scenarios"),
+      D("Progress saved in your browser"),
     ],
-    note: "New lessons land here first while the course is being written.",
-    cta: { label: "Start learning", href: "/" },
+    note: D("New lessons land here first while the course is being written."),
+    cta: { label: D("Start learning"), href: "/" },
   },
   {
     id: "pro",
-    name: "Pro",
-    price: "TBA",
-    description: "A paid tier is being considered. Nothing is for sale yet.",
-    features: ["Extra deep-dive lessons", "Downloadable cheatsheets", "Early access to new scenarios"],
-    note: "Plans and prices are placeholders and may change before launch.",
-    cta: { label: "Notify me", toast: "Pro is coming soon" },
+    name: D("Pro"),
+    price: D("TBA"),
+    description: D("A paid tier is being considered. Nothing is for sale yet."),
+    features: [D("Extra deep-dive lessons"), D("Downloadable cheatsheets"), D("Early access to new scenarios")],
+    note: D("Plans and prices are placeholders and may change before launch."),
+    cta: { label: D("Notify me"), toast: D("Pro is coming soon") },
     soon: true,
   },
 ];

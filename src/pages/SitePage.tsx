@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { BRAND } from "../brand";
-import { t } from "../i18n";
+import { D, t } from "../i18n";
 import { showToast } from "../app/store";
 import { Toast } from "../components/Overlays";
 import { SiteLinks } from "./SiteLinks";
+import { SiteCredit } from "../components/Credit";
 import { homeHref } from "./routes";
 import type { PageId } from "./routes";
 
@@ -20,7 +21,7 @@ function GoogleMark() {
 }
 
 /** Green "Start learning →" link (also used for plan CTAs). */
-export function StartLearning({ label = "Start learning", href = homeHref() }: { label?: string; href?: string }) {
+export function StartLearning({ label = D("Start learning"), href = homeHref() }: { label?: string; href?: string }) {
   return (
     <a className="start-learning" href={href}>
       {t(label)} <span aria-hidden="true">→</span>
@@ -92,6 +93,7 @@ export function SitePage({ page, title, heading, lead, children }: SitePageProps
       </main>
       <footer className="shell">
         <SiteLinks />
+        <SiteCredit />
       </footer>
       <Toast />
     </div>

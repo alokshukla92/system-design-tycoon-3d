@@ -1,0 +1,64 @@
+/* ── Author credit (original .credit, L2623-2672) ── */
+.credit {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-inline-start: 16px;
+  padding-block: 3px;
+  padding-inline: 3px 4px;
+  border-radius: 9px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.credit__x {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--c-fbf6ef);
+  box-shadow: 1.5px 2px 0 var(--a-25);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.credit__text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
+.credit__text small { color: var(--muted); font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; }
+.credit__text b { font-size: 12.5px; font-weight: 800; }
+.credit__text b span {
+  padding: 0 1px;
+  background: linear-gradient(transparent 58%, var(--a-8) 58%);
+  transition: background-size 0.3s;
+}
+.credit:hover .credit__x { transform: rotate(-8deg) scale(1.06); }
+.credit:hover .credit__text b span { background: linear-gradient(transparent 20%, var(--a-26) 20%); }
+.credit:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.topbar .credit { margin-inline-end: 4px; }
+.drawer-foot .credit { margin-inline-start: 0; }
+@media (width <= 639px) { .topbar .credit { display: none; } }
+@media (width < 1600px) and (width > 639px) {
+  .topbar .credit { gap: 0; margin-inline-start: 10px; }
+  .topbar .credit__text { display: none; }
+}
+
+/* Footer byline */
+.site-credit {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 4px 10px;
+  flex: 1 0 100%;
+  width: 100%;
+
+  margin-block: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.site-credit a { color: var(--ink); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+:is(.course-footer, .site-page footer) .site-credit { max-width: none; margin-block: 0; }

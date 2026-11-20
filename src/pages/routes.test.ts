@@ -17,6 +17,14 @@ describe("static page routes", () => {
     expect(pageForPath("/index.html")).toBeNull();
   });
 
+  it("accepts a locale prefix on every path", () => {
+    expect(pageForPath("/es/")).toBeNull();
+    expect(pageForPath("/zh-Hant/")).toBeNull();
+    expect(pageForPath("/ar/pricing/")).toBe("pricing");
+    expect(pageForPath("/de/nope/")).toBe("404");
+    expect(pageForPath("/xx/")).toBe("404");
+  });
+
   it("falls back to 404 for unknown paths", () => {
     expect(pageForPath("/does-not-exist")).toBe("404");
     expect(pageForPath("/pricing/extra/")).toBe("404");

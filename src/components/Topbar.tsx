@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Credit } from "./Credit";
 import { BRAND } from "../brand";
-import { AVAILABLE_LOCALES, LOCALES, getLocale, isRtl, localeById, t } from "../i18n";
+import { AVAILABLE_LOCALES, D, LOCALES, getLocale, isRtl, localeById, localeUrl, t } from "../i18n";
 import { SEARCH_SHORTCUT } from "../search";
 import { setDrawer, toggleTheme } from "../app/controller";
 import { setState, showToast, useClassroom } from "../app/store";
@@ -10,10 +11,10 @@ import { useLabRoute } from "../app/useHash";
 import { Icon } from "./Icon";
 
 export const NAV = [
-  { key: "Learn", icon: "book", soon: "" },
-  { key: "Practice", icon: "settings", soon: "" },
-  { key: "Design Lab", icon: "window", soon: "" },
-  { key: "Cheatsheets", icon: "sheets", soon: "Cheatsheets are coming soon" },
+  { key: D("Learn"), icon: "book", soon: "" },
+  { key: D("Practice"), icon: "settings", soon: "" },
+  { key: D("Design Lab"), icon: "window", soon: "" },
+  { key: D("Cheatsheets"), icon: "sheets", soon: D("Cheatsheets are coming soon") },
 ] as const;
 
 /** Nav section for the current route. */
@@ -120,6 +121,7 @@ export function Topbar({ onSearch }: { onSearch: () => void }) {
       </button>
       <LangMenu />
       <ThemeButton />
+      <Credit />
       <div id="course-account">
         <button
           type="button"
@@ -149,8 +151,8 @@ function ThemeButton() {
       className="theme-btn"
       id="theme-btn"
       type="button"
-      aria-label={t(dark ? "Switch to light theme" : "Switch to dark theme")}
-      title={t(dark ? "Light theme" : "Dark theme")}
+      aria-label={dark ? t("Switch to light theme") : t("Switch to dark theme")}
+      title={dark ? t("Light theme") : t("Dark theme")}
       onClick={(e) => toggleTheme(e.currentTarget)}
     >
       <Icon name={dark ? "sun" : "moon"} size={16} stroke={2} />
@@ -197,6 +199,8 @@ function LangMenu() {
     setState({ langOpen: false });
     if (id === getLocale()) return;
     if (!AVAILABLE_LOCALES.includes(id)) showToast(t("{name} is coming soon", { name: localeById(id).native }), "globe");
+    // Original ug(): same page + hash under the new locale prefix (en = "/"), as a full navigation.
+    else location.assign(localeUrl(id));
   };
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -226,7 +230,7 @@ function LangMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls="lang-menu"
-        aria-label={t("Language: {name}", { name: current.english })}
+        aria-label={t("Language: {name}", { name: current.native })}
         onClick={() => setState({ langOpen: !open })}
       >
         <Icon name="globe" size={16} stroke={2} />

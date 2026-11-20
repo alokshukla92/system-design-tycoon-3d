@@ -19,7 +19,7 @@ Engine harness (dev only): `http://localhost:5173/engine-harness.html`.
 | `src/app/`, `src/components/`, `src/styles/` | Chrome, controller, store, router, CSS (docs 02–04, 06, 07) |
 | `src/search/` | Search index + ⌘K modal (doc 07 §6) |
 | `src/content/` | Course, registries, `lessons/*.json` (docs 11, 12) |
-| `src/i18n/` | Strings + locale/RTL plumbing (en only) |
+| `src/i18n/` | UI strings (`en.ts` key list), translator, URL-prefix locale switching, lazy `locales/<id>.ts` for 20 languages |
 | `src/icons.ts` | Icon registry; markup in generated `icons.data.ts` |
 
 ## Scripts
@@ -52,6 +52,29 @@ The system-design simulator game is ported under `src/lab/` and rendered with th
   - `update(scene)` applies property changes in place without re-running the transition.
   - `select(id)` highlights an entity.
   - `onPick(cb)` reports clicks on entities.
+
+## Translations
+
+The UI chrome is translated into 20 languages (`src/i18n/LOCALES`). Chrome means buttons, labels, tooltips, aria-labels, toasts, dialogs, chapter/callout/legend/metric labels, search, the Lab and Practice UI, and static-page nav and headings.
+
+- **Switching works like the original.** The locale is the URL's first path segment (`/de/#/…`, `/ar/pricing/`), and English has no prefix. There is no storage key, so the URL is the source of truth.
+  - Picking a language in the topbar menu does a full navigation to the same page under the new prefix.
+  - The inline script in `index.html` sets `<html lang dir>` before paint. `ar` and `he` are `dir="rtl"`; layout mirrors through CSS logical properties, and step arrows flip in the controller.
+  - `main.tsx` awaits `loadLocale()` before rendering, then configures the metric formatter and the engine locale (`setEngineLocale`).
+- **Keys are the English strings.** Use `t("Back")` or `t("Step {n} of {total}", { n, total })` at render time. For module-level labels, use `D("…")` to declare and `tr(x)` to render. A missing key falls back to English.
+- **Locale files.** Each locale is `src/i18n/locales/<id>.ts`, typed `Messages`, so it must contain exactly the English key set. Each one is lazy-loaded into its own chunk, which keeps the main bundle unchanged.
+- **Tests.** `src/i18n/i18n.test.ts` checks four things:
+  - every `t`/`D` literal is in `en.ts`;
+  - every locale has the same keys;
+  - every locale keeps the same `{placeholders}` and `<b>` tags;
+  - URL/path helpers work.
+- **To add a string:** use it via `t()`, add it to `EN_KEYS` in `en.ts`, and add it to each locale. `tsc` fails until you do.
+- **Stays English (falls back by design):**
+  - lesson bodies and module/lesson titles;
+  - simulator game text from `src/lab/sim/**` (level and incident briefs, mentor lines, catalog, results and verdicts);
+  - workload labels;
+  - search suggestions;
+  - the long-form prose on the About, Contact, Privacy and Terms pages. Their headings and nav are translated.
 
 ## Static pages & course overview
 

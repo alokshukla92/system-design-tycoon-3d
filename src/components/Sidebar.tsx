@@ -1,4 +1,5 @@
 import { COURSE, FLAT } from "../content";
+import { Credit } from "./Credit";
 import { t } from "../i18n";
 import type { Module } from "../types/lesson";
 import { setDrawer } from "../app/controller";
@@ -151,6 +152,7 @@ export function Sidebar() {
           <Icon name="globe" size={16} stroke={2} />
           <span className="lang__code">{localeById(getLocale()).native}</span>
         </button>
+        <Credit />
       </div>
     </aside>
   );

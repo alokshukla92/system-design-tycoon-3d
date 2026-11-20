@@ -5,6 +5,7 @@ import { setDrawer } from "../../app/controller";
 import type { LabRoute } from "../../app/router";
 import { getState, showToast } from "../../app/store";
 import { DrawerBackdrop } from "../../components/Sidebar";
+import { t } from "../../i18n";
 import { LEVELS } from "../sim/game/levels";
 import {
   TICK_MS,
@@ -39,7 +40,7 @@ function syncRoute(route: PlayRoute): void {
   let ok = false;
   if (route.mode === "campaign") {
     if (LEVELS.some((l) => l.id === route.id) && !unlockedLevels(s.progress).includes(route.id)) {
-      showToast("That level is still locked — pass the one before it first.", "lock");
+      showToast(t("That level is still locked — pass the one before it first."), "lock");
       location.replace(`#/practice/campaign`);
       return;
     }
@@ -47,7 +48,7 @@ function syncRoute(route: PlayRoute): void {
   } else if (route.mode === "incident") ok = startIncident(route.id);
   else ok = startInterview(route.id);
   if (!ok) {
-    showToast("That scenario could not be found.", "alert");
+    showToast(t("That scenario could not be found."), "alert");
     location.replace(`#/practice/${route.mode}`);
   }
 }

@@ -5,6 +5,7 @@ import type { PracticeTab } from "../../app/router";
 import { Icon } from "../../components/Icon";
 import { DrawerBackdrop } from "../../components/Sidebar";
 import { NavItems } from "../../components/Topbar";
+import { D, t } from "../../i18n";
 import { INCIDENTS } from "../sim/game/incidents";
 import { INTERVIEWS } from "../sim/game/interviews";
 import { LEVELS } from "../sim/game/levels";
@@ -27,35 +28,35 @@ function play(tab: PracticeTab, id: string): void {
 
 function PracticeSidebar({ tab }: { tab: PracticeTab }) {
   const progress = useLab((s) => s.progress);
-  const total = TABS.reduce((a, t) => a + ITEMS[t].length, 0);
-  const done = TABS.reduce((a, t) => a + passedIn(t, progress), 0);
+  const total = TABS.reduce((a, m) => a + ITEMS[m].length, 0);
+  const done = TABS.reduce((a, m) => a + passedIn(m, progress), 0);
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
-    <aside className="sidebar lab-side" id="sidebar" aria-label="Practice">
-      <nav className="drawer-nav" aria-label="Sections">
+    <aside className="sidebar lab-side" id="sidebar" aria-label={t("Practice")}>
+      <nav className="drawer-nav" aria-label={t("Sections")}>
         <NavItems size={16} />
       </nav>
       <div className="tree-root">
         <Icon name="flag" size={18} stroke={2} />
-        <span>Practice</span>
-        <span className="tree-root__meta">{total} scenarios</span>
-        <button className="drawer-close" id="drawer-close" type="button" aria-label="Close the menu" onClick={() => setDrawer(false)}>
+        <span>{t("Practice")}</span>
+        <span className="tree-root__meta">{t("{n} scenarios", { n: total })}</span>
+        <button className="drawer-close" id="drawer-close" type="button" aria-label={t("Close the menu")} onClick={() => setDrawer(false)}>
           <Icon name="close" size={18} stroke={2.2} />
         </button>
       </div>
-      <nav className="course lab-modes" id="lab-course" aria-label="Practice modes">
+      <nav className="course lab-modes" id="lab-course" aria-label={t("Practice modes")}>
         <ul className="mod__lessons lab-modes__list">
-          {TABS.map((t) => {
-            const on = t === tab;
+          {TABS.map((m) => {
+            const on = m === tab;
             return (
-              <li key={t} className={on ? "lesson is-current" : "lesson"}>
-                <a href={`#/practice/${t}`} className={on ? "btn-pop" : undefined} aria-current={on ? "page" : undefined} onClick={() => setDrawer(false)}>
+              <li key={m} className={on ? "lesson is-current" : "lesson"}>
+                <a href={`#/practice/${m}`} className={on ? "btn-pop" : undefined} aria-current={on ? "page" : undefined} onClick={() => setDrawer(false)}>
                   <span className="lesson__markbox">
-                    <Icon name={MODES[t].icon} size={15} stroke={1.8} cls="lesson__mark" />
+                    <Icon name={MODES[m].icon} size={15} stroke={1.8} cls="lesson__mark" />
                   </span>
-                  <span className="lesson__title">{MODES[t].label}</span>
+                  <span className="lesson__title">{t(MODES[m].label)}</span>
                   <span className="mod__count">
-                    {passedIn(t, progress)}/{ITEMS[t].length}
+                    {passedIn(m, progress)}/{ITEMS[m].length}
                   </span>
                 </a>
               </li>
@@ -65,15 +66,15 @@ function PracticeSidebar({ tab }: { tab: PracticeTab }) {
         <a className="lab-modes__lab" href="#/lab" onClick={() => setDrawer(false)}>
           <Icon name="window" size={16} stroke={1.8} />
           <span>
-            <b>Design Lab</b>
-            <small>Free-form sandbox, no goals</small>
+            <b>{t("Design Lab")}</b>
+            <small>{t("Free-form sandbox, no goals")}</small>
           </span>
           <Icon name="arrowRight" size={15} stroke={2} />
         </a>
       </nav>
       <section className="card progress is-open" id="progress">
         <div className="progress__head">
-          <span className="eyebrow">Progress</span>
+          <span className="eyebrow">{t("Progress")}</span>
           <span className="progress__pct">
             {done} / {total}
           </span>
@@ -84,17 +85,17 @@ function PracticeSidebar({ tab }: { tab: PracticeTab }) {
               <span style={{ width: `${Math.max(pct, 2)}%` }} />
             </div>
             <ul className="progress__list">
-              {TABS.map((t) => {
-                const n = passedIn(t, progress);
-                const all = n === ITEMS[t].length;
+              {TABS.map((m) => {
+                const n = passedIn(m, progress);
+                const all = n === ITEMS[m].length;
                 return (
-                  <li key={t}>
+                  <li key={m}>
                     <span className={`check${all ? " is-on" : n > 0 ? " is-part" : ""}`}>
                       <Icon name="check" size={11} stroke={3} />
                     </span>
-                    <span className="progress__label">{MODES[t].label}</span>
+                    <span className="progress__label">{t(MODES[m].label)}</span>
                     <span className="progress__count">
-                      {n}/{ITEMS[t].length}
+                      {n}/{ITEMS[m].length}
                     </span>
                   </li>
                 );
@@ -112,7 +113,7 @@ function Score({ entry }: { entry: { passed: boolean; overall: number } | undefi
   return (
     <span className={entry.passed ? "lab-badge lab-badge--green" : "lab-badge"}>
       <Icon name={entry.passed ? "circleCheck" : "replay"} size={12} stroke={2.2} />
-      {entry.passed ? `Passed · ${entry.overall}` : `Best ${entry.overall}`}
+      {entry.passed ? t("Passed · {n}", { n: entry.overall }) : t("Best {n}", { n: entry.overall })}
     </span>
   );
 }
@@ -139,11 +140,11 @@ function Cards({ tab }: { tab: PracticeTab }) {
               <div className="lab-card__foot">
                 <span className="lab-card__meta">
                   <Icon name="users" size={13} stroke={2} />
-                  {fmtNum(l.users)} → {fmtNum(l.usersEnd)} users
+                  {t("{from} → {to} users", { from: fmtNum(l.users), to: fmtNum(l.usersEnd) })}
                 </span>
                 <button type="button" className={open && !done?.passed ? "btn-pop lab-play" : "btn-ghost lab-play"} disabled={!open} onClick={() => play("campaign", l.id)}>
                   <Icon name={open ? (done?.passed ? "replay" : "play") : "lock"} size={14} stroke={2.2} />
-                  {!open ? "Locked" : done?.passed ? "Replay" : "Play"}
+                  {!open ? t("Locked") : done?.passed ? t("Replay") : t("Play")}
                 </button>
               </div>
             </article>
@@ -164,7 +165,7 @@ function Cards({ tab }: { tab: PracticeTab }) {
               <div className="lab-card__titles">
                 <h3>{plain(inc.title)}</h3>
                 <p>
-                  {plain(inc.company)} · {fmtNum(inc.users)} users
+                  {plain(inc.company)} · {t("{n} users", { n: fmtNum(inc.users) })}
                 </p>
               </div>
               <Score entry={progress[inc.id]} />
@@ -173,11 +174,11 @@ function Cards({ tab }: { tab: PracticeTab }) {
             <div className="lab-card__foot">
               <span className="lab-card__meta lab-card__meta--red">
                 <Icon name="dollar" size={13} stroke={2} />
-                −${inc.revenuePerTick.toLocaleString()}/min
+                {t("−{amount}/min", { amount: `$${inc.revenuePerTick.toLocaleString()}` })}
               </span>
               <button type="button" className="btn-pop lab-play lab-play--danger" onClick={() => play("incident", inc.id)}>
                 <Icon name="siren" size={14} stroke={2.2} />
-                Respond
+                {t("Respond")}
               </button>
             </div>
           </article>
@@ -195,7 +196,7 @@ function Cards({ tab }: { tab: PracticeTab }) {
             </span>
             <div className="lab-card__titles">
               <h3>{plain(iv.title)}</h3>
-              <p>up to {fmtNum(iv.tiers[iv.tiers.length - 1].users)} users</p>
+              <p>{t("up to {n} users", { n: fmtNum(iv.tiers[iv.tiers.length - 1].users) })}</p>
             </div>
             <Score entry={progress[iv.id]} />
           </div>
@@ -203,11 +204,11 @@ function Cards({ tab }: { tab: PracticeTab }) {
           <div className="lab-card__foot">
             <span className="lab-card__meta">
               <Icon name="listChecks" size={13} stroke={2} />
-              {iv.requirements.length} requirements
+              {t("{n} requirements", { n: iv.requirements.length })}
             </span>
             <button type="button" className="btn-pop lab-play" onClick={() => play("interview", iv.id)}>
               <Icon name="play" size={14} stroke={2.2} />
-              Begin
+              {t("Begin")}
             </button>
           </div>
         </article>
@@ -218,28 +219,28 @@ function Cards({ tab }: { tab: PracticeTab }) {
 
 const RAIL: Record<PracticeTab, { title: string; body: string[]; tip: string }> = {
   campaign: {
-    title: "Grow a startup from 100 users to 100M",
+    title: D("Grow a startup from 100 users to 100M"),
     body: [
-      "Each level is a new chapter of the same company. Traffic ramps while you watch, scripted trouble arrives, and the run is graded against the level’s SLOs and budget.",
-      "Pass a level to unlock the next one. New components unlock as the company grows.",
+      D("Each level is a new chapter of the same company. Traffic ramps while you watch, scripted trouble arrives, and the run is graded against the level’s SLOs and budget."),
+      D("Pass a level to unlock the next one. New components unlock as the company grows."),
     ],
-    tip: "Numbers are tuned for gameplay but directionally realistic — the tradeoffs transfer to production.",
+    tip: D("Numbers are tuned for gameplay but directionally realistic — the tradeoffs transfer to production."),
   },
   incident: {
-    title: "Production is on fire",
+    title: D("Production is on fire"),
     body: [
-      "You inherit a running system in the middle of an outage. Revenue drains every minute it stays broken.",
-      "Read the events, find the cause, change the design, and hold the error rate down long enough to call it resolved.",
+      D("You inherit a running system in the middle of an outage. Revenue drains every minute it stays broken."),
+      D("Read the events, find the cause, change the design, and hold the error rate down long enough to call it resolved."),
     ],
-    tip: "Alerts show symptoms, not causes. Click blocks on the stage to see which one is actually saturated.",
+    tip: D("Alerts show symptoms, not causes. Click blocks on the stage to see which one is actually saturated."),
   },
   interview: {
-    title: "Design it, then defend it",
+    title: D("Design it, then defend it"),
     body: [
-      "No clock: design at your own pace, then submit. The design is stress-tested at every scale tier, including viral hot-key spikes.",
-      "You get a hire / no-hire verdict with strengths and the gaps an interviewer would notice.",
+      D("No clock: design at your own pace, then submit. The design is stress-tested at every scale tier, including viral hot-key spikes."),
+      D("You get a hire / no-hire verdict with strengths and the gaps an interviewer would notice."),
     ],
-    tip: "Start simple and scale the bottleneck — over-building costs points on cost and simplicity.",
+    tip: D("Start simple and scale the bottleneck — over-building costs points on cost and simplicity."),
   },
 };
 
@@ -253,27 +254,27 @@ export function PracticeView({ tab }: { tab: PracticeTab }) {
       <main className="sheet lab-sheet lab-practice">
         <div className="lesson-head lab-head" id="head">
           <div className="crumb">
-            Practice <span>/</span> {MODES[tab].label}
+            {t("Practice")} <span>/</span> {t(MODES[tab].label)}
           </div>
           <div className="lesson-head__row">
-            <h2 className="title">{MODES[tab].label}</h2>
+            <h2 className="title">{t(MODES[tab].label)}</h2>
             <div className="tags">
               <span className="tag tag--sand">
                 <Icon name={MODES[tab].icon} size={13} stroke={2} />
-                {ITEMS[tab].length} scenarios
+                {t("{n} scenarios", { n: ITEMS[tab].length })}
               </span>
               <span className="tag tag--mint">
                 <Icon name="circleCheck" size={13} stroke={2} />
-                {passedIn(tab, progress)} passed
+                {t("{n} passed", { n: passedIn(tab, progress) })}
               </span>
             </div>
           </div>
-          <p className="subtitle">{MODES[tab].desc}</p>
+          <p className="subtitle">{t(MODES[tab].desc)}</p>
           <div className="lab-tabs lab-tabs--page" role="tablist">
-            {TABS.map((t) => (
-              <a key={t} role="tab" aria-selected={t === tab} className={t === tab ? "is-on" : undefined} href={`#/practice/${t}`}>
-                <Icon name={MODES[t].icon} size={13} stroke={2} />
-                {MODES[t].label}
+            {TABS.map((m) => (
+              <a key={m} role="tab" aria-selected={m === tab} className={m === tab ? "is-on" : undefined} href={`#/practice/${m}`}>
+                <Icon name={MODES[m].icon} size={13} stroke={2} />
+                {t(MODES[m].label)}
               </a>
             ))}
           </div>
@@ -285,14 +286,14 @@ export function PracticeView({ tab }: { tab: PracticeTab }) {
       <aside className="rail lab-rail">
         <section className="card guide lab-brief" id="guide">
           <div className="guide__meta">
-            <span className="eyebrow">How it works</span>
-            <span className={`chapter chapter--${tab === "incident" ? "red" : tab === "interview" ? "violet" : "green"}`}>{MODES[tab].label}</span>
+            <span className="eyebrow">{t("How it works")}</span>
+            <span className={`chapter chapter--${tab === "incident" ? "red" : tab === "interview" ? "violet" : "green"}`}>{t(MODES[tab].label)}</span>
           </div>
           <div className="guide__content">
-            <h3 className="guide__title">{rail.title}</h3>
+            <h3 className="guide__title">{t(rail.title)}</h3>
             <div className="guide__body">
               {rail.body.map((p, i) => (
-                <p key={i}>{p}</p>
+                <p key={i}>{t(p)}</p>
               ))}
             </div>
             <div className="callout callout--tip">
@@ -300,14 +301,14 @@ export function PracticeView({ tab }: { tab: PracticeTab }) {
                 <Icon name="bulb" size={15} stroke={2} />
               </span>
               <div>
-                <div className="callout__title">Tip</div>
-                <p>{rail.tip}</p>
+                <div className="callout__title">{t("Tip")}</div>
+                <p>{t(rail.tip)}</p>
               </div>
             </div>
           </div>
           <div className="guide__nav">
             <a className="btn-pop btn-next" href="#/lab">
-              <span className="btn-next__label">Open the Design Lab</span>
+              <span className="btn-next__label">{t("Open the Design Lab")}</span>
               <Icon name="arrowRight" size={16} stroke={2.2} />
             </a>
           </div>

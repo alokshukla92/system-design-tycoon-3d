@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useClassroom } from "../../app/store";
 import { Icon } from "../../components/Icon";
 import { Engine } from "../../engine";
+import { t } from "../../i18n";
 import type { EngineApi } from "../../engine";
 import type { SLO } from "../sim/types";
 import { fmtNum, plain } from "../model";
@@ -28,14 +29,14 @@ export function LabHead() {
   const nodes = useLab((s) => s.nodes.length);
   const origin = useLab((s) => s.origin);
 
-  let crumb: React.ReactNode = "Design Lab";
-  let title = "Design Lab";
-  let subtitle = "Free-form sandbox: add components, wire them up, and run real traffic through the design.";
+  let crumb: React.ReactNode = t("Design Lab");
+  let title = t("Design Lab");
+  let subtitle = t("Free-form sandbox: add components, wire them up, and run real traffic through the design.");
   const tags: React.ReactNode[] = [];
   if (mode === "campaign" && level) {
     crumb = (
       <>
-        Practice <span>/</span> {MODES.campaign.label} <span>/</span> Level {level.number}
+        {t("Practice")} <span>/</span> {t(MODES.campaign.label)} <span>/</span> {t("Level {n}", { n: level.number })}
       </>
     );
     title = level.title;
@@ -47,13 +48,13 @@ export function LabHead() {
       </span>,
       <span className="tag tag--mint" key="d">
         <Icon name="clock" size={13} stroke={2} />
-        {level.durationTicks} min
+        {t("{n} min", { n: level.durationTicks })}
       </span>,
     );
   } else if (mode === "incident" && incident) {
     crumb = (
       <>
-        Practice <span>/</span> {MODES.incident.label}
+        {t("Practice")} <span>/</span> {t(MODES.incident.label)}
       </>
     );
     title = incident.title;
@@ -61,17 +62,17 @@ export function LabHead() {
     tags.push(
       <span className="tag tag--red" key="a">
         <Icon name="siren" size={13} stroke={2} />
-        Active incident
+        {t("Active incident")}
       </span>,
       <span className="tag tag--sand" key="r">
         <Icon name="dollar" size={13} stroke={2} />
-        −${incident.revenuePerTick.toLocaleString()}/min down
+        {t("−{amount}/min down", { amount: `$${incident.revenuePerTick.toLocaleString()}` })}
       </span>,
     );
   } else if (mode === "interview" && interview) {
     crumb = (
       <>
-        Practice <span>/</span> {MODES.interview.label}
+        {t("Practice")} <span>/</span> {t(MODES.interview.label)}
       </>
     );
     title = interview.title;
@@ -79,24 +80,24 @@ export function LabHead() {
     tags.push(
       <span className="tag tag--violet" key="t">
         <Icon name="target" size={13} stroke={2} />
-        up to {fmtNum(interview.tiers[interview.tiers.length - 1].users)} users
+        {t("up to {n} users", { n: fmtNum(interview.tiers[interview.tiers.length - 1].users) })}
       </span>,
     );
   } else if (mode === "sandbox") {
     crumb = (
       <>
-        Design Lab <span>/</span> Sandbox
+        {t("Design Lab")} <span>/</span> {t("Sandbox")}
       </>
     );
-    if (origin) subtitle = `From lesson “${origin.title}” · step ${origin.step + 1}. Tinker with it, then Launch to run live traffic through it.`;
+    if (origin) subtitle = t("From lesson “{title}” · step {n}. Tinker with it, then Launch to run live traffic through it.", { title: origin.title, n: origin.step + 1 });
     tags.push(
       <span className="tag tag--sand" key="u">
         <Icon name="users" size={13} stroke={2} />
-        {fmtNum(sandbox.users)} users
+        {t("{n} users", { n: fmtNum(sandbox.users) })}
       </span>,
       <span className="tag tag--mint" key="n">
         <Icon name="boxes" size={13} stroke={2} />
-        {nodes} blocks
+        {t("{n} blocks", { n: nodes })}
       </span>,
     );
   }
@@ -138,15 +139,15 @@ function Hud() {
   if (!m) {
     return (
       <div className="stage__hud lab-hud" id="hud">
-        <Chip k="users" icon="users" label="Users" value={fmtNum(scenarioOf(s)?.users ?? targetUsersOf(s))} />
-        <Chip k="rps" icon="activity" label="Traffic" value="–" />
-        <Chip k="p95" icon="timer" label="p95 target" value={slo ? `≤ ${slo.maxP95Ms}ms` : "–"} />
-        <Chip k="errors" icon="alert" label="Error target" value={slo ? `≤ ${(slo.maxErrorRate * 100).toFixed(1)}%` : "–"} />
-        <Chip k="avail" icon="heartPulse" label="Uptime target" value={slo ? `≥ ${slo.minAvailabilityPct}%` : "–"} />
+        <Chip k="users" icon="users" label={t("Users")} value={fmtNum(scenarioOf(s)?.users ?? targetUsersOf(s))} />
+        <Chip k="rps" icon="activity" label={t("Traffic")} value="–" />
+        <Chip k="p95" icon="timer" label={t("p95 target")} value={slo ? `≤ ${slo.maxP95Ms}ms` : "–"} />
+        <Chip k="errors" icon="alert" label={t("Error target")} value={slo ? `≤ ${(slo.maxErrorRate * 100).toFixed(1)}%` : "–"} />
+        <Chip k="avail" icon="heartPulse" label={t("Uptime target")} value={slo ? `≥ ${slo.minAvailabilityPct}%` : "–"} />
         {incident ? (
-          <Chip k="lost" icon="dollar" label="Revenue lost" value="$0" />
+          <Chip k="lost" icon="dollar" label={t("Revenue lost")} value="$0" />
         ) : (
-          <Chip k="cost" icon="dollar" label="Budget" value={slo ? `$${fmtNum(slo.maxMonthlyBudget)}/mo` : "–"} />
+          <Chip k="cost" icon="dollar" label={t("Budget")} value={slo ? t("{amount}/mo", { amount: `$${fmtNum(slo.maxMonthlyBudget)}` }) : "–"} />
         )}
       </div>
     );
@@ -157,15 +158,15 @@ function Hud() {
   const cost: Level = incident ? (s.lostRevenue > 0 ? "bad" : "good") : slo ? (m.costPerMonth > slo.maxMonthlyBudget ? "bad" : "good") : undefined;
   return (
     <div className="stage__hud lab-hud" id="hud">
-      <Chip k="users" icon="users" label="Users" value={fmtNum(m.usersNow)} />
-      <Chip k="rps" icon="activity" label="Traffic" value={`${fmtNum(m.totalRps)} rps`} />
-      <Chip k="p95" icon="timer" label="p95 latency" value={`${Math.round(m.p95LatencyMs)}ms`} level={p95} />
-      <Chip k="errors" icon="alert" label="Error rate" value={`${(m.errorRate * 100).toFixed(2)}%`} level={err} />
-      <Chip k="avail" icon="heartPulse" label="Availability" value={`${m.availabilityPct.toFixed(2)}%`} level={avail} />
+      <Chip k="users" icon="users" label={t("Users")} value={fmtNum(m.usersNow)} />
+      <Chip k="rps" icon="activity" label={t("Traffic")} value={`${fmtNum(m.totalRps)} rps`} />
+      <Chip k="p95" icon="timer" label={t("p95 latency")} value={`${Math.round(m.p95LatencyMs)}ms`} level={p95} />
+      <Chip k="errors" icon="alert" label={t("Error rate")} value={`${(m.errorRate * 100).toFixed(2)}%`} level={err} />
+      <Chip k="avail" icon="heartPulse" label={t("Availability")} value={`${m.availabilityPct.toFixed(2)}%`} level={avail} />
       {incident ? (
-        <Chip k="lost" icon="dollar" label="Revenue lost" value={`$${fmtNum(s.lostRevenue)}`} level={cost} />
+        <Chip k="lost" icon="dollar" label={t("Revenue lost")} value={`$${fmtNum(s.lostRevenue)}`} level={cost} />
       ) : (
-        <Chip k="cost" icon="dollar" label="Infra cost" value={`$${fmtNum(m.costPerMonth)}/mo`} level={cost} />
+        <Chip k="cost" icon="dollar" label={t("Infra cost")} value={t("{amount}/mo", { amount: `$${fmtNum(m.costPerMonth)}` })} level={cost} />
       )}
     </div>
   );
@@ -178,27 +179,27 @@ function Tools({ manual }: { manual: boolean }) {
   const tick = useLab((s) => s.tick);
   return (
     <div className="stage__tools">
-      <button className="tool tool--fit" type="button" hidden={!manual} title="Back to the whole diagram (0)" onClick={() => labEngine?.fit()}>
+      <button className="tool tool--fit" type="button" hidden={!manual} title={t("Back to the whole diagram (0)")} onClick={() => labEngine?.fit()}>
         <Icon name="zoomOut" size={15} stroke={2} />
-        <span>Fit</span>
+        <span>{t("Fit")}</span>
       </button>
-      <button className="tool" type="button" title="How to play" aria-label="How to play" onClick={() => setHelpOpen(true)}>
+      <button className="tool" type="button" title={t("How to play")} aria-label={t("How to play")} onClick={() => setHelpOpen(true)}>
         <Icon name="info" size={15} stroke={2} />
       </button>
       {mode === "interview" ? (
         <button className="tool is-on" type="button" id="lab-submit" onClick={submitInterview}>
           <Icon name="clipboard" size={15} stroke={2} />
-          <span>Submit design</span>
+          <span>{t("Submit design")}</span>
         </button>
       ) : running ? (
-        <button className="tool" type="button" id="lab-run" title="Pause (Space)" onClick={pause}>
+        <button className="tool" type="button" id="lab-run" title={t("Pause (Space)")} onClick={pause}>
           <Icon name="pause" size={15} stroke={2} />
-          <span>Pause</span>
+          <span>{t("Pause")}</span>
         </button>
       ) : (
-        <button className="tool is-on" type="button" id="lab-run" title="Run (Space)" disabled={phase === "debrief"} onClick={run}>
+        <button className="tool is-on" type="button" id="lab-run" title={t("Run (Space)")} disabled={phase === "debrief"} onClick={run}>
           <Icon name="play" size={15} stroke={2} />
-          <span>{tick === 0 ? "Launch" : "Resume"}</span>
+          <span>{tick === 0 ? t("Launch") : t("Resume")}</span>
         </button>
       )}
     </div>
@@ -214,27 +215,27 @@ function RunBar() {
   if (mode === "interview") {
     return (
       <div className="stage__legend lab-run">
-        <span>Design on the stage, then submit it for a stress test at every scale tier.</span>
+        <span>{t("Design on the stage, then submit it for a stress test at every scale tier.")}</span>
       </div>
     );
   }
   const finite = Number.isFinite(duration) && duration > 0;
   return (
     <div className="stage__legend lab-run">
-      <div className="lab-seg" role="group" aria-label="Speed">
+      <div className="lab-seg" role="group" aria-label={t("Speed")}>
         {([1, 2, 4] as const).map((v) => (
           <button key={v} type="button" className={v === speed ? "is-on" : undefined} aria-pressed={v === speed} onClick={() => setSpeed(v)}>
             {v}×
           </button>
         ))}
       </div>
-      <button className="lab-mini" type="button" title="Advance one minute" disabled={phase === "debrief" || phase === "running"} onClick={stepOnce}>
+      <button className="lab-mini" type="button" title={t("Advance one minute")} disabled={phase === "debrief" || phase === "running"} onClick={stepOnce}>
         <Icon name="arrowRight" size={13} stroke={2.2} />
-        Step
+        {t("Step")}
       </button>
-      <button className="lab-mini" type="button" title="Replay from the start, keeping your design" disabled={tick === 0} onClick={resetRun}>
+      <button className="lab-mini" type="button" title={t("Replay from the start, keeping your design")} disabled={tick === 0} onClick={resetRun}>
         <Icon name="replay" size={13} stroke={2.2} />
-        Reset
+        {t("Reset")}
       </button>
       {finite ? (
         <span className="lab-run__clock">
@@ -280,7 +281,7 @@ function LabCanvas({ onManual }: { onManual: (m: boolean) => void }) {
       engine.update(sceneFor(s));
       engine.select(s.selectedId ? entityId(s.selectedId) : null);
       engine.paused = !s.running;
-      engine.svg.setAttribute("aria-label", "Architecture diagram");
+      engine.svg.setAttribute("aria-label", t("Architecture diagram"));
     };
     render(useLab.getState());
     const unsub = useLab.subscribe((s, p) => {
@@ -302,7 +303,7 @@ function LabCanvas({ onManual }: { onManual: (m: boolean) => void }) {
 export function LabStage() {
   const [manual, setManual] = useState(false);
   return (
-    <section className="card stage lab-stage" aria-label="Diagram">
+    <section className="card stage lab-stage" aria-label={t("Diagram")}>
       <Hud />
       <Tools manual={manual} />
       <LabCanvas onManual={setManual} />
@@ -318,10 +319,10 @@ export function ScoreStrip() {
   if (!scores) return null;
   const ex = axis ? breakdown?.[axis] : undefined;
   return (
-    <section className="card timeline lab-scores" id="timeline" aria-label="Design scores">
+    <section className="card timeline lab-scores" id="timeline" aria-label={t("Design scores")}>
       <div className="timeline__head">
-        <span className="eyebrow">Design review</span>
-        <span className="timeline__count">{axis ? "Tap again to close" : "Tap a score to see why"}</span>
+        <span className="eyebrow">{t("Design review")}</span>
+        <span className="timeline__count">{axis ? t("Tap again to close") : t("Tap a score to see why")}</span>
       </div>
       <div className="lab-scores__row">
         {AXES.map((a) => {
@@ -336,7 +337,7 @@ export function ScoreStrip() {
               onClick={() => setAxis(axis === a.key ? null : a.key)}
             >
               <Icon name={a.icon} size={13} stroke={2} />
-              <span className="lab-score__label">{a.short}</span>
+              <span className="lab-score__label">{t(a.short)}</span>
               <span className="lab-score__v">{v}</span>
             </button>
           );
@@ -358,7 +359,7 @@ export function ScoreStrip() {
               ))}
             </ul>
           ) : (
-            <p className="muted-copy">Solid — nothing to fix on this axis.</p>
+            <p className="muted-copy">{t("Solid — nothing to fix on this axis.")}</p>
           )}
         </div>
       )}

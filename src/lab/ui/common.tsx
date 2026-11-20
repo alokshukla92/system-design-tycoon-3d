@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PracticeTab } from "../../app/router";
 import { Icon } from "../../components/Icon";
+import { D, t } from "../../i18n";
 import type { ComponentKind, Scores } from "../sim/types";
 import { plain } from "../model";
 
@@ -29,18 +30,18 @@ export const KIND_ICON: Record<ComponentKind, string> = {
 };
 
 export const MODES: Record<PracticeTab, { label: string; desc: string; icon: string; color: string }> = {
-  campaign: { label: "Startup Career", desc: "100 → 100M users", icon: "rocket", color: "green" },
-  incident: { label: "Incident Commander", desc: "Fix prod. Now.", icon: "siren", color: "orange" },
-  interview: { label: "Architecture Interview", desc: "Design it, then defend it", icon: "target", color: "violet" },
+  campaign: { label: D("Startup Career"), desc: D("100 → 100M users"), icon: "rocket", color: "green" },
+  incident: { label: D("Incident Commander"), desc: D("Fix prod. Now."), icon: "siren", color: "orange" },
+  interview: { label: D("Architecture Interview"), desc: D("Design it, then defend it"), icon: "target", color: "violet" },
 };
 
 export const AXES: { key: keyof Scores; label: string; short: string; icon: string }[] = [
-  { key: "scalability", label: "Scalability", short: "Scale", icon: "trendingUp" },
-  { key: "reliability", label: "Reliability", short: "Reliability", icon: "shield" },
-  { key: "latency", label: "Latency", short: "Latency", icon: "zap" },
-  { key: "cost", label: "Cost", short: "Cost", icon: "dollar" },
-  { key: "maintainability", label: "Maintainability", short: "Maint", icon: "hammer" },
-  { key: "complexity", label: "Simplicity", short: "Simplicity", icon: "puzzle" },
+  { key: "scalability", label: D("Scalability"), short: D("Scale"), icon: "trendingUp" },
+  { key: "reliability", label: D("Reliability"), short: D("Reliability"), icon: "shield" },
+  { key: "latency", label: D("Latency"), short: D("Latency"), icon: "zap" },
+  { key: "cost", label: D("Cost"), short: D("Cost"), icon: "dollar" },
+  { key: "maintainability", label: D("Maintainability"), short: D("Maint"), icon: "hammer" },
+  { key: "complexity", label: D("Simplicity"), short: D("Simplicity"), icon: "puzzle" },
 ];
 
 export const scoreLevel = (v: number): "good" | "warn" | "bad" => (v >= 75 ? "good" : v >= 50 ? "warn" : "bad");
@@ -90,7 +91,7 @@ export function LabDialog({ open, onClose, badges, title, id, wide, children }: 
       <div className="lab-dialog__inner">
         <div className="upgrade-head">
           <div className="lab-dialog__badges">{badges}</div>
-          <button type="button" aria-label="Close" onClick={onClose}>
+          <button type="button" aria-label={t("Close")} onClick={onClose}>
             ×
           </button>
         </div>

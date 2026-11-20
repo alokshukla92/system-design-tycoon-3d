@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f4ebe0" />
     <meta name="description" content="System Design Tycoon — learn system design by watching it move. Animated, step-by-step lessons." />
+    <meta name="author" content="Alok Shukla" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>System Design Tycoon — Animated System Design Lessons</title>
     <script>
@@ -15,6 +16,13 @@
           if (t === "dark" || t === "light") d.dataset.theme = t;
         } catch (e) {}
         d.setAttribute("data-interactive", "");
+        // Locale = first path segment (/es/, /ar/pricing/ …), as on the original's pre-rendered pages.
+        var seg = location.pathname.split("/")[1] || "";
+        if (/^(es|pt|fr|it|de|nl|pl|tr|id|vi|el|uk|ru|zh-Hans|zh-Hant|ja|ko|hi|ar|he)$/.test(seg)) {
+          d.lang = seg;
+          d.dir = seg === "ar" || seg === "he" ? "rtl" : "ltr";
+          d.setAttribute("data-lang-pending", "");
+        }
         var w = innerWidth, h = innerHeight;
         d.dataset.layout = w >= 1200 && h >= 560 ? "desktop" : w >= 960 && h >= 600 ? "tablet" : "stack";
       })();

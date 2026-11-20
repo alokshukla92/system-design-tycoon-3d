@@ -16,6 +16,7 @@ import {
   snippet,
 } from "./index";
 import type { ConceptDoc, DocKind, LessonDoc, SearchIndex, StepDoc } from "./index";
+import { D, t } from "../i18n";
 import "./search.css";
 
 export interface RecentEntry {
@@ -79,7 +80,7 @@ type Row =
 function lessonHtml(d: LessonDoc, text: string, matched: Set<string> | null, meta: string, done: ReadonlySet<string>) {
   const side = done.has(d.lessonId)
     ? iconSvg("circleCheck", { size: 16, stroke: 2, cls: "sx__done" })
-    : `<span class="sx__steps">${escapeHtml(`${d.steps} steps`)}</span>`;
+    : `<span class="sx__steps">${escapeHtml(t("{n} steps", { n: d.steps }))}</span>`;
   return `
         <span class="sx__icon sx__icon--lesson">${folderSvg(d.module.color)}</span>
         <span class="sx__main">
@@ -90,14 +91,14 @@ function lessonHtml(d: LessonDoc, text: string, matched: Set<string> | null, met
 }
 
 function conceptHtml(d: ConceptDoc, matched: Set<string>) {
-  const meta = `${d.lesson} · step ${d.step + 1}${d.also ? ` · +${d.also} more` : ""}`;
+  const meta = `${d.lesson} · ${t("step {n}", { n: d.step + 1 })}${d.also ? ` · ${t("+{n} more", { n: d.also })}` : ""}`;
   return `
         <span class="sx__icon sx__icon--concept">${iconSvg("bookmark", { size: 15, stroke: 2.1 })}</span>
         <span class="sx__main">
           <span class="sx__title">${highlightHtml(d.title, matched)}<span class="sx__meta">${escapeHtml(meta)}</span></span>
           <span class="sx__text">${highlightHtml(snippet(d.text, matched), matched)}</span>
         </span>
-        <span class="sx__side"><span class="sx__kind">Concept</span>${ENTER}</span>`;
+        <span class="sx__side"><span class="sx__kind">${escapeHtml(t("Concept"))}</span>${ENTER}</span>`;
 }
 
 function stepHtml(d: StepDoc, matched: Set<string>) {
@@ -105,13 +106,13 @@ function stepHtml(d: StepDoc, matched: Set<string>) {
   return `
         <span class="sx__icon sx__icon--step chapter--${ch.tone}">${d.step + 1}</span>
         <span class="sx__main">
-          <span class="sx__title">${highlightHtml(d.title, matched)}<span class="sx__meta">${escapeHtml(d.lesson)} · ${escapeHtml(`step ${d.step + 1} of ${d.steps}`)}</span></span>
+          <span class="sx__title">${highlightHtml(d.title, matched)}<span class="sx__meta">${escapeHtml(d.lesson)} · ${escapeHtml(t("step {n} of {total}", { n: d.step + 1, total: d.steps }))}</span></span>
           <span class="sx__text">${highlightHtml(snippet(d.text, matched), matched)}</span>
         </span>
-        <span class="sx__side"><span class="sx__chip chapter--${ch.tone}">${escapeHtml(ch.label)}</span>${ENTER}</span>`;
+        <span class="sx__side"><span class="sx__chip chapter--${ch.tone}">${escapeHtml(t(ch.label))}</span>${ENTER}</span>`;
 }
 
-const GROUP_LABEL: Record<DocKind, string> = { lesson: "Lessons", concept: "Concepts", step: "Steps" };
+const GROUP_LABEL: Record<DocKind, string> = { lesson: D("Lessons"), concept: D("Concepts"), step: D("Steps") };
 
 interface Snapshot {
   currentLessonId: string | null;
@@ -135,8 +136,8 @@ function buildRows(index: SearchIndex | null, q: string, snap: Snapshot): { rows
       rows.push({
         type: "group",
         key: `g-${kind}`,
-        label: GROUP_LABEL[kind],
-        right: hits.length > shown.length ? `top ${shown.length} of ${hits.length}` : String(hits.length),
+        label: t(GROUP_LABEL[kind]),
+        right: hits.length > shown.length ? t("top {n} of {total}", { n: shown.length, total: hits.length }) : String(hits.length),
       });
       for (const { doc } of shown) {
         if (doc.kind === "lesson") item(doc.lessonId, doc.step, lessonHtml(doc, doc.text, result.matched, moduleLabel(doc.module), snap.done));
@@ -145,7 +146,7 @@ function buildRows(index: SearchIndex | null, q: string, snap: Snapshot): { rows
       }
     }
     if (!result.total) rows.splice(0, rows.length, { type: "empty", key: "empty", q: q.trim() });
-    return { rows, count: result.total === 1 ? "1 result" : `${result.total} results` };
+    return { rows, count: result.total === 1 ? t("1 result") : t("{n} results", { n: result.total }) };
   }
 
   const lessonDocs = new Map<string, LessonDoc>();
@@ -157,11 +158,11 @@ function buildRows(index: SearchIndex | null, q: string, snap: Snapshot): { rows
   }
   const recent = snap.recent.filter((r) => r.lessonId !== snap.currentLessonId && lessonDocs.has(r.lessonId)).slice(0, 4);
   if (recent.length) {
-    rows.push({ type: "group", key: "g-recent", label: "Recent", right: String(recent.length) });
+    rows.push({ type: "group", key: "g-recent", label: t("Recent"), right: String(recent.length) });
     for (const r of recent) {
       const d = lessonDocs.get(r.lessonId)!;
       const stepDoc = index.docs.find((x) => x.kind === "step" && x.lessonId === r.lessonId && x.step === r.step);
-      const text = stepDoc ? `Continue at step ${r.step + 1}: ${stepDoc.title}` : d.text;
+      const text = stepDoc ? t("Continue at step {n}: {title}", { n: r.step + 1, title: stepDoc.title }) : d.text;
       item(d.lessonId, r.step, lessonHtml(d, text, null, moduleLabel(d.module), snap.done));
     }
   }
@@ -169,11 +170,11 @@ function buildRows(index: SearchIndex | null, q: string, snap: Snapshot): { rows
     const docs = m.lessons.map((l) => lessonDocs.get(l.id)).filter((d): d is LessonDoc => !!d);
     if (!docs.length) continue;
     const doneCount = docs.filter((d) => snap.done.has(d.lessonId)).length;
-    rows.push({ type: "group", key: `g-${m.id}`, label: moduleLabel(m), right: `${doneCount}/${docs.length} done` });
+    rows.push({ type: "group", key: `g-${m.id}`, label: moduleLabel(m), right: t("{n}/{total} done", { n: doneCount, total: docs.length }) });
     for (const d of docs) item(d.lessonId, d.step, lessonHtml(d, d.text, null, "", snap.done));
   }
   const c = index.counts;
-  return { rows, count: `${c.lessons} lessons · ${c.steps} steps · ${c.concepts} concepts` };
+  return { rows, count: t("{lessons} lessons · {steps} steps · {concepts} concepts", { lessons: c.lessons, steps: c.steps, concepts: c.concepts }) };
 }
 
 const defaultLessons = () => FLAT.map((r) => getLesson(r.id)).filter((l): l is Lesson => !!l);
@@ -337,7 +338,7 @@ export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLes
         className="sx__dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Search the course"
+        aria-label={t("Search the course")}
         onMouseDown={(e) => {
           if (e.target !== inputRef.current) e.preventDefault();
         }}
@@ -365,7 +366,7 @@ export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLes
             aria-controls="sx-list"
             aria-autocomplete="list"
             aria-activedescendant={sel >= 0 ? `sx-opt-${sel}` : undefined}
-            placeholder="Search lessons, concepts, systems…"
+            placeholder={t("Search lessons, concepts, systems…")}
             spellCheck={false}
             autoComplete="off"
             value={q}
@@ -375,20 +376,20 @@ export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLes
           <button
             className="sx__clear"
             type="button"
-            aria-label="Clear search"
+            aria-label={t("Clear search")}
             hidden={!q}
             onClick={() => {
               setQ("");
               inputRef.current?.focus();
             }}
           >
-            Clear
+            {t("Clear")}
           </button>
-          <button className="sx__esc" type="button" aria-label="Close search" onClick={onClose}>
+          <button className="sx__esc" type="button" aria-label={t("Close search")} onClick={onClose}>
             esc
           </button>
         </div>
-        <div className="sx__list" id="sx-list" role="listbox" aria-label="Results" ref={listRef} onClick={onListClick} onMouseMove={onListMove}>
+        <div className="sx__list" id="sx-list" role="listbox" aria-label={t("Results")} ref={listRef} onClick={onListClick} onMouseMove={onListMove}>
           {rows.map((r) => {
             if (r.type === "group")
               return (
@@ -400,14 +401,14 @@ export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLes
             if (r.type === "loading")
               return (
                 <div key={r.key} className="sx__empty">
-                  <p>Loading…</p>
+                  <p>{t("Loading…")}</p>
                 </div>
               );
             if (r.type === "empty")
               return (
                 <div key={r.key} className="sx__empty">
-                  <div className="sx__empty-title">Nothing matches “{r.q}”</div>
-                  <p>Try a single word, or one of these:</p>
+                  <div className="sx__empty-title">{t("Nothing matches “{q}”", { q: r.q })}</div>
+                  <p>{t("Try a single word, or one of these:")}</p>
                   <div className="sx__chips">
                     {SUGGESTIONS.map((s) => (
                       <button key={s} type="button" data-q={s}>
@@ -435,13 +436,13 @@ export function SearchModal({ open, onClose, onPick, onOpen, lessons, currentLes
         <div className="sx__foot">
           <span>
             <kbd>↑</kbd>
-            <kbd>↓</kbd> move
+            <kbd>↓</kbd> {t("move")}
           </span>
           <span>
-            <kbd>↵</kbd> open
+            <kbd>↵</kbd> {t("open")}
           </span>
           <span>
-            <kbd>esc</kbd> close
+            <kbd>esc</kbd> {t("close")}
           </span>
           <span className="sx__count">{count}</span>
         </div>

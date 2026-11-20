@@ -100,19 +100,19 @@ function Tools({ lesson }: { lesson: Lesson | undefined }) {
         className={paused ? "tool is-on" : "tool"}
         id="pause"
         type="button"
-        title={t(paused ? "Play traffic (Space)" : "Pause traffic (Space)")}
+        title={paused ? t("Play traffic (Space)") : t("Pause traffic (Space)")}
         onClick={togglePause}
       >
         <Icon name={paused ? "play" : "pause"} size={15} stroke={2} />
-        <span>{t(paused ? "Play" : "Pause")}</span>
+        <span>{paused ? t("Play") : t("Pause")}</span>
       </button>
       <OpenInLabButton lesson={lesson} step={step} />
       <button
         className="tool tool--expand"
         id="expand"
         type="button"
-        title={t(full ? "Exit full screen" : "Full screen")}
-        aria-label={t(full ? "Exit full screen" : "Show the diagram full screen")}
+        title={full ? t("Exit full screen") : t("Full screen")}
+        aria-label={full ? t("Exit full screen") : t("Show the diagram full screen")}
         onClick={() => setFull(!full)}
       >
         <Icon name={full ? "collapse" : "expand"} size={15} stroke={2} />

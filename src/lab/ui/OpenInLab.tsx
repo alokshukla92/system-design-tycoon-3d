@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
+import { tr } from "../../i18n/rich";
 import type { Lesson } from "../../types/lesson";
 import { hasLab, type LessonOrigin } from "../fromLesson";
 import { loadLessonGraph, sandboxHasWork } from "../store";
@@ -38,20 +39,23 @@ export function OpenInLabButton({ lesson, step }: { lesson: Lesson | undefined; 
         id="lab-replace"
         open={confirming}
         onClose={() => setConfirming(false)}
-        badges={<Badge icon="flask">Design Lab</Badge>}
-        title="Replace your sandbox design?"
+        badges={<Badge icon="flask">{t("Design Lab")}</Badge>}
+        title={t("Replace your sandbox design?")}
       >
         <div className="lab-dialog__body">
           <p>
-            Your Design Lab already holds a design. Opening <b>{origin.title}</b> · step {step + 1} replaces it with this step’s architecture.
+            {tr("Your Design Lab already holds a design. Opening {lesson} · step {n} replaces it with this step’s architecture.", {
+              lesson: <b>{origin.title}</b>,
+              n: step + 1,
+            })}
           </p>
         </div>
         <div className="lab-dialog__actions">
           <button type="button" className="btn-ghost" onClick={() => setConfirming(false)}>
-            Keep my design
+            {t("Keep my design")}
           </button>
           <button type="button" className="btn-pop lab-action" id="lab-replace-ok" onClick={open}>
-            Replace &amp; open
+            {t("Replace & open")}
             <Icon name="arrowRight" size={16} stroke={2.2} />
           </button>
         </div>

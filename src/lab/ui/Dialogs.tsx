@@ -1,6 +1,8 @@
 // Practice dialogs: scenario brief, debrief (postmortem), interview report, and how-to-play help.
 import { useState } from "react";
 import { Icon } from "../../components/Icon";
+import { D, t } from "../../i18n";
+import { tr } from "../../i18n/rich";
 import { LEVELS } from "../sim/game/levels";
 import type { Scores } from "../sim/types";
 import { fmtNum, plain } from "../model";
@@ -43,11 +45,9 @@ export function BriefDialog() {
         badges={
           <>
             <Badge tone="green" icon="rocket">
-              Level {level.number}
+              {t("Level {n}", { n: level.number })}
             </Badge>
-            <Badge icon="users">
-              {fmtNum(level.users)} → {fmtNum(level.usersEnd)} users
-            </Badge>
+            <Badge icon="users">{t("{from} → {to} users", { from: fmtNum(level.users), to: fmtNum(level.usersEnd) })}</Badge>
           </>
         }
         title={plain(level.title)}
@@ -60,15 +60,15 @@ export function BriefDialog() {
         </div>
         <SloGrid
           items={[
-            ["p95 latency", `≤ ${level.slo.maxP95Ms}ms`],
-            ["Availability", `≥ ${level.slo.minAvailabilityPct}%`],
-            ["Error rate", `≤ ${(level.slo.maxErrorRate * 100).toFixed(1)}%`],
-            ["Budget", `$${level.slo.maxMonthlyBudget.toLocaleString()}/mo`],
+            [t("p95 latency"), `≤ ${level.slo.maxP95Ms}ms`],
+            [t("Availability"), `≥ ${level.slo.minAvailabilityPct}%`],
+            [t("Error rate"), `≤ ${(level.slo.maxErrorRate * 100).toFixed(1)}%`],
+            [t("Budget"), t("{amount}/mo", { amount: `$${level.slo.maxMonthlyBudget.toLocaleString()}` })],
           ]}
         />
         <div className="lab-dialog__actions">
           <button type="button" className="btn-pop lab-action" onClick={start}>
-            Take the helm
+            {t("Take the helm")}
             <Icon name="arrowRight" size={16} stroke={2.2} />
           </button>
         </div>
@@ -85,11 +85,11 @@ export function BriefDialog() {
         badges={
           <>
             <Badge tone="red" icon="siren">
-              Active incident
+              {t("Active incident")}
             </Badge>
-            <Badge icon="users">{fmtNum(incident.users)} users</Badge>
+            <Badge icon="users">{t("{n} users", { n: fmtNum(incident.users) })}</Badge>
             <Badge tone="amber" icon="dollar">
-              −${incident.revenuePerTick.toLocaleString()}/min while down
+              {t("−{amount}/min while down", { amount: `$${incident.revenuePerTick.toLocaleString()}` })}
             </Badge>
           </>
         }
@@ -103,7 +103,7 @@ export function BriefDialog() {
         </div>
         <div className="lab-dialog__actions">
           <button type="button" className="btn-pop lab-action lab-action--danger" onClick={start}>
-            Join the war room
+            {t("Join the war room")}
             <Icon name="arrowRight" size={16} stroke={2.2} />
           </button>
         </div>
@@ -119,7 +119,7 @@ export function BriefDialog() {
         onClose={toMenu}
         badges={
           <Badge tone="violet" icon="target">
-            Architecture interview
+            {t("Architecture interview")}
           </Badge>
         }
         title={plain(interview.title)}
@@ -129,19 +129,20 @@ export function BriefDialog() {
             <p key={i}>{rich(p)}</p>
           ))}
         </div>
-        <div className="lab-dialog__section">Requirements</div>
+        <div className="lab-dialog__section">{t("Requirements")}</div>
         <ul className="takeaways">
           {interview.requirements.map((r, i) => (
             <li key={i}>{plain(r)}</li>
           ))}
         </ul>
         <p className="muted-copy">
-          Design on the stage, then submit. Your design will be stress-tested at {interview.tiers.map((t) => t.label.split(": ")[1] ?? t.label).join(", ")} —
-          including viral hot-key events.
+          {t("Design on the stage, then submit. Your design will be stress-tested at {tiers} — including viral hot-key events.", {
+            tiers: interview.tiers.map((x) => x.label.split(": ")[1] ?? x.label).join(", "),
+          })}
         </p>
         <div className="lab-dialog__actions">
           <button type="button" className="btn-pop lab-action" onClick={start}>
-            Start designing
+            {t("Start designing")}
             <Icon name="arrowRight" size={16} stroke={2.2} />
           </button>
         </div>
@@ -152,24 +153,29 @@ export function BriefDialog() {
 }
 
 const FAIL_KEYWORDS: { match: string; label: string; axis: keyof Scores; fallback: string }[] = [
-  { match: "Cost", label: "Cost", axis: "cost", fallback: "You're over budget — swap oversized tiers for more, smaller instances, trim spare replicas/shards, and remove anything unused." },
+  {
+    match: "Cost",
+    label: D("Cost"),
+    axis: "cost",
+    fallback: D("You're over budget — swap oversized tiers for more, smaller instances, trim spare replicas/shards, and remove anything unused."),
+  },
   {
     match: "Availability",
-    label: "Availability",
+    label: D("Availability"),
     axis: "reliability",
-    fallback: "Availability dipped — add redundancy (replicas, multiple instances, a load balancer) so a single failure doesn't drop requests.",
+    fallback: D("Availability dipped — add redundancy (replicas, multiple instances, a load balancer) so a single failure doesn't drop requests."),
   },
   {
     match: "Error",
-    label: "Error rate",
+    label: D("Error rate"),
     axis: "scalability",
-    fallback: "Errors spiked — a component ran out of capacity under load. Add headroom on the busiest node (bigger tier or more instances) and a cache to absorb reads.",
+    fallback: D("Errors spiked — a component ran out of capacity under load. Add headroom on the busiest node (bigger tier or more instances) and a cache to absorb reads."),
   },
   {
     match: "latency",
-    label: "p95 latency",
+    label: D("p95 latency"),
     axis: "latency",
-    fallback: "p95 was too high — latency explodes past ~80% utilization. Cache hot reads, add replicas, or scale the busiest tier.",
+    fallback: D("p95 was too high — latency explodes past ~80% utilization. Cache hot reads, add replicas, or scale the busiest tier."),
   },
 ];
 
@@ -194,11 +200,11 @@ export function DebriefDialog() {
     const ex = result.breakdown?.[k];
     return !!ex && (ex.tips.length > 0 || ex.reasons.length > 0);
   };
-  const blockerTips = blocker ? (result.breakdown?.[blocker.axis]?.tips.length ? result.breakdown[blocker.axis].tips : [blocker.fallback]) : [];
+  const blockerTips = blocker ? (result.breakdown?.[blocker.axis]?.tips.length ? result.breakdown[blocker.axis].tips : [t(blocker.fallback)]) : [];
   const weakest = AXES.reduce((lo, a) => (result.scores[a.key] < result.scores[lo.key] ? a : lo), AXES[0]);
   const weakestWithContent = [...AXES].sort((a, b) => result.scores[a.key] - result.scores[b.key]).find((a) => hasContent(a.key));
   const active: keyof Scores = axis ?? ((blocker && hasContent(blocker.axis) && blocker.axis) || weakestWithContent?.key || weakest.key);
-  const activeLabel = AXES.find((a) => a.key === active)!.label;
+  const activeLabel = t(AXES.find((a) => a.key === active)!.label);
   const ex = result.breakdown?.[active];
   const close = () => {
     setAxis(null);
@@ -216,17 +222,17 @@ export function DebriefDialog() {
         <>
           {result.passed ? (
             <Badge tone="green" icon="circleCheck">
-              {mode === "incident" ? "Service restored" : "Level passed"}
+              {mode === "incident" ? t("Service restored") : t("Level passed")}
             </Badge>
           ) : (
             <Badge tone="red" icon="alert">
-              {mode === "incident" ? "Incident unresolved" : "SLO missed"}
+              {mode === "incident" ? t("Incident unresolved") : t("SLO missed")}
             </Badge>
           )}
-          <Badge tone="violet">Overall {result.overall}/100</Badge>
+          <Badge tone="violet">{t("Overall {n}/100", { n: result.overall })}</Badge>
         </>
       }
-      title={result.passed ? "Postmortem (the good kind)" : "Postmortem"}
+      title={result.passed ? t("Postmortem (the good kind)") : t("Postmortem")}
     >
       <ul className="lab-reasons">
         {result.reasons.map((r, i) => (
@@ -245,20 +251,20 @@ export function DebriefDialog() {
               <Icon name="bulb" size={15} stroke={2} />
             </span>
             <div>
-              <div className="callout__title">Fix this first — {blocker.label} is what failed</div>
+              <div className="callout__title">{t("Fix this first — {axis} is what failed", { axis: t(blocker.label) })}</div>
               <ul className="lab-tips">
-                {blockerTips.map((t, i) => (
-                  <li key={i}>{plain(t)}</li>
+                {blockerTips.map((tip, i) => (
+                  <li key={i}>{plain(tip)}</li>
                 ))}
               </ul>
             </div>
           </div>
         ) : (
           <div className="callout callout--next lab-stuck">
-            <p>Try to work out the fix yourself first — check the scores below and ask the mentor. Still stuck?</p>
+            <p>{t("Try to work out the fix yourself first — check the scores below and ask the mentor. Still stuck?")}</p>
             <button type="button" className="btn-ghost" id="lab-stuck" onClick={() => setHelp(true)}>
               <Icon name="bulb" size={15} stroke={2} />
-              Show me what to fix
+              {t("Show me what to fix")}
             </button>
           </div>
         ))}
@@ -273,14 +279,14 @@ export function DebriefDialog() {
             onClick={() => setAxis(a.key)}
           >
             <b>{result.scores[a.key]}</b>
-            <span>{a.label}</span>
+            <span>{t(a.label)}</span>
           </button>
         ))}
       </div>
 
       <div className="lab-axis-detail">
         <div className="lab-dialog__section">
-          {activeLabel} {result.scores[active]}/100 <span>· tap any score above</span>
+          {activeLabel} {result.scores[active]}/100 <span>· {t("tap any score above")}</span>
         </div>
         {ex && (ex.reasons.length > 0 || ex.tips.length > 0) ? (
           <>
@@ -294,21 +300,21 @@ export function DebriefDialog() {
             {ex.tips.length > 0 &&
               (help ? (
                 <>
-                  <div className="lab-dialog__section">To improve</div>
+                  <div className="lab-dialog__section">{t("To improve")}</div>
                   <ul className="lab-tips">
-                    {ex.tips.map((t, i) => (
-                      <li key={i}>{plain(t)}</li>
+                    {ex.tips.map((tip, i) => (
+                      <li key={i}>{plain(tip)}</li>
                     ))}
                   </ul>
                 </>
               ) : (
                 <button type="button" className="lab-link" onClick={() => setHelp(true)}>
-                  Stuck? Reveal how to improve this →
+                  {t("Stuck? Reveal how to improve this →")}
                 </button>
               ))}
           </>
         ) : (
-          <p className="muted-copy">Nothing to fix here — this axis is solid.</p>
+          <p className="muted-copy">{t("Nothing to fix here — this axis is solid.")}</p>
         )}
       </div>
 
@@ -318,15 +324,15 @@ export function DebriefDialog() {
             <Icon name="book" size={15} stroke={2} />
           </span>
           <div>
-            <div className="callout__title">What this was really about</div>
+            <div className="callout__title">{t("What this was really about")}</div>
             <h3>{plain(debrief.concept)}</h3>
             {debrief.explanation.map((p, i) => (
               <p key={i}>{plain(p)}</p>
             ))}
-            <div className="callout__title lab-concept__sub">Tradeoffs to carry with you</div>
+            <div className="callout__title lab-concept__sub">{t("Tradeoffs to carry with you")}</div>
             <ul className="lab-tips lab-tips--scale">
-              {debrief.tradeoffs.map((t, i) => (
-                <li key={i}>{plain(t)}</li>
+              {debrief.tradeoffs.map((x, i) => (
+                <li key={i}>{plain(x)}</li>
               ))}
             </ul>
           </div>
@@ -335,21 +341,21 @@ export function DebriefDialog() {
 
       <div className="lab-dialog__actions lab-dialog__actions--wrap">
         <a className="btn-ghost" href={menuHref(mode)}>
-          Menu
+          {t("Menu")}
         </a>
         <button type="button" className="btn-ghost" onClick={close}>
-          Inspect the wreckage
+          {t("Inspect the wreckage")}
         </button>
-        <button type="button" className="btn-ghost" title="Discard your design and rebuild the original starter architecture" onClick={restartFromStarter}>
-          From scratch
+        <button type="button" className="btn-ghost" title={t("Discard your design and rebuild the original starter architecture")} onClick={restartFromStarter}>
+          {t("From scratch")}
         </button>
-        <button type="button" className="btn-ghost" id="lab-retry" title="Keep your architecture and replay the simulation from the start" onClick={resetRun}>
+        <button type="button" className="btn-ghost" id="lab-retry" title={t("Keep your architecture and replay the simulation from the start")} onClick={resetRun}>
           <Icon name="replay" size={15} stroke={2} />
-          Retry (keep my build)
+          {t("Retry (keep my build)")}
         </button>
         {result.passed && next && (
           <a className="btn-pop lab-action" href={`#/play/campaign/${next.id}`}>
-            Next: Level {next.number} — {plain(next.title)}
+            {t("Next: Level {n} — {title}", { n: next.number, title: plain(next.title) })}
             <Icon name="arrowRight" size={16} stroke={2.2} />
           </a>
         )}
@@ -375,7 +381,7 @@ export function ReportDialog() {
       badges={
         <>
           <Badge tone={hire ? "green" : "amber"} icon="clipboard">
-            Interview feedback
+            {t("Interview feedback")}
           </Badge>
           <Badge tone="violet">{report.overall}/100</Badge>
         </>
@@ -383,29 +389,29 @@ export function ReportDialog() {
       title={plain(interview.title)}
     >
       <p className={hire ? "lab-verdict is-hire" : "lab-verdict"}>{plain(report.verdict)}</p>
-      <div className="lab-dialog__section">Stress test results</div>
+      <div className="lab-dialog__section">{t("Stress test results")}</div>
       <div className="lab-table">
         <table className="compare numbers">
           <thead>
             <tr>
-              <th>Tier</th>
+              <th>{t("Tier")}</th>
               <th>p95</th>
-              <th>Errors</th>
-              <th>Cost/mo</th>
-              <th>Steady</th>
-              <th>Viral spike</th>
+              <th>{t("Errors")}</th>
+              <th>{t("Cost/mo")}</th>
+              <th>{t("Steady")}</th>
+              <th>{t("Viral spike")}</th>
             </tr>
           </thead>
           <tbody>
-            {report.tierResults.map((t) => (
-              <tr key={t.label}>
-                <td>{plain(t.label)}</td>
-                <td>{t.p95Ms}ms</td>
-                <td>{(t.errorRate * 100).toFixed(1)}%</td>
-                <td>${fmtNum(t.costPerMonth)}</td>
-                <td className={t.passed ? "is-ok" : "is-bad"}>{t.passed ? "Pass" : "Fail"}</td>
-                <td className={t.underStress.passed ? "is-ok" : "is-bad"}>
-                  {t.underStress.passed ? "Pass" : `Fail · ${(t.underStress.errorRate * 100).toFixed(0)}% err`}
+            {report.tierResults.map((x) => (
+              <tr key={x.label}>
+                <td>{plain(x.label)}</td>
+                <td>{x.p95Ms}ms</td>
+                <td>{(x.errorRate * 100).toFixed(1)}%</td>
+                <td>${fmtNum(x.costPerMonth)}</td>
+                <td className={x.passed ? "is-ok" : "is-bad"}>{x.passed ? t("Pass") : t("Fail")}</td>
+                <td className={x.underStress.passed ? "is-ok" : "is-bad"}>
+                  {x.underStress.passed ? t("Pass") : t("Fail · {n}% err", { n: (x.underStress.errorRate * 100).toFixed(0) })}
                 </td>
               </tr>
             ))}
@@ -414,49 +420,73 @@ export function ReportDialog() {
       </div>
       <div className="lab-sg">
         <div>
-          <div className="lab-dialog__section">Strengths</div>
+          <div className="lab-dialog__section">{t("Strengths")}</div>
           <ul className="lab-tips lab-tips--plus">{report.strengths.length ? report.strengths.map((s, i) => <li key={i}>{plain(s)}</li>) : <li>—</li>}</ul>
         </div>
         <div>
-          <div className="lab-dialog__section">Gaps the interviewer noticed</div>
+          <div className="lab-dialog__section">{t("Gaps the interviewer noticed")}</div>
           <ul className="lab-tips lab-tips--minus">{report.gaps.length ? report.gaps.map((g, i) => <li key={i}>{plain(g)}</li>) : <li>—</li>}</ul>
         </div>
       </div>
       <div className="lab-dialog__actions">
         <a className="btn-ghost" href="#/practice/interview">
-          Menu
+          {t("Menu")}
         </a>
         <button type="button" className="btn-ghost" onClick={dismissResult}>
-          Revise design
+          {t("Revise design")}
         </button>
         <button type="button" className="btn-pop lab-action" onClick={restartFromStarter}>
           <Icon name="replay" size={15} stroke={2.2} />
-          Fresh attempt
+          {t("Fresh attempt")}
         </button>
       </div>
     </LabDialog>
   );
 }
 
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+function Step({ n, title, text }: { n: number; title: string; text: string }) {
   return (
     <li className="lab-help__step">
       <span className="lab-help__n">{n}</span>
       <div>
-        <b>{title}</b>
-        <p>{children}</p>
+        <b>{t(title)}</b>
+        <p>{tr(text)}</p>
       </div>
     </li>
   );
 }
 
+const HELP_STEPS: [string, string][] = [
+  [
+    D("Add a component"),
+    D("Click a block in the <b>Components</b> palette (left; the menu button on small screens). If a block is selected, the new one is connected from it automatically. The stage arranges everything for you — traffic flows from Users outward."),
+  ],
+  [
+    D("Connect components"),
+    D("Click a block on the stage to open the <b>Inspector</b>. Use <b>Connect to…</b> to wire it to another block, or the unplug button to remove a connection. Unwired blocks sit dimmed in a lane below the diagram."),
+  ],
+  [
+    D("Configure"),
+    D("In the Inspector change the instance size (vertical scaling), instance count (horizontal scaling), replicas, caching strategy, shard key and reliability toggles."),
+  ],
+  [D("Delete"), D("Select a block and press <b>Remove component</b> (or Delete / Backspace). The Users block can’t be removed.")],
+  [
+    D("Run the simulation"),
+    D("Press <b>Launch</b> (Space). Use <b>1× / 2× / 4×</b> for speed, <b>Step</b> to advance one minute, and pause anytime to redesign mid-run."),
+  ],
+  [
+    D("Read the board"),
+    D("Block pills show load: green is healthy, amber strained, red failing; DOWN means crashed. Red × packets are failing requests. The <b>Events</b> tab streams alerts, the <b>Mentor</b> asks guiding questions, and the <b>Design review</b> scores grade the design."),
+  ],
+];
+
 const RECIPES: [string, string, string, string][] = [
-  ["split", "Load Balancer", "Users → LB → API ×N", "Only helps with 2+ API instances behind it. Spreads traffic and reroutes around crashes."],
-  ["zap", "Cache (Redis)", "API → Redis and API → DB", "Absorbs repeated reads before they hit the database. Keep the DB connected too — for cache misses."],
-  ["inbox", "Queue (Kafka/SQS)", "API → Queue → Worker → DB", "Buffers write bursts so the database sees a smooth drain instead of a spike. Needs a Worker to consume it."],
-  ["globe", "CDN", "Users → CDN → LB/API", "Serves static content from the edge, cutting latency and origin load."],
-  ["search", "Search (Elasticsearch)", "API → Elasticsearch", "Handles text-search queries that would otherwise scan the whole database."],
-  ["activity", "Observability", "API → O11y, DB → O11y", "Not in the traffic path — it just needs to exist to unlock diagnostics. Connect it to what it watches."],
+  ["split", D("Load Balancer"), "Users → LB → API ×N", D("Only helps with 2+ API instances behind it. Spreads traffic and reroutes around crashes.")],
+  ["zap", D("Cache (Redis)"), "API → Redis and API → DB", D("Absorbs repeated reads before they hit the database. Keep the DB connected too — for cache misses.")],
+  ["inbox", D("Queue (Kafka/SQS)"), "API → Queue → Worker → DB", D("Buffers write bursts so the database sees a smooth drain instead of a spike. Needs a Worker to consume it.")],
+  ["globe", D("CDN"), "Users → CDN → LB/API", D("Serves static content from the edge, cutting latency and origin load.")],
+  ["search", D("Search (Elasticsearch)"), "API → Elasticsearch", D("Handles text-search queries that would otherwise scan the whole database.")],
+  ["activity", D("Observability"), "API → O11y, DB → O11y", D("Not in the traffic path — it just needs to exist to unlock diagnostics. Connect it to what it watches.")],
 ];
 
 export function HelpDialog() {
@@ -469,57 +499,36 @@ export function HelpDialog() {
       onClose={() => setHelpOpen(false)}
       badges={
         <Badge tone="violet" icon="book">
-          Field manual
+          {t("Field manual")}
         </Badge>
       }
-      title="How to play"
+      title={t("How to play")}
     >
       <p className="lab-dialog__sub">
-        Design an architecture, press <b>Launch</b>, and watch simulated traffic flow through it. Things break the way they break in production —
-        your job is to spot it and fix it.
+        {tr("Design an architecture, press <b>Launch</b>, and watch simulated traffic flow through it. Things break the way they break in production — your job is to spot it and fix it.")}
       </p>
       <ol className="lab-help">
-        <Step n={1} title="Add a component">
-          Click a block in the <b>Components</b> palette (left; the menu button on small screens). If a block is selected, the new one is connected
-          from it automatically. The stage arranges everything for you — traffic flows from Users outward.
-        </Step>
-        <Step n={2} title="Connect components">
-          Click a block on the stage to open the <b>Inspector</b>. Use <b>Connect to…</b> to wire it to another block, or the unplug button to
-          remove a connection. Unwired blocks sit dimmed in a lane below the diagram.
-        </Step>
-        <Step n={3} title="Configure">
-          In the Inspector change the instance size (vertical scaling), instance count (horizontal scaling), replicas, caching strategy, shard key
-          and reliability toggles.
-        </Step>
-        <Step n={4} title="Delete">
-          Select a block and press <b>Remove component</b> (or Delete / Backspace). The Users block can’t be removed.
-        </Step>
-        <Step n={5} title="Run the simulation">
-          Press <b>Launch</b> (Space). Use <b>1× / 2× / 4×</b> for speed, <b>Step</b> to advance one minute, and pause anytime to redesign
-          mid-run.
-        </Step>
-        <Step n={6} title="Read the board">
-          Block pills show load: green is healthy, amber strained, red failing; DOWN means crashed. Red × packets are failing requests. The
-          <b> Events</b> tab streams alerts, the <b>Mentor</b> asks guiding questions, and the <b>Design review</b> scores grade the design.
-        </Step>
+        {HELP_STEPS.map(([title, text], i) => (
+          <Step key={title} n={i + 1} title={title} text={text} />
+        ))}
       </ol>
-      <div className="lab-dialog__section">What connects to what</div>
+      <div className="lab-dialog__section">{t("What connects to what")}</div>
       <div className="lab-recipes">
         {RECIPES.map(([icon, name, flow, text]) => (
           <div key={name} className="lab-recipe">
             <div className="lab-recipe__name">
               <Icon name={icon} size={14} stroke={2} />
-              {name}
+              {t(name)}
             </div>
             <code>{flow}</code>
-            <p>{text}</p>
+            <p>{t(text)}</p>
           </div>
         ))}
       </div>
-      <p className="muted-copy">The golden rule: a component only helps if traffic can actually reach it.</p>
+      <p className="muted-copy">{t("The golden rule: a component only helps if traffic can actually reach it.")}</p>
       <div className="lab-dialog__actions">
         <button type="button" className="btn-pop lab-action" onClick={() => setHelpOpen(false)}>
-          Got it
+          {t("Got it")}
           <Icon name="arrowRight" size={16} stroke={2.2} />
         </button>
       </div>

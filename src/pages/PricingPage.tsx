@@ -1,8 +1,8 @@
-import { t } from "../i18n";
+import { fmt, t } from "../i18n";
 import { showToast } from "../app/store";
 import { SitePage, StartLearning } from "./SitePage";
 import { SupportEmail } from "./SiteLinks";
-import { PLANS } from "./pricing.config";
+import { FEATURE_VARS, PLANS } from "./pricing.config";
 import type { Plan } from "./pricing.config";
 import { homeHref, pageHref } from "./routes";
 
@@ -18,14 +18,14 @@ function PlanCard({ plan }: { plan: Plan }) {
       <p>{t(plan.description)}</p>
       <ul>
         {plan.features.map((f) => (
-          <li key={f}>{t(f)}</li>
+          <li key={f}>{t(f, FEATURE_VARS)}</li>
         ))}
       </ul>
       {plan.note && <p className="plan-note">{t(plan.note)}</p>}
       {cta.href ? (
         <StartLearning label={cta.label} href={cta.href === "/" ? homeHref() : cta.href} />
       ) : (
-        <button type="button" className="start-learning" onClick={() => showToast(t(cta.toast ?? "Coming soon"), "sparkles")}>
+        <button type="button" className="start-learning" onClick={() => showToast(cta.toast ? t(cta.toast) : t("Coming soon"), "sparkles")}>
           {t(cta.label)} <span aria-hidden="true">→</span>
         </button>
       )}
@@ -39,7 +39,7 @@ export function PricingPage() {
       page="pricing"
       title={t("Pricing")}
       heading={t("Course pricing")}
-      lead={t("Every lesson that exists today is free to use. Here is what you get now and what may come later.")}
+      lead={fmt("Every lesson that exists today is free to use. Here is what you get now and what may come later.")}
     >
       <div className="pricing-plans">
         {PLANS.map((p) => (
@@ -48,11 +48,11 @@ export function PricingPage() {
       </div>
       <h2>{t("Payments")}</h2>
       <p>
-        {t("There is no checkout yet, so nothing can be charged. If a paid plan launches, its price and terms will be listed here and in the")}{" "}
-        <a href={`${pageHref("terms")}#billing-and-refunds`}>{t("terms of use")}</a>.
+        {fmt("There is no checkout yet, so nothing can be charged. If a paid plan launches, its price and terms will be listed here and in the")}{" "}
+        <a href={`${pageHref("terms")}#billing-and-refunds`}>{fmt("terms of use")}</a>.
       </p>
       <p>
-        {t("Questions about plans? Email")} <SupportEmail subject="Pricing question" />.
+        {fmt("Questions about plans? Email")} <SupportEmail subject="Pricing question" />.
       </p>
     </SitePage>
   );

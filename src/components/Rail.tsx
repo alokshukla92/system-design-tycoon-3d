@@ -46,7 +46,7 @@ export function Guide({ lesson, step }: { lesson: Lesson | undefined; step: numb
   const chapter = CHAPTERS[s.chapter] ?? { label: s.chapter, tone: "sand" };
   const last = step === total - 1;
   const next = nextLesson(lesson.id);
-  const nextTitle = next ? t(next.title) : "";
+  const nextTitle = next ? next.title : "";
   const label = last
     ? next
       ? nextTitle.length <= 15
