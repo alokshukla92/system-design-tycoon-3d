@@ -1,0 +1,2571 @@
+{
+  "id": "zoom-levels",
+  "title": "Zoom Levels",
+  "summary": "Tablewise's booking system seen twice: as a high-level service map, then from inside one service, with its API, data model and classes.",
+  "minutes": 10,
+  "level": "intermediate",
+  "metrics": [
+    "zoom",
+    "unit",
+    "output"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "msg",
+    [
+      "ping",
+      "internal call"
+    ],
+    [
+      "poison",
+      "rejected (409)"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Say what a high-level design must show, and what it leaves out",
+      "step": 1
+    },
+    {
+      "text": "Zoom into one service: modules, API contract and data model",
+      "step": 4
+    },
+    {
+      "text": "Use the low-level design to enforce a rule the map can't",
+      "step": 6
+    },
+    {
+      "text": "Move between both levels in a design interview",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "The map",
+      "chapter": "setup",
+      "title": "Tablewise, from 10,000 feet",
+      "body": [
+        "<b>Tablewise</b> lets diners book tables at 3,000 restaurants. This is its <span class=\"term\">high-level design</span> (HLD): a gateway, two services, their databases, and an event stream that a notifier reads to send confirmations.",
+        "Each box is something you deploy and own. Each arrow is a network call or a message. Nothing here says how a booking actually works inside."
+      ],
+      "metrics": {
+        "zoom": "service map",
+        "unit": "services + stores",
+        "output": "—"
+      },
+      "scene": {
+        "entities": {
+          "diners": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Diners"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "rest": {
+            "type": "block",
+            "x": -13,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "building",
+            "label": [
+              "Restaurant",
+              "service"
+            ],
+            "cpu": 0.25
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "service"
+            ],
+            "cpu": 0.35
+          },
+          "notify": {
+            "type": "block",
+            "x": 13,
+            "y": -3,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Notifier"
+            ],
+            "cpu": 0.3
+          },
+          "restDb": {
+            "type": "db",
+            "x": -13,
+            "y": 9,
+            "label": "Restaurants DB"
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Bookings DB"
+          },
+          "events": {
+            "type": "block",
+            "x": 13,
+            "y": 9,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          }
+        },
+        "links": {
+          "dg": {
+            "from": "diners",
+            "to": "gw",
+            "pts": [
+              "diners",
+              "gw"
+            ],
+            "label": "HTTPS"
+          },
+          "gr": {
+            "from": "gw",
+            "to": "rest",
+            "pts": [
+              "gw",
+              "rest"
+            ],
+            "label": "menus"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "book",
+            "pts": [
+              "gw",
+              "book"
+            ],
+            "label": "reserve"
+          },
+          "rr": {
+            "from": "rest",
+            "to": "restDb",
+            "pts": [
+              "rest",
+              "restDb"
+            ]
+          },
+          "bb": {
+            "from": "book",
+            "to": "bookDb",
+            "pts": [
+              "book",
+              "bookDb"
+            ]
+          },
+          "be": {
+            "from": "book",
+            "to": "events",
+            "pts": [
+              "book",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          },
+          "en": {
+            "from": "events",
+            "to": "notify",
+            "pts": [
+              "events",
+              "notify"
+            ],
+            "label": "consume"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "dg",
+              "gb",
+              "bb"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "dg",
+              "gr",
+              "rr"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "be",
+              "en"
+            ],
+            "kind": "msg",
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Diners"
+          },
+          {
+            "id": "gw",
+            "kind": "load_balancer",
+            "label": "API Gateway"
+          },
+          {
+            "id": "rest",
+            "kind": "api_server",
+            "label": "Restaurant service"
+          },
+          {
+            "id": "book",
+            "kind": "api_server",
+            "label": "Booking service"
+          },
+          {
+            "id": "restDb",
+            "kind": "postgres",
+            "label": "Restaurants DB"
+          },
+          {
+            "id": "bookDb",
+            "kind": "postgres",
+            "label": "Bookings DB"
+          },
+          {
+            "id": "events",
+            "kind": "kafka",
+            "label": "Booking events"
+          },
+          {
+            "id": "notify",
+            "kind": "worker",
+            "label": "Notifier"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw"
+          },
+          {
+            "from": "gw",
+            "to": "rest"
+          },
+          {
+            "from": "gw",
+            "to": "book"
+          },
+          {
+            "from": "rest",
+            "to": "restDb"
+          },
+          {
+            "from": "book",
+            "to": "bookDb"
+          },
+          {
+            "from": "book",
+            "to": "events"
+          },
+          {
+            "from": "events",
+            "to": "notify"
+          }
+        ]
+      }
+    },
+    {
+      "short": "What HLD says",
+      "chapter": "insight",
+      "title": "What the map is for",
+      "body": [
+        "An HLD answers <i>system-wide</i> questions: what are the parts, who calls whom, which calls are synchronous and which are async events, where data lives, and what scales or fails independently.",
+        "It deliberately hides everything inside a box. That is what makes it useful for talking about the whole system at once, with a team or in an interview."
+      ],
+      "changes": [
+        "+ Panel: what a high-level design answers",
+        "~ Booking event marked as async"
+      ],
+      "metrics": {
+        "zoom": "service map",
+        "unit": "services + stores",
+        "output": "box diagram"
+      },
+      "scene": {
+        "entities": {
+          "diners": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Diners"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "rest": {
+            "type": "block",
+            "x": -13,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "building",
+            "label": [
+              "Restaurant",
+              "service"
+            ],
+            "cpu": 0.25
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "service"
+            ],
+            "cpu": 0.35
+          },
+          "notify": {
+            "type": "block",
+            "x": 13,
+            "y": -3,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Notifier"
+            ],
+            "cpu": 0.3
+          },
+          "restDb": {
+            "type": "db",
+            "x": -13,
+            "y": 9,
+            "label": "Restaurants DB"
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Bookings DB"
+          },
+          "events": {
+            "type": "block",
+            "x": 13,
+            "y": 9,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "What the map answers",
+            "icon": "map",
+            "lines": [
+              "which **services** exist and who owns them",
+              "how they talk: **sync** calls vs **async** events",
+              "where each piece of **data** lives",
+              "what scales out, and what fails alone",
+              "# no classes, no columns, no code"
+            ]
+          }
+        },
+        "links": {
+          "dg": {
+            "from": "diners",
+            "to": "gw",
+            "pts": [
+              "diners",
+              "gw"
+            ],
+            "label": "HTTPS"
+          },
+          "gr": {
+            "from": "gw",
+            "to": "rest",
+            "pts": [
+              "gw",
+              "rest"
+            ],
+            "label": "menus"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "book",
+            "pts": [
+              "gw",
+              "book"
+            ],
+            "label": "reserve",
+            "labelTone": "green"
+          },
+          "rr": {
+            "from": "rest",
+            "to": "restDb",
+            "pts": [
+              "rest",
+              "restDb"
+            ]
+          },
+          "bb": {
+            "from": "book",
+            "to": "bookDb",
+            "pts": [
+              "book",
+              "bookDb"
+            ]
+          },
+          "be": {
+            "from": "book",
+            "to": "events",
+            "pts": [
+              "book",
+              "events"
+            ],
+            "label": "async event",
+            "style": "dashed"
+          },
+          "en": {
+            "from": "events",
+            "to": "notify",
+            "pts": [
+              "events",
+              "notify"
+            ],
+            "label": "consume"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "dg",
+              "gb",
+              "bb"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "dg",
+              "gr",
+              "rr"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "be",
+              "en"
+            ],
+            "kind": "msg",
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hidden detail",
+      "chapter": "problem",
+      "title": "Two diners, one table",
+      "body": [
+        "Ana and Raj both tap <b>8 pm, table 4</b> within the same second. Both requests reach the Booking service. Do both get a confirmation?",
+        "The map can't answer. The arrow from the Booking service to its database looks exactly the same whether the code checks then inserts (racy) or relies on the database to refuse a duplicate (safe). The answer lives one zoom level down."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Many real bugs hide inside a single box: races, missing idempotency, a wrong index. A service map can't show any of them."
+      },
+      "changes": [
+        "+ Ana and Raj book the same table",
+        "~ Booking service: double booking possible"
+      ],
+      "metrics": {
+        "zoom": "service map",
+        "unit": "services + stores",
+        "output": "box diagram"
+      },
+      "scene": {
+        "entities": {
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "rest": {
+            "type": "block",
+            "x": -13,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "building",
+            "label": [
+              "Restaurant",
+              "service"
+            ],
+            "cpu": 0.25
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "service"
+            ],
+            "cpu": 0.7,
+            "heat": 0.7,
+            "tags": [
+              {
+                "text": "both get a yes?",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "notify": {
+            "type": "block",
+            "x": 13,
+            "y": -3,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Notifier"
+            ],
+            "cpu": 0.3
+          },
+          "restDb": {
+            "type": "db",
+            "x": -13,
+            "y": 9,
+            "label": "Restaurants DB"
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Bookings DB",
+            "tags": [
+              {
+                "text": "2 rows for 1 table",
+                "tone": "red",
+                "icon": "database"
+              }
+            ]
+          },
+          "events": {
+            "type": "block",
+            "x": 13,
+            "y": 9,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          },
+          "ana": {
+            "type": "device",
+            "x": -7,
+            "y": -26,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ana"
+          },
+          "raj": {
+            "type": "device",
+            "x": 7,
+            "y": -26,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Raj"
+          }
+        },
+        "links": {
+          "gr": {
+            "from": "gw",
+            "to": "rest",
+            "pts": [
+              "gw",
+              "rest"
+            ],
+            "label": "menus"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "book",
+            "pts": [
+              "gw",
+              "book"
+            ],
+            "label": "reserve"
+          },
+          "rr": {
+            "from": "rest",
+            "to": "restDb",
+            "pts": [
+              "rest",
+              "restDb"
+            ]
+          },
+          "bb": {
+            "from": "book",
+            "to": "bookDb",
+            "pts": [
+              "book",
+              "bookDb"
+            ]
+          },
+          "be": {
+            "from": "book",
+            "to": "events",
+            "pts": [
+              "book",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          },
+          "en": {
+            "from": "events",
+            "to": "notify",
+            "pts": [
+              "events",
+              "notify"
+            ],
+            "label": "consume"
+          },
+          "ag": {
+            "from": "ana",
+            "to": "gw",
+            "pts": [
+              "ana",
+              "gw"
+            ],
+            "label": "8 pm, table 4"
+          },
+          "rg": {
+            "from": "raj",
+            "to": "gw",
+            "pts": [
+              "raj",
+              "gw"
+            ],
+            "label": "8 pm, table 4"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ag",
+              "gb",
+              "bb"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "rg",
+              "gb",
+              "bb"
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    },
+    {
+      "short": "Zoom in",
+      "chapter": "technique",
+      "title": "Open up one box",
+      "body": [
+        "<span class=\"term\">Low-level design</span> (LLD) zooms into one service. Its parts are now modules and classes: a <b>controller</b> that speaks HTTP, the <b>booking logic</b>, an <b>availability</b> check, a <b>repository</b> that talks to the database, and an <b>event publisher</b>.",
+        "The other services drop out of view. They still exist, but at this zoom level they are just the outside world."
+      ],
+      "changes": [
+        "- Restaurant service, Notifier, their stores (out of frame)",
+        "+ Booking service split into 5 modules",
+        "~ Bookings DB moves below the repository"
+      ],
+      "metrics": {
+        "zoom": "inside Booking",
+        "unit": "modules + classes",
+        "output": "module sketch"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ana"
+          },
+          "raj": {
+            "type": "device",
+            "x": 7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Raj"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "inside": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -12,
+            "y1": 9,
+            "label": "INSIDE THE BOOKING SERVICE"
+          },
+          "ctrl": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 3.4,
+            "color": "yellow",
+            "glyph": "code",
+            "label": [
+              "Reservation",
+              "controller"
+            ],
+            "h": 34
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -1,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "logic"
+            ],
+            "cpu": 0.35
+          },
+          "avail": {
+            "type": "block",
+            "x": -9,
+            "y": -1,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "listChecks",
+            "label": [
+              "Availability"
+            ],
+            "h": 34
+          },
+          "repo": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "database",
+            "label": [
+              "Reservation",
+              "repository"
+            ],
+            "h": 34
+          },
+          "outbox": {
+            "type": "block",
+            "x": 9,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "send",
+            "label": [
+              "Event",
+              "publisher"
+            ],
+            "h": 34
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Bookings DB"
+          },
+          "events": {
+            "type": "block",
+            "x": 21,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          }
+        },
+        "links": {
+          "ag": {
+            "from": "ana",
+            "to": "gw",
+            "pts": [
+              "ana",
+              "gw"
+            ]
+          },
+          "rg": {
+            "from": "raj",
+            "to": "gw",
+            "pts": [
+              "raj",
+              "gw"
+            ]
+          },
+          "gc": {
+            "from": "gw",
+            "to": "ctrl",
+            "pts": [
+              "gw",
+              "ctrl"
+            ],
+            "label": "POST /reservations"
+          },
+          "cb": {
+            "from": "ctrl",
+            "to": "book",
+            "pts": [
+              "ctrl",
+              "book"
+            ]
+          },
+          "ba": {
+            "from": "book",
+            "to": "avail",
+            "pts": [
+              "book",
+              "avail"
+            ]
+          },
+          "br": {
+            "from": "book",
+            "to": "repo",
+            "pts": [
+              "book",
+              "repo"
+            ]
+          },
+          "bo": {
+            "from": "book",
+            "to": "outbox",
+            "pts": [
+              "book",
+              "outbox"
+            ]
+          },
+          "rd": {
+            "from": "repo",
+            "to": "bookDb",
+            "pts": [
+              "repo",
+              "bookDb"
+            ],
+            "label": "SQL"
+          },
+          "oe": {
+            "from": "outbox",
+            "to": "events",
+            "pts": [
+              "outbox",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "ag",
+                "rg"
+              ],
+              "gc",
+              "cb",
+              "br",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "ba"
+            ],
+            "bounce": true,
+            "kind": "ping",
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "API contract",
+      "chapter": "technique",
+      "title": "Pin down the API",
+      "body": [
+        "The first LLD artifact is the contract: endpoints, request fields and every response the caller must handle. Note the <code>idempotency_key</code>, so a retry after a timeout can't create a second booking, and the explicit <code>409 Conflict</code> for a slot that is already gone.",
+        "Writing errors down at this level forces the hard decisions early. What should Raj see? Here, the next free slot."
+      ],
+      "changes": [
+        "+ Panel: reservation endpoints",
+        "+ Controller tagged as the contract"
+      ],
+      "metrics": {
+        "zoom": "inside Booking",
+        "unit": "modules + classes",
+        "output": "API contract"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ana"
+          },
+          "raj": {
+            "type": "device",
+            "x": 7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Raj"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "inside": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -12,
+            "y1": 9,
+            "label": "INSIDE THE BOOKING SERVICE"
+          },
+          "ctrl": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 3.4,
+            "color": "yellow",
+            "glyph": "code",
+            "label": [
+              "Reservation",
+              "controller"
+            ],
+            "h": 34,
+            "pills": "below",
+            "tags": [
+              {
+                "text": "the contract",
+                "tone": "violet",
+                "icon": "braces"
+              }
+            ]
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -1,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "logic"
+            ],
+            "cpu": 0.35
+          },
+          "avail": {
+            "type": "block",
+            "x": -9,
+            "y": -1,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "listChecks",
+            "label": [
+              "Availability"
+            ],
+            "h": 34
+          },
+          "repo": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "database",
+            "label": [
+              "Reservation",
+              "repository"
+            ],
+            "h": 34
+          },
+          "outbox": {
+            "type": "block",
+            "x": 9,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "send",
+            "label": [
+              "Event",
+              "publisher"
+            ],
+            "h": 34
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Bookings DB"
+          },
+          "events": {
+            "type": "block",
+            "x": 21,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Reservation API",
+            "icon": "braces",
+            "lines": [
+              "POST /restaurants/{id}/reservations",
+              "# body: slot, party_size, idempotency_key",
+              "= 201 Created → reservation id",
+              "! 409 Conflict → slot already taken",
+              "GET /restaurants/{id}/availability?date=",
+              "DELETE /reservations/{id}"
+            ]
+          }
+        },
+        "links": {
+          "ag": {
+            "from": "ana",
+            "to": "gw",
+            "pts": [
+              "ana",
+              "gw"
+            ]
+          },
+          "rg": {
+            "from": "raj",
+            "to": "gw",
+            "pts": [
+              "raj",
+              "gw"
+            ]
+          },
+          "gc": {
+            "from": "gw",
+            "to": "ctrl",
+            "pts": [
+              "gw",
+              "ctrl"
+            ],
+            "label": "POST /reservations"
+          },
+          "cb": {
+            "from": "ctrl",
+            "to": "book",
+            "pts": [
+              "ctrl",
+              "book"
+            ]
+          },
+          "ba": {
+            "from": "book",
+            "to": "avail",
+            "pts": [
+              "book",
+              "avail"
+            ]
+          },
+          "br": {
+            "from": "book",
+            "to": "repo",
+            "pts": [
+              "book",
+              "repo"
+            ]
+          },
+          "bo": {
+            "from": "book",
+            "to": "outbox",
+            "pts": [
+              "book",
+              "outbox"
+            ]
+          },
+          "rd": {
+            "from": "repo",
+            "to": "bookDb",
+            "pts": [
+              "repo",
+              "bookDb"
+            ],
+            "label": "SQL"
+          },
+          "oe": {
+            "from": "outbox",
+            "to": "events",
+            "pts": [
+              "outbox",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "ag",
+                "rg"
+              ],
+              "gc",
+              "cb",
+              "br",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "ba"
+            ],
+            "bounce": true,
+            "kind": "ping",
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Data model",
+      "chapter": "technique",
+      "title": "Design the tables",
+      "body": [
+        "Next, the data model. A <b>reservations</b> row ties a table to a time slot, and a <b>unique constraint on (table_id, slot)</b> makes a double booking impossible, no matter how the application code is scheduled.",
+        "An index on <code>(restaurant_id, slot)</code> keeps the availability query fast, and a small idempotency table maps each key to the reservation it already created."
+      ],
+      "changes": [
+        "+ Panel: tables and keys",
+        "+ Unique constraint on Bookings DB"
+      ],
+      "metrics": {
+        "zoom": "inside Booking",
+        "unit": "tables + columns",
+        "output": "data model"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ana"
+          },
+          "raj": {
+            "type": "device",
+            "x": 7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Raj"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "inside": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -12,
+            "y1": 9,
+            "label": "INSIDE THE BOOKING SERVICE"
+          },
+          "ctrl": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 3.4,
+            "color": "yellow",
+            "glyph": "code",
+            "label": [
+              "Reservation",
+              "controller"
+            ],
+            "h": 34
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -1,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "logic"
+            ],
+            "cpu": 0.35
+          },
+          "avail": {
+            "type": "block",
+            "x": -9,
+            "y": -1,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "listChecks",
+            "label": [
+              "Availability"
+            ],
+            "h": 34
+          },
+          "repo": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "database",
+            "label": [
+              "Reservation",
+              "repository"
+            ],
+            "h": 34
+          },
+          "outbox": {
+            "type": "block",
+            "x": 9,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "send",
+            "label": [
+              "Event",
+              "publisher"
+            ],
+            "h": 34
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Bookings DB",
+            "tags": [
+              {
+                "text": "UNIQUE (table_id, slot)",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "events": {
+            "type": "block",
+            "x": 21,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Data model",
+            "icon": "database",
+            "lines": [
+              "**tables**: id, restaurant_id, seats",
+              "**reservations**: id, table_id, slot,",
+              "    diner_id, party_size, status",
+              "**idempotency**: key → reservation_id",
+              "= one table + one slot = at most one row",
+              "# index (restaurant_id, slot) for availability"
+            ]
+          }
+        },
+        "links": {
+          "ag": {
+            "from": "ana",
+            "to": "gw",
+            "pts": [
+              "ana",
+              "gw"
+            ]
+          },
+          "rg": {
+            "from": "raj",
+            "to": "gw",
+            "pts": [
+              "raj",
+              "gw"
+            ]
+          },
+          "gc": {
+            "from": "gw",
+            "to": "ctrl",
+            "pts": [
+              "gw",
+              "ctrl"
+            ],
+            "label": "POST /reservations"
+          },
+          "cb": {
+            "from": "ctrl",
+            "to": "book",
+            "pts": [
+              "ctrl",
+              "book"
+            ]
+          },
+          "ba": {
+            "from": "book",
+            "to": "avail",
+            "pts": [
+              "book",
+              "avail"
+            ]
+          },
+          "br": {
+            "from": "book",
+            "to": "repo",
+            "pts": [
+              "book",
+              "repo"
+            ]
+          },
+          "bo": {
+            "from": "book",
+            "to": "outbox",
+            "pts": [
+              "book",
+              "outbox"
+            ]
+          },
+          "rd": {
+            "from": "repo",
+            "to": "bookDb",
+            "pts": [
+              "repo",
+              "bookDb"
+            ],
+            "label": "SQL"
+          },
+          "oe": {
+            "from": "outbox",
+            "to": "events",
+            "pts": [
+              "outbox",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "ag",
+                "rg"
+              ],
+              "gc",
+              "cb",
+              "br",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "ba"
+            ],
+            "bounce": true,
+            "kind": "ping",
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Race solved",
+      "chapter": "solution",
+      "title": "The database says no",
+      "body": [
+        "Replay the race. Both requests pass the availability check, because it ran before either insert. Ana's <code>INSERT</code> commits first; Raj's breaks the unique constraint, the repository turns that into a <i>SlotTaken</i> error, and the controller returns <b>409</b> with the 8:30 alternative.",
+        "No locks held across network calls, no distributed coordination. One constraint, chosen at the LLD level, closes the race the HLD couldn't even show."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Treat the availability check as a hint for the UI. The constraint is the real guarantee."
+      },
+      "changes": [
+        "~ Raj's request rejected with 409",
+        "~ Insert labelled on the repository link"
+      ],
+      "metrics": {
+        "zoom": "inside Booking",
+        "unit": "tables + columns",
+        "output": "race handled"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ana"
+          },
+          "raj": {
+            "type": "device",
+            "x": 7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Raj"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "inside": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -12,
+            "y1": 9,
+            "label": "INSIDE THE BOOKING SERVICE"
+          },
+          "ctrl": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 3.4,
+            "color": "yellow",
+            "glyph": "code",
+            "label": [
+              "Reservation",
+              "controller"
+            ],
+            "h": 34,
+            "pills": "below",
+            "tags": [
+              {
+                "text": "Raj → 409, offer 8:30",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -1,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "logic"
+            ],
+            "cpu": 0.35
+          },
+          "avail": {
+            "type": "block",
+            "x": -9,
+            "y": -1,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "listChecks",
+            "label": [
+              "Availability"
+            ],
+            "h": 34
+          },
+          "repo": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "database",
+            "label": [
+              "Reservation",
+              "repository"
+            ],
+            "h": 34
+          },
+          "outbox": {
+            "type": "block",
+            "x": 9,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "send",
+            "label": [
+              "Event",
+              "publisher"
+            ],
+            "h": 34
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Bookings DB",
+            "tags": [
+              {
+                "text": "UNIQUE (table_id, slot)",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "events": {
+            "type": "block",
+            "x": 21,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          }
+        },
+        "links": {
+          "ag": {
+            "from": "ana",
+            "to": "gw",
+            "pts": [
+              "ana",
+              "gw"
+            ]
+          },
+          "rg": {
+            "from": "raj",
+            "to": "gw",
+            "pts": [
+              "raj",
+              "gw"
+            ]
+          },
+          "gc": {
+            "from": "gw",
+            "to": "ctrl",
+            "pts": [
+              "gw",
+              "ctrl"
+            ],
+            "label": "POST /reservations"
+          },
+          "cb": {
+            "from": "ctrl",
+            "to": "book",
+            "pts": [
+              "ctrl",
+              "book"
+            ]
+          },
+          "ba": {
+            "from": "book",
+            "to": "avail",
+            "pts": [
+              "book",
+              "avail"
+            ]
+          },
+          "br": {
+            "from": "book",
+            "to": "repo",
+            "pts": [
+              "book",
+              "repo"
+            ]
+          },
+          "bo": {
+            "from": "book",
+            "to": "outbox",
+            "pts": [
+              "book",
+              "outbox"
+            ]
+          },
+          "rd": {
+            "from": "repo",
+            "to": "bookDb",
+            "pts": [
+              "repo",
+              "bookDb"
+            ],
+            "label": "INSERT"
+          },
+          "oe": {
+            "from": "outbox",
+            "to": "events",
+            "pts": [
+              "outbox",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ag",
+              "gc",
+              "cb",
+              "br",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "rg",
+              "gc",
+              "cb",
+              "br",
+              "rd"
+            ],
+            "kind": "poison",
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "short": "Classes",
+      "chapter": "insight",
+      "title": "Dependencies point inward",
+      "body": [
+        "Inside the service, the booking logic depends only on small interfaces it defines: <code>ReservationStore</code>, <code>EventSink</code>, <code>AvailabilityPolicy</code>. The Postgres and Kafka code implement those interfaces at the edges.",
+        "That's why the core can be unit-tested with in-memory fakes, and why swapping the message broker later touches one adapter, not the business rules."
+      ],
+      "changes": [
+        "+ Interface names on three modules",
+        "~ Booking logic now depends only on interfaces"
+      ],
+      "metrics": {
+        "zoom": "inside Booking",
+        "unit": "interfaces + classes",
+        "output": "class sketch"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ana"
+          },
+          "raj": {
+            "type": "device",
+            "x": 7,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Raj"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -19,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "inside": {
+            "type": "zone",
+            "x0": -14,
+            "x1": 14,
+            "y0": -12,
+            "y1": 9,
+            "label": "INSIDE THE BOOKING SERVICE"
+          },
+          "ctrl": {
+            "type": "block",
+            "x": 0,
+            "y": -8,
+            "s": 3.4,
+            "color": "yellow",
+            "glyph": "code",
+            "label": [
+              "Reservation",
+              "controller"
+            ],
+            "h": 34
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -1,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "logic"
+            ],
+            "cpu": 0.35
+          },
+          "avail": {
+            "type": "block",
+            "x": -9,
+            "y": -1,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "listChecks",
+            "label": [
+              "Availability"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "AvailabilityPolicy",
+                "tone": "violet",
+                "icon": "component"
+              }
+            ]
+          },
+          "repo": {
+            "type": "block",
+            "x": 0,
+            "y": 6,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "database",
+            "label": [
+              "Reservation",
+              "repository"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "ReservationStore",
+                "tone": "violet",
+                "icon": "component"
+              }
+            ]
+          },
+          "outbox": {
+            "type": "block",
+            "x": 9,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "send",
+            "label": [
+              "Event",
+              "publisher"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "EventSink",
+                "tone": "violet",
+                "icon": "component"
+              }
+            ],
+            "pills": "below"
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Bookings DB"
+          },
+          "events": {
+            "type": "block",
+            "x": 21,
+            "y": -1,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Dependencies point inward",
+            "icon": "layers",
+            "lines": [
+              "controller → **BookingService**",
+              "BookingService → interfaces it owns:",
+              "    ReservationStore, EventSink, Policy",
+              "Postgres / Kafka adapters implement them",
+              "= tests swap adapters for in-memory fakes"
+            ]
+          }
+        },
+        "links": {
+          "ag": {
+            "from": "ana",
+            "to": "gw",
+            "pts": [
+              "ana",
+              "gw"
+            ]
+          },
+          "rg": {
+            "from": "raj",
+            "to": "gw",
+            "pts": [
+              "raj",
+              "gw"
+            ]
+          },
+          "gc": {
+            "from": "gw",
+            "to": "ctrl",
+            "pts": [
+              "gw",
+              "ctrl"
+            ],
+            "label": "POST /reservations"
+          },
+          "cb": {
+            "from": "ctrl",
+            "to": "book",
+            "pts": [
+              "ctrl",
+              "book"
+            ]
+          },
+          "ba": {
+            "from": "book",
+            "to": "avail",
+            "pts": [
+              "book",
+              "avail"
+            ]
+          },
+          "br": {
+            "from": "book",
+            "to": "repo",
+            "pts": [
+              "book",
+              "repo"
+            ]
+          },
+          "bo": {
+            "from": "book",
+            "to": "outbox",
+            "pts": [
+              "book",
+              "outbox"
+            ]
+          },
+          "rd": {
+            "from": "repo",
+            "to": "bookDb",
+            "pts": [
+              "repo",
+              "bookDb"
+            ],
+            "label": "SQL"
+          },
+          "oe": {
+            "from": "outbox",
+            "to": "events",
+            "pts": [
+              "outbox",
+              "events"
+            ],
+            "label": "BookingMade",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              [
+                "ag",
+                "rg"
+              ],
+              "gc",
+              "cb",
+              [
+                "ba",
+                "br",
+                "bo"
+              ]
+            ],
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Zoom out",
+      "chapter": "insight",
+      "title": "Back to the map, better informed",
+      "body": [
+        "Zoom back out. The service map barely changed, but now two notes on it carry real weight: bookings return <b>409 on conflict</b>, and the database enforces <b>one row per table and slot</b>.",
+        "Some LLD choices push back up. That constraint only works if all bookings for a table live in one database, which rules out splitting a restaurant's tables across shards. The levels inform each other."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "In an interview: sketch the whole map first, then say “let me zoom into the booking path”. Pick one or two boxes; never all of them."
+      },
+      "changes": [
+        "+ Restaurant service, Notifier, stores back in view",
+        "~ Booking service annotated with the LLD decisions"
+      ],
+      "metrics": {
+        "zoom": "both",
+        "unit": "services ↔ classes",
+        "output": "HLD + 1 deep dive"
+      },
+      "scene": {
+        "entities": {
+          "diners": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Diners"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "rest": {
+            "type": "block",
+            "x": -13,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "building",
+            "label": [
+              "Restaurant",
+              "service"
+            ],
+            "cpu": 0.25
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "service"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "409 on conflict",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "notify": {
+            "type": "block",
+            "x": 13,
+            "y": -3,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Notifier"
+            ],
+            "cpu": 0.3
+          },
+          "restDb": {
+            "type": "db",
+            "x": -13,
+            "y": 9,
+            "label": "Restaurants DB"
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Bookings DB",
+            "tags": [
+              {
+                "text": "UNIQUE (table_id, slot)",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "events": {
+            "type": "block",
+            "x": 13,
+            "y": 9,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          }
+        },
+        "links": {
+          "dg": {
+            "from": "diners",
+            "to": "gw",
+            "pts": [
+              "diners",
+              "gw"
+            ],
+            "label": "HTTPS"
+          },
+          "gr": {
+            "from": "gw",
+            "to": "rest",
+            "pts": [
+              "gw",
+              "rest"
+            ],
+            "label": "menus"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "book",
+            "pts": [
+              "gw",
+              "book"
+            ],
+            "label": "reserve"
+          },
+          "rr": {
+            "from": "rest",
+            "to": "restDb",
+            "pts": [
+              "rest",
+              "restDb"
+            ]
+          },
+          "bb": {
+            "from": "book",
+            "to": "bookDb",
+            "pts": [
+              "book",
+              "bookDb"
+            ]
+          },
+          "be": {
+            "from": "book",
+            "to": "events",
+            "pts": [
+              "book",
+              "events"
+            ],
+            "label": "via outbox",
+            "style": "dashed"
+          },
+          "en": {
+            "from": "events",
+            "to": "notify",
+            "pts": [
+              "events",
+              "notify"
+            ],
+            "label": "consume"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "dg",
+              "gb",
+              "bb"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "dg",
+              "gr",
+              "rr"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "be",
+              "en"
+            ],
+            "kind": "msg",
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Diners"
+          },
+          {
+            "id": "gw",
+            "kind": "load_balancer",
+            "label": "API Gateway"
+          },
+          {
+            "id": "rest",
+            "kind": "api_server",
+            "label": "Restaurant service"
+          },
+          {
+            "id": "book",
+            "kind": "api_server",
+            "label": "Booking service"
+          },
+          {
+            "id": "restDb",
+            "kind": "postgres",
+            "label": "Restaurants DB"
+          },
+          {
+            "id": "bookDb",
+            "kind": "postgres",
+            "label": "Bookings DB"
+          },
+          {
+            "id": "events",
+            "kind": "kafka",
+            "label": "Booking events"
+          },
+          {
+            "id": "notify",
+            "kind": "worker",
+            "label": "Notifier"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw"
+          },
+          {
+            "from": "gw",
+            "to": "rest"
+          },
+          {
+            "from": "gw",
+            "to": "book"
+          },
+          {
+            "from": "rest",
+            "to": "restDb"
+          },
+          {
+            "from": "book",
+            "to": "bookDb"
+          },
+          {
+            "from": "book",
+            "to": "events"
+          },
+          {
+            "from": "events",
+            "to": "notify"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Two zoom levels, one system",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>HLD</b>: services, stores, queues and the calls between them. Answers scale, ownership and failure questions.</li><li><b>LLD</b>: inside one service. Modules, API contract, data model, classes.</li><li>Races, idempotency and indexes are LLD problems; you can't see them on the map.</li><li>Keep the core logic free of I/O and depend on interfaces you own.</li><li>LLD decisions can constrain the HLD (for example, what can be sharded).</li><li>In interviews, go wide first, then deep on one or two boxes.</li></ul>"
+      ],
+      "metrics": {
+        "zoom": "both",
+        "unit": "services ↔ classes",
+        "output": "HLD + 1 deep dive"
+      },
+      "scene": {
+        "entities": {
+          "diners": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Diners"
+          },
+          "gw": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "API",
+              "Gateway"
+            ],
+            "pills": "below"
+          },
+          "rest": {
+            "type": "block",
+            "x": -13,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "building",
+            "label": [
+              "Restaurant",
+              "service"
+            ],
+            "cpu": 0.25
+          },
+          "book": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 3.8,
+            "color": "blue",
+            "glyph": "clock",
+            "label": [
+              "Booking",
+              "service"
+            ],
+            "cpu": 0.35
+          },
+          "notify": {
+            "type": "block",
+            "x": 13,
+            "y": -3,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Notifier"
+            ],
+            "cpu": 0.3
+          },
+          "restDb": {
+            "type": "db",
+            "x": -13,
+            "y": 9,
+            "label": "Restaurants DB"
+          },
+          "bookDb": {
+            "type": "db",
+            "x": 0,
+            "y": 9,
+            "label": "Bookings DB",
+            "tags": [
+              {
+                "text": "UNIQUE (table_id, slot)",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "events": {
+            "type": "block",
+            "x": 13,
+            "y": 9,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Booking",
+              "events"
+            ]
+          }
+        },
+        "links": {
+          "dg": {
+            "from": "diners",
+            "to": "gw",
+            "pts": [
+              "diners",
+              "gw"
+            ],
+            "label": "HTTPS"
+          },
+          "gr": {
+            "from": "gw",
+            "to": "rest",
+            "pts": [
+              "gw",
+              "rest"
+            ],
+            "label": "menus"
+          },
+          "gb": {
+            "from": "gw",
+            "to": "book",
+            "pts": [
+              "gw",
+              "book"
+            ],
+            "label": "reserve"
+          },
+          "rr": {
+            "from": "rest",
+            "to": "restDb",
+            "pts": [
+              "rest",
+              "restDb"
+            ]
+          },
+          "bb": {
+            "from": "book",
+            "to": "bookDb",
+            "pts": [
+              "book",
+              "bookDb"
+            ]
+          },
+          "be": {
+            "from": "book",
+            "to": "events",
+            "pts": [
+              "book",
+              "events"
+            ],
+            "label": "via outbox",
+            "style": "dashed"
+          },
+          "en": {
+            "from": "events",
+            "to": "notify",
+            "pts": [
+              "events",
+              "notify"
+            ],
+            "label": "consume"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "dg",
+              "gb",
+              "bb"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "dg",
+              "gr",
+              "rr"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "be",
+              "en"
+            ],
+            "kind": "msg",
+            "rate": 0.6
+          }
+        ]
+      }
+    }
+  ]
+}

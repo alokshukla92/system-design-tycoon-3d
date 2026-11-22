@@ -1,7 +1,8 @@
 # System Design Tycoon — classroom replica
 
 Exact behavioural/visual replica of the reverse-engineered classroom (spec: `../reverse-engineering/`),
-with lesson content converted from `system-design-tycoon/src/lib/learn/lessons.ts`.
+with 56 lessons in 12 modules: modules 01–03 are converted from `system-design-tycoon`, and modules 04–12 are an
+original 40-lesson curriculum (Foundations through Whole Systems). All modules are free.
 
 ```sh
 npm install
@@ -25,11 +26,18 @@ Engine harness (dev only): `http://localhost:5173/engine-harness.html`.
 ## Scripts
 - `node scripts/convert-lessons.mjs` — one-time lesson conversion (overwrites `src/content/lessons/*.json`, including hand enrichment encoded in the script).
 - `node scripts/gen-incident-lessons.mjs` — regenerates the modules 02–03 lessons (Incident Commander, Campaign Extras) drafted from the source game's incidents/levels.
+- `node scripts/gen-curriculum-{a..f}.mjs` — generators (the source of truth) for the modules 04–12 lessons; rerun one after editing it.
 - `node scripts/gen-icons.mjs` — regenerate `src/icons.data.ts` after editing `ICON_NAMES`/`ALIAS`.
 
 ## Adding a lesson
-Write `src/content/lessons/<id>.json` following doc 11, register it in `lessons/index.ts` and `course.ts`,
-then `npm test` (schema validation).
+Write `src/content/lessons/<id>.json` following doc 11 and add its ref to `course.ts`; `lessons/index.ts` picks up
+every JSON automatically through `import.meta.glob`. Then run `npm test` (schema validation). Lessons may only use
+existing registry keys (metrics, legend, chapters, callouts), because those are translated UI strings.
+
+**Lazy loading.** Each lesson is its own chunk, fetched by `loadLesson()` (`getLesson()` is a sync cache lookup).
+Lesson metadata (titles, step counts, minutes) is derived at build time by a Vite plugin (`src/content/derive.ts`),
+and the search corpus (`src/search/corpus.ts`) is loaded the first time search opens. `lessons/all.ts` is an eager loader
+for tests only. Lab graphs (`step.lab`) are required on every step for modules 01–03 and optional for 04–12.
 
 ## Practice & Design Lab (simulator)
 

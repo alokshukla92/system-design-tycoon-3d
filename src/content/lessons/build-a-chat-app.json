@@ -1,0 +1,2601 @@
+{
+  "id": "build-a-chat-app",
+  "title": "Build a Chat App",
+  "summary": "Design Parley's messaging interview style: WebSocket gateways, ordered storage per conversation, at-least-once delivery with dedupe, offline push, receipts, presence and groups.",
+  "minutes": 14,
+  "level": "advanced",
+  "metrics": [
+    "deliverMs",
+    "conns",
+    "canLoseMsg",
+    "ordered"
+  ],
+  "legend": [
+    "msg",
+    "write",
+    [
+      "ping",
+      "lookup / heartbeat"
+    ],
+    "push",
+    [
+      "empty",
+      "no session"
+    ],
+    [
+      "poison",
+      "duplicate"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Size connections, message rate and storage",
+      "step": 1
+    },
+    {
+      "text": "Route messages between WebSocket gateways",
+      "step": 3
+    },
+    {
+      "text": "Keep one order per conversation with sequence numbers",
+      "step": 4
+    },
+    {
+      "text": "Deliver at least once, then dedupe",
+      "step": 6
+    },
+    {
+      "text": "Handle offline users, receipts, presence and groups",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Requirements",
+      "chapter": "setup",
+      "title": "What a chat app must guarantee",
+      "body": [
+        "The prompt: <i>“Design a chat app.”</i> <b>Parley</b> needs 1:1 and group chats, messages that arrive in real time when you're online and wait for you when you're not, and one agreed order in every conversation.",
+        "Two guarantees carry most of the design: a message is <b>never lost</b>, and it's <b>never shown twice</b>. Ticks and presence are nice-to-haves, but they shape the protocol, so note them now."
+      ],
+      "metrics": {
+        "deliverMs": null,
+        "conns": "—",
+        "canLoseMsg": null,
+        "ordered": null
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines"
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -10,
+            "s": 7,
+            "h": 80,
+            "label": "Parley?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Requirements",
+            "icon": "listChecks",
+            "lines": [
+              "**must**: 1:1 and group chats (≤ 500)",
+              "**must**: delivered in real time when online",
+              "**must**: stored; delivered later when offline",
+              "**must**: same order for everyone in a chat",
+              "**nice**: sent / delivered / read ticks",
+              "**nice**: online & last-seen presence",
+              "# never lose a message; never show one twice"
+            ]
+          }
+        },
+        "links": {
+          "ab": {
+            "from": "alice",
+            "to": "box",
+            "pts": [
+              "alice",
+              "box"
+            ],
+            "label": "send"
+          },
+          "bb": {
+            "from": "box",
+            "to": "bob",
+            "pts": [
+              "box",
+              "bob"
+            ],
+            "label": "deliver"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ab",
+              "bb"
+            ],
+            "kind": "msg",
+            "rate": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "short": "Estimates",
+      "chapter": "setup",
+      "title": "Sockets, not requests",
+      "body": [
+        "With <b>50 million</b> daily users sending 40 messages each, that's about 23,000 messages a second, peaking near 70,000. Each message is about 200 bytes, so roughly 150 TB a year of history.",
+        "The unusual number is connections: <b>20 million phones</b> online at once, each holding a socket open. At ~50,000 sockets per server that's ~400 gateway machines, before we've processed a single message."
+      ],
+      "changes": [
+        "+ Panel: back-of-the-envelope numbers"
+      ],
+      "metrics": {
+        "deliverMs": null,
+        "conns": "20 M",
+        "canLoseMsg": null,
+        "ordered": null
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines"
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -10,
+            "s": 7,
+            "h": 80,
+            "label": "Parley?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Back of the envelope",
+            "icon": "sigma",
+            "lines": [
+              "50 M daily users · **20 M online** at peak",
+              "40 messages/user/day → 2 B/day",
+              "  → **~23,000 msg/s** (peak ~70,000)",
+              "1 open socket per online device → 20 M sockets",
+              "~50k sockets per gateway → **~400 gateways**",
+              "2 B × ~200 B ≈ 400 GB/day → **~150 TB/year**"
+            ]
+          }
+        },
+        "links": {
+          "ab": {
+            "from": "alice",
+            "to": "box",
+            "pts": [
+              "alice",
+              "box"
+            ],
+            "label": "send"
+          },
+          "bb": {
+            "from": "box",
+            "to": "bob",
+            "pts": [
+              "box",
+              "bob"
+            ],
+            "label": "deliver"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ab",
+              "bb"
+            ],
+            "kind": "msg",
+            "rate": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "short": "Protocol",
+      "chapter": "technique",
+      "title": "A small protocol over WebSockets",
+      "body": [
+        "Polling every few seconds would waste battery and still feel slow. Instead, each device opens one <span class=\"term\">WebSocket</span> and keeps it open; the server can push to it any time.",
+        "The client tags each message with its own <code>client_msg_id</code>. The server replies with an <b>ack</b> carrying the message's <code>seq</code>. A plain REST call fetches everything after a given <code>seq</code> for catching up."
+      ],
+      "changes": [
+        "+ Panel: frames and catch-up endpoint",
+        "~ Arrows labelled as WebSocket frames"
+      ],
+      "metrics": {
+        "deliverMs": null,
+        "conns": "20 M",
+        "canLoseMsg": null,
+        "ordered": null
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines"
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -10,
+            "s": 7,
+            "h": 80,
+            "label": "Parley?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The protocol",
+            "icon": "braces",
+            "lines": [
+              "→ send { conv_id, client_msg_id, body }",
+              "← ack { client_msg_id, seq }",
+              "← msg { conv_id, seq, sender, body }",
+              "→ receipt { conv_id, seq, delivered | read }",
+              "GET /v1/conversations/{id}/messages?after_seq=",
+              "# frames over one long-lived socket; REST to catch up"
+            ]
+          }
+        },
+        "links": {
+          "ab": {
+            "from": "alice",
+            "to": "box",
+            "pts": [
+              "alice",
+              "box"
+            ],
+            "label": "WebSocket frame"
+          },
+          "bb": {
+            "from": "box",
+            "to": "bob",
+            "pts": [
+              "box",
+              "bob"
+            ],
+            "label": "WebSocket frame"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ab",
+              "bb"
+            ],
+            "kind": "msg",
+            "rate": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "short": "High level",
+      "chapter": "solution",
+      "title": "Gateways and a registry",
+      "body": [
+        "<b>Gateways</b> only hold sockets: thousands of mostly idle connections each. Behind them, a stateless <b>Chat service</b> does the work: store the message, then deliver it.",
+        "But Ines is on gateway 1 and Tomás on gateway 2. To deliver, the Chat service asks a <b>session registry</b> (a Redis map of user → gateway, written when a device connects) and forwards the frame to gateway 2, which pushes it down Tomás's socket."
+      ],
+      "changes": [
+        "- Placeholder box",
+        "+ Two WebSocket gateways",
+        "+ Chat service, session registry, message store"
+      ],
+      "metrics": {
+        "deliverMs": 120,
+        "conns": "20 M",
+        "canLoseMsg": "yes",
+        "ordered": "no"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines"
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages"
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g2r": {
+            "from": "gw2",
+            "to": "registry",
+            "pts": [
+              "gw2",
+              "registry"
+            ],
+            "label": "Tomás → gw-2",
+            "style": "dashed"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "c2g",
+              "g2b"
+            ],
+            "kind": "msg",
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "cs"
+            ],
+            "kind": "write",
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "cr"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "g2r"
+            ],
+            "kind": "ping",
+            "rate": 0.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Phones"
+          },
+          {
+            "id": "gw1",
+            "kind": "api_server",
+            "label": "WS gateway 1"
+          },
+          {
+            "id": "gw2",
+            "kind": "api_server",
+            "label": "WS gateway 2"
+          },
+          {
+            "id": "chat",
+            "kind": "api_server",
+            "label": "Chat service"
+          },
+          {
+            "id": "registry",
+            "kind": "redis",
+            "label": "Session registry"
+          },
+          {
+            "id": "store",
+            "kind": "cassandra",
+            "label": "Messages"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw1"
+          },
+          {
+            "from": "users",
+            "to": "gw2"
+          },
+          {
+            "from": "gw1",
+            "to": "chat"
+          },
+          {
+            "from": "gw2",
+            "to": "chat"
+          },
+          {
+            "from": "chat",
+            "to": "registry"
+          },
+          {
+            "from": "chat",
+            "to": "store"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Ordering",
+      "chapter": "technique",
+      "title": "Deep dive: one order per chat",
+      "body": [
+        "Ines sends “Running late” then “Start without me”. Ordering by timestamp fails: two servers' clocks can disagree by milliseconds, so the messages may swap. In a group, two members can send at the same instant.",
+        "Instead, all writes for one conversation go to one Chat service owner (by hash of <code>conv_id</code>), which assigns the next <span class=\"term\">sequence number</span>. Messages are stored partitioned by conversation and sorted by <code>seq</code>, so history is one fast range read."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "You only need order <em>within</em> a conversation. A global order across all chats would be expensive and nobody would notice it."
+      },
+      "changes": [
+        "~ Chat service assigns per-conversation seq",
+        "+ Panel: messages table keyed by (conv_id, seq)"
+      ],
+      "metrics": {
+        "deliverMs": 130,
+        "conns": "20 M",
+        "canLoseMsg": "yes",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines"
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages",
+            "tags": [
+              {
+                "text": "conv 9f2: 41 · 42 · 43",
+                "tone": "green",
+                "icon": "listOrdered"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Messages table",
+            "icon": "database",
+            "lines": [
+              "partition key: **conv_id**",
+              "sort key: **seq** ↑ · sender, client_msg_id, body",
+              "seq: per-chat counter, assigned on write",
+              "= every member sees the same order",
+              "# not timestamps: device and server clocks drift",
+              "# read: WHERE conv_id = ? AND seq > last_seen"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g2r": {
+            "from": "gw2",
+            "to": "registry",
+            "pts": [
+              "gw2",
+              "registry"
+            ],
+            "label": "Tomás → gw-2",
+            "style": "dashed"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "c2g",
+              "g2b"
+            ],
+            "kind": "msg",
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "cs"
+            ],
+            "kind": "write",
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "cr"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lost acks",
+      "chapter": "problem",
+      "title": "The ack that never arrived",
+      "body": [
+        "Ines's train enters a tunnel. Her message reaches the server and is stored, but the <b>ack</b> is lost on the way back. From her phone's point of view, the message may not have arrived.",
+        "If the app gives up, a message might be lost. If it simply sends again, Tomás sees “On my way” <b>twice</b>. Networks can't tell you which of the two happened."
+      ],
+      "changes": [
+        "~ Ines's link drops packets",
+        "~ Retries create a duplicate row"
+      ],
+      "metrics": {
+        "deliverMs": 130,
+        "conns": "20 M",
+        "canLoseMsg": "yes",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines",
+            "tags": [
+              {
+                "text": "no ack → send again",
+                "tone": "amber",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages",
+            "tags": [
+              {
+                "text": "“On my way” ×2",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0.5
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "train tunnel",
+            "heads": "both",
+            "labelTone": "amber",
+            "fail": 0.3
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g2r": {
+            "from": "gw2",
+            "to": "registry",
+            "pts": [
+              "gw2",
+              "registry"
+            ],
+            "label": "Tomás → gw-2",
+            "style": "dashed"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "cs"
+            ],
+            "bounce": true,
+            "rate": 1.2,
+            "pattern": [
+              "write",
+              "poison"
+            ]
+          },
+          {
+            "route": [
+              "c2g",
+              "g2b"
+            ],
+            "rate": 1.2,
+            "pattern": [
+              "msg",
+              "poison"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Dedupe",
+      "chapter": "solution",
+      "title": "At least once, then dedupe",
+      "body": [
+        "The phone keeps unsent messages in a local <b>outbox</b> and retries until it gets an ack: <span class=\"term\">at-least-once</span> delivery. The server stores the message <em>before</em> acking, so an ack always means “safe”.",
+        "Duplicates are removed by <span class=\"term\">idempotency</span>: the Chat service remembers each <code>client_msg_id</code> per conversation. A retry of a known id gets the original <code>seq</code> back instead of a new row. Clients dedupe incoming frames by <code>seq</code> too."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Exactly-once delivery over a network isn't possible; exactly-once <em>effect</em> is: at-least-once + dedupe."
+      },
+      "changes": [
+        "+ Outbox on the phone",
+        "+ Dedupe by client_msg_id",
+        "~ Store keeps one row per message"
+      ],
+      "metrics": {
+        "deliverMs": 140,
+        "conns": "20 M",
+        "canLoseMsg": "no",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines",
+            "tags": [
+              {
+                "text": "outbox: retry until ack",
+                "tone": "green",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages",
+            "tags": [
+              {
+                "text": "retry deduped · 1 row",
+                "tone": "green",
+                "icon": "fingerprint"
+              }
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g2r": {
+            "from": "gw2",
+            "to": "registry",
+            "pts": [
+              "gw2",
+              "registry"
+            ],
+            "label": "Tomás → gw-2",
+            "style": "dashed"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "cs"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "c2g",
+              "g2b"
+            ],
+            "kind": "msg",
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "cr"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Phones"
+          },
+          {
+            "id": "gw1",
+            "kind": "api_server",
+            "label": "WS gateway 1"
+          },
+          {
+            "id": "gw2",
+            "kind": "api_server",
+            "label": "WS gateway 2"
+          },
+          {
+            "id": "chat",
+            "kind": "api_server",
+            "label": "Chat service"
+          },
+          {
+            "id": "registry",
+            "kind": "redis",
+            "label": "Session registry"
+          },
+          {
+            "id": "store",
+            "kind": "cassandra",
+            "label": "Messages"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw1"
+          },
+          {
+            "from": "users",
+            "to": "gw2"
+          },
+          {
+            "from": "gw1",
+            "to": "chat"
+          },
+          {
+            "from": "gw2",
+            "to": "chat"
+          },
+          {
+            "from": "chat",
+            "to": "registry"
+          },
+          {
+            "from": "chat",
+            "to": "store"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Offline",
+      "chapter": "technique",
+      "title": "When Tomás is offline",
+      "body": [
+        "Tomás's phone is in his pocket with the app closed. The registry has no session for him, so the Chat service hands the message to a <b>Push service</b>, which notifies the phone through Apple's or Google's push network.",
+        "The message is already safe in the store. When Tomás opens the app, it reconnects and asks for everything after the last <code>seq</code> it saw, then switches to live frames. The push only carries a preview."
+      ],
+      "changes": [
+        "+ Push service and APNs / FCM",
+        "~ Tomás offline, socket gone",
+        "+ Panel: reconnect and sync"
+      ],
+      "metrics": {
+        "deliverMs": 1800,
+        "conns": "20 M",
+        "canLoseMsg": "no",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines"
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás",
+            "opacity": 0.55,
+            "tags": [
+              {
+                "text": "offline",
+                "tone": "gray",
+                "icon": "wifi"
+              }
+            ]
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway",
+            "tags": [
+              {
+                "text": "Tomás: no session",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ],
+            "pills": "above"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages"
+          },
+          "push": {
+            "type": "block",
+            "x": 14,
+            "y": 9,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Push",
+              "service"
+            ],
+            "cpu": 0.3
+          },
+          "apns": {
+            "type": "block",
+            "x": 27,
+            "y": -3,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "bell",
+            "label": [
+              "APNs /",
+              "FCM"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Back online: sync",
+            "icon": "refresh",
+            "lines": [
+              "Tomás opens the app → socket to any gateway",
+              "GET …/messages?after_seq=41",
+              "= gets 42–57 in order, then live frames",
+              "# the push holds a preview only",
+              "# the message store is the source of truth"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver",
+            "style": "off"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "heads": "both",
+            "style": "cut"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          },
+          "cp": {
+            "from": "chat",
+            "to": "push",
+            "pts": [
+              "chat",
+              "push"
+            ],
+            "label": "offline → notify"
+          },
+          "pa": {
+            "from": "push",
+            "to": "apns",
+            "pts": [
+              "push",
+              "apns"
+            ]
+          },
+          "ab": {
+            "from": "apns",
+            "to": "bob",
+            "pts": [
+              "apns",
+              "bob"
+            ],
+            "label": "notification",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "cs"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "cr"
+            ],
+            "kind": "empty",
+            "bounce": true,
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "cp",
+              "pa",
+              "ab"
+            ],
+            "kind": "push",
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Phones"
+          },
+          {
+            "id": "gw1",
+            "kind": "api_server",
+            "label": "WS gateway 1"
+          },
+          {
+            "id": "gw2",
+            "kind": "api_server",
+            "label": "WS gateway 2"
+          },
+          {
+            "id": "chat",
+            "kind": "api_server",
+            "label": "Chat service"
+          },
+          {
+            "id": "registry",
+            "kind": "redis",
+            "label": "Session registry"
+          },
+          {
+            "id": "store",
+            "kind": "cassandra",
+            "label": "Messages"
+          },
+          {
+            "id": "push",
+            "kind": "worker",
+            "label": "Push service"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw1"
+          },
+          {
+            "from": "users",
+            "to": "gw2"
+          },
+          {
+            "from": "gw1",
+            "to": "chat"
+          },
+          {
+            "from": "gw2",
+            "to": "chat"
+          },
+          {
+            "from": "chat",
+            "to": "registry"
+          },
+          {
+            "from": "chat",
+            "to": "store"
+          },
+          {
+            "from": "chat",
+            "to": "push"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Receipts",
+      "chapter": "technique",
+      "title": "Ticks and presence",
+      "body": [
+        "Receipts reuse the same pipeline as messages. One tick: the server acked (stored). Two ticks: Tomás's device acked the frame. Read: his app reports the highest <code>seq</code> on screen, and one number covers every earlier message.",
+        "<b>Presence</b> is a key in the registry that each heartbeat renews, expiring after 30 seconds of silence. Telling every contact about every change would dwarf the message traffic, so it's only sent to people who have that chat open."
+      ],
+      "changes": [
+        "~ Tomás back online",
+        "~ Delivery round trip returns as a receipt",
+        "+ Panel: receipts and presence"
+      ],
+      "metrics": {
+        "deliverMs": 140,
+        "conns": "20 M",
+        "canLoseMsg": "no",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines",
+            "tags": [
+              {
+                "text": "✓✓ read",
+                "tone": "violet",
+                "icon": "check"
+              }
+            ]
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway",
+            "tags": [
+              {
+                "text": "Tomás online · TTL 30 s",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages"
+          },
+          "push": {
+            "type": "block",
+            "x": 14,
+            "y": 9,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Push",
+              "service"
+            ],
+            "cpu": 0.3
+          },
+          "apns": {
+            "type": "block",
+            "x": 27,
+            "y": -3,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "bell",
+            "label": [
+              "APNs /",
+              "FCM"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Receipts & presence",
+            "icon": "check",
+            "lines": [
+              "✓ sent: stored, seq assigned (the ack)",
+              "✓✓ delivered: Tomás's device acked the frame",
+              "read: app reports last_read_seq",
+              "= receipts are tiny messages on the same path",
+              "presence: heartbeat every 20 s, key TTL 30 s",
+              "# push presence only to chats on screen"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g2r": {
+            "from": "gw2",
+            "to": "registry",
+            "pts": [
+              "gw2",
+              "registry"
+            ],
+            "label": "Tomás → gw-2",
+            "style": "dashed"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          },
+          "cp": {
+            "from": "chat",
+            "to": "push",
+            "pts": [
+              "chat",
+              "push"
+            ],
+            "label": "offline → notify"
+          },
+          "pa": {
+            "from": "push",
+            "to": "apns",
+            "pts": [
+              "push",
+              "apns"
+            ]
+          },
+          "ab": {
+            "from": "apns",
+            "to": "bob",
+            "pts": [
+              "apns",
+              "bob"
+            ],
+            "label": "notification",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "c2g",
+              "g2b"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "cs"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "g2r"
+            ],
+            "kind": "ping",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Phones"
+          },
+          {
+            "id": "gw1",
+            "kind": "api_server",
+            "label": "WS gateway 1"
+          },
+          {
+            "id": "gw2",
+            "kind": "api_server",
+            "label": "WS gateway 2"
+          },
+          {
+            "id": "chat",
+            "kind": "api_server",
+            "label": "Chat service"
+          },
+          {
+            "id": "registry",
+            "kind": "redis",
+            "label": "Session registry"
+          },
+          {
+            "id": "store",
+            "kind": "cassandra",
+            "label": "Messages"
+          },
+          {
+            "id": "push",
+            "kind": "worker",
+            "label": "Push service"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw1"
+          },
+          {
+            "from": "users",
+            "to": "gw2"
+          },
+          {
+            "from": "gw1",
+            "to": "chat"
+          },
+          {
+            "from": "gw2",
+            "to": "chat"
+          },
+          {
+            "from": "chat",
+            "to": "registry"
+          },
+          {
+            "from": "chat",
+            "to": "store"
+          },
+          {
+            "from": "chat",
+            "to": "push"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Groups",
+      "chapter": "tradeoff",
+      "title": "Groups, and where it bends",
+      "body": [
+        "Ines posts in a <b>300-member</b> group. The message is stored <em>once</em>; the Chat service looks up all members in one batched registry call, then sends <b>one batch per gateway</b>, not 300 separate frames. Offline members get a push.",
+        "Then stress-test: very large channels should let members pull instead; a gateway crash means 50,000 phones reconnect at once, so clients back off with random jitter; one very busy chat becomes a hot partition."
+      ],
+      "changes": [
+        "+ Group of 300 across gateways 2 and 3",
+        "~ Chat service fans out per gateway",
+        "+ Panel: bottlenecks"
+      ],
+      "metrics": {
+        "deliverMs": 180,
+        "conns": "20 M",
+        "canLoseMsg": "no",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines",
+            "tags": []
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway",
+            "tags": [
+              {
+                "text": "300 members: 1 call",
+                "tone": "violet",
+                "icon": "search"
+              }
+            ],
+            "pills": "above"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages"
+          },
+          "push": {
+            "type": "block",
+            "x": 14,
+            "y": 9,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Push",
+              "service"
+            ],
+            "cpu": 0.3
+          },
+          "apns": {
+            "type": "block",
+            "x": 27,
+            "y": -3,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "bell",
+            "label": [
+              "APNs /",
+              "FCM"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Where it bends",
+            "icon": "gauge",
+            "lines": [
+              "! groups: store once, send 1 batch per gateway",
+              "! 100k-member channels: members pull instead",
+              "! gateway dies → 50k reconnect: jittered backoff",
+              "! one very busy chat → one hot partition",
+              "! presence storms → only for contacts on screen"
+            ]
+          },
+          "group": {
+            "type": "crowd",
+            "x0": 15,
+            "x1": 23,
+            "y0": -31,
+            "y1": -25,
+            "count": 14,
+            "label": "Hiking club · 300"
+          },
+          "gw3": {
+            "type": "block",
+            "x": 26,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 3"
+            ],
+            "cpu": 0.35
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "batch"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "group",
+            "pts": [
+              "gw2",
+              "group"
+            ],
+            "heads": "both"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          },
+          "cp": {
+            "from": "chat",
+            "to": "push",
+            "pts": [
+              "chat",
+              "push"
+            ],
+            "label": "offline → notify"
+          },
+          "pa": {
+            "from": "push",
+            "to": "apns",
+            "pts": [
+              "push",
+              "apns"
+            ]
+          },
+          "ab": {
+            "from": "apns",
+            "to": "group",
+            "pts": [
+              "apns",
+              "group"
+            ],
+            "style": "dashed"
+          },
+          "g3b": {
+            "from": "gw3",
+            "to": "group",
+            "pts": [
+              "gw3",
+              "group"
+            ],
+            "heads": "both"
+          },
+          "c3g": {
+            "from": "chat",
+            "to": "gw3",
+            "pts": [
+              "chat",
+              "gw3"
+            ],
+            "label": "batch"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "cs"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "c2g",
+                  "g2b"
+                ]
+              },
+              {
+                "path": [
+                  "c3g",
+                  "g3b"
+                ]
+              },
+              {
+                "path": [
+                  "cp",
+                  "pa",
+                  "ab"
+                ],
+                "kind": "push"
+              }
+            ],
+            "kind": "msg",
+            "fanout": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "cr"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Parley, end to end",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Gateways</b> hold sockets; a <b>registry</b> maps users to gateways.</li><li><b>Per-conversation seq</b> gives one order; store by (conv_id, seq).</li><li><b>Store, then ack</b>; clients retry from an outbox; dedupe by client_msg_id.</li><li><b>Offline</b>: push a preview, sync from the last seq on reconnect.</li><li><b>Receipts</b> are tiny messages; presence is a heartbeat with a TTL.</li><li><b>Groups</b>: write once, fan out per gateway; big channels pull.</li></ul>"
+      ],
+      "metrics": {
+        "deliverMs": 140,
+        "conns": "20 M",
+        "canLoseMsg": "no",
+        "ordered": "yes"
+      },
+      "scene": {
+        "entities": {
+          "alice": {
+            "type": "device",
+            "x": -16,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Ines",
+            "tags": []
+          },
+          "bob": {
+            "type": "device",
+            "x": 14,
+            "y": -27,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Tomás"
+          },
+          "gw1": {
+            "type": "block",
+            "x": -12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 1"
+            ],
+            "cpu": 0.35
+          },
+          "gw2": {
+            "type": "block",
+            "x": 12,
+            "y": -15,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "WS",
+              "gateway 2"
+            ],
+            "cpu": 0.35
+          },
+          "chat": {
+            "type": "block",
+            "x": 0,
+            "y": -3,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Chat",
+              "service"
+            ],
+            "cpu": 0.4
+          },
+          "registry": {
+            "type": "block",
+            "x": 14,
+            "y": -3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Session",
+              "registry"
+            ],
+            "sub": "user → gateway",
+            "tags": [
+              {
+                "text": "Tomás online · TTL 30 s",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          },
+          "store": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Messages"
+          },
+          "push": {
+            "type": "block",
+            "x": 14,
+            "y": 9,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Push",
+              "service"
+            ],
+            "cpu": 0.3
+          },
+          "apns": {
+            "type": "block",
+            "x": 27,
+            "y": -3,
+            "s": 3.4,
+            "color": "slab",
+            "glyph": "bell",
+            "label": [
+              "APNs /",
+              "FCM"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "alice",
+            "to": "gw1",
+            "pts": [
+              "alice",
+              "gw1"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g1c": {
+            "from": "gw1",
+            "to": "chat",
+            "pts": [
+              "gw1",
+              "chat"
+            ]
+          },
+          "c2g": {
+            "from": "chat",
+            "to": "gw2",
+            "pts": [
+              "chat",
+              "gw2"
+            ],
+            "label": "deliver"
+          },
+          "g2b": {
+            "from": "gw2",
+            "to": "bob",
+            "pts": [
+              "gw2",
+              "bob"
+            ],
+            "label": "WebSocket",
+            "heads": "both"
+          },
+          "g2r": {
+            "from": "gw2",
+            "to": "registry",
+            "pts": [
+              "gw2",
+              "registry"
+            ],
+            "label": "Tomás → gw-2",
+            "style": "dashed"
+          },
+          "cr": {
+            "from": "chat",
+            "to": "registry",
+            "pts": [
+              "chat",
+              "registry"
+            ],
+            "label": "where's Tomás?"
+          },
+          "cs": {
+            "from": "chat",
+            "to": "store",
+            "pts": [
+              "chat",
+              "store"
+            ],
+            "label": "append"
+          },
+          "cp": {
+            "from": "chat",
+            "to": "push",
+            "pts": [
+              "chat",
+              "push"
+            ],
+            "label": "offline → notify"
+          },
+          "pa": {
+            "from": "push",
+            "to": "apns",
+            "pts": [
+              "push",
+              "apns"
+            ]
+          },
+          "ab": {
+            "from": "apns",
+            "to": "bob",
+            "pts": [
+              "apns",
+              "bob"
+            ],
+            "label": "notification",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "g1c",
+              "c2g",
+              "g2b"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "hold": 0.5,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "cs"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "g2r"
+            ],
+            "kind": "ping",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 20000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Phones"
+          },
+          {
+            "id": "gw1",
+            "kind": "api_server",
+            "label": "WS gateway 1"
+          },
+          {
+            "id": "gw2",
+            "kind": "api_server",
+            "label": "WS gateway 2"
+          },
+          {
+            "id": "chat",
+            "kind": "api_server",
+            "label": "Chat service"
+          },
+          {
+            "id": "registry",
+            "kind": "redis",
+            "label": "Session registry"
+          },
+          {
+            "id": "store",
+            "kind": "cassandra",
+            "label": "Messages"
+          },
+          {
+            "id": "push",
+            "kind": "worker",
+            "label": "Push service"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "gw1"
+          },
+          {
+            "from": "users",
+            "to": "gw2"
+          },
+          {
+            "from": "gw1",
+            "to": "chat"
+          },
+          {
+            "from": "gw2",
+            "to": "chat"
+          },
+          {
+            "from": "chat",
+            "to": "registry"
+          },
+          {
+            "from": "chat",
+            "to": "store"
+          },
+          {
+            "from": "chat",
+            "to": "push"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1007,7 +1007,7 @@ function write(lesson) {
       ],
       M(4800, 4, 130, 2265, "yes"),
       {
-        entities: { users: users(18), lb: balancer(0, -10), ...four(0.55), pg: pg({ x: -8.5, y: 5.5, cpu: 0.6 }) },
+        entities: { users: users(18), lb: balancer(0, -10), ...four(0.55), pg: pg({ x: -11.5, y: 8.5, cpu: 0.6 }) },
         links: fourLinks(),
         flows: rr(),
       },
@@ -1023,7 +1023,7 @@ function write(lesson) {
       ],
       M(4800, 4, 170, 2265, "yes"),
       {
-        entities: { users: users(18), lb: balancer(0, -10), ...four(0.75, { a3: DOWN }), pg: pg({ x: -8.5, y: 5.5, cpu: 0.6 }) },
+        entities: { users: users(18), lb: balancer(0, -10), ...four(0.75, { a3: DOWN }), pg: pg({ x: -11.5, y: 8.5, cpu: 0.6 }) },
         links: fourLinks({ b2: { style: "cut" }, d2: { style: "off" } }),
         flows: rr([0, 1, 3]),
       },
@@ -1039,7 +1039,7 @@ function write(lesson) {
       ],
       M(4800, 4, 160, 2265, "partly"),
       {
-        entities: { users: users(18), lb: balancer(0, -10), ...four(0.55), pg: pg({ x: -8.5, y: 5.5, cpu: 0.88, heat: 0.6, tags: [tag("still just one", "amber", "alert")] }) },
+        entities: { users: users(18), lb: balancer(0, -10), ...four(0.55), pg: pg({ x: -11.5, y: 8.5, cpu: 0.88, heat: 0.6, tags: [tag("still just one", "amber", "alert")] }) },
         links: fourLinks(),
         flows: [{ routes: [0, 1, 2, 3].map((i) => ({ path: ["in", `b${i}`, `d${i}`] })), bounce: true, rate: 3, hold: 0.2 }],
       },
@@ -1059,11 +1059,11 @@ function write(lesson) {
           users: users(18),
           lb: balancer(0, -10),
           ...four(0.55),
-          pg: pg({ x: -8.5, y: 5.5, r: 2.3, h: 50, cpu: 0.45, tags: [tag("scaled up", "green", "trendingUp")] }),
-          standby: dbase(-3.5, 10.5, "Standby", { cpu: 0.1 }),
+          pg: pg({ x: -11.5, y: 8.5, r: 2.3, h: 50, cpu: 0.45, tags: [tag("scaled up", "green", "trendingUp")] }),
+          standby: dbase(-3.5, 16.5, "Standby", { cpu: 0.1 }),
           card: card("Scaling recipe", "layers", ["web tier → out (add servers)", "database → up (bigger box)", "+ standby copy for failover", "# then replicas & shards — module 06"]),
         },
-        links: { ...fourLinks(), rep: { ...L("pg", "standby", "replicate"), style: "dashed" } },
+        links: { ...fourLinks(), rep: { ...L("pg", "standby"), style: "dashed" } },
         flows: [...rr(), { route: ["rep"], kind: "write", rate: 0.8 }],
       },
       { changes: ["~ Database scaled up", "+ Standby database", "~ Cost $2,265 → $3,385 / month"], lab: labFour("scaled up · standby") },
@@ -1082,8 +1082,8 @@ function write(lesson) {
       ],
       M(4800, 4, 130, 3385, "yes"),
       {
-        entities: { users: users(18), lb: balancer(0, -10), ...four(0.55), pg: pg({ x: -8.5, y: 5.5, r: 2.3, h: 50, cpu: 0.45 }), standby: dbase(-3.5, 10.5, "Standby", { cpu: 0.1 }) },
-        links: { ...fourLinks(), rep: { ...L("pg", "standby", "replicate"), style: "dashed" } },
+        entities: { users: users(18), lb: balancer(0, -10), ...four(0.55), pg: pg({ x: -11.5, y: 8.5, r: 2.3, h: 50, cpu: 0.45 }), standby: dbase(-3.5, 16.5, "Standby", { cpu: 0.1 }) },
+        links: { ...fourLinks(), rep: { ...L("pg", "standby"), style: "dashed" } },
         flows: [...rr(), { route: ["rep"], kind: "write", rate: 0.8 }],
       },
       { callout: co("next", "Next: the load balancer — the front door that makes “more” possible.") },
@@ -1274,7 +1274,7 @@ function write(lesson) {
       ],
       M(3000, 120, 0, "3 / 3", 33),
       {
-        entities: { users: users(), lb: lb({ tags: [tag("active", "green", "check")] }), lb2: balancer(-6, -12, ["Standby", "LB"], { s: 3.2, h: 28, dim: 0.3, tags: [tag("standby", "gray")] }), ...srvs() },
+        entities: { users: users(), lb: lb({ tags: [tag("active", "green", "check")] }), lb2: balancer(-9, -14, ["Standby", "LB"], { s: 3.2, h: 28, dim: 0.3, tags: [tag("standby", "gray")] }), ...srvs() },
         links: { ...links(), hb: { ...L("lb", "lb2", "heartbeat"), heads: "none", style: "beat" } },
         flows: [rr(), { route: ["hb"], kind: "ping", rate: 0.8, bounce: true }],
       },
@@ -1295,7 +1295,7 @@ function write(lesson) {
       ],
       M(3000, 120, 0, "3 / 3", 33),
       {
-        entities: { users: users(), lb: lb({ tags: [tag("active", "green", "check")] }), lb2: balancer(-6, -12, ["Standby", "LB"], { s: 3.2, h: 28, dim: 0.3, tags: [tag("standby", "gray")] }), ...srvs() },
+        entities: { users: users(), lb: lb({ tags: [tag("active", "green", "check")] }), lb2: balancer(-9, -14, ["Standby", "LB"], { s: 3.2, h: 28, dim: 0.3, tags: [tag("standby", "gray")] }), ...srvs() },
         links: { ...links(), hb: { ...L("lb", "lb2", "heartbeat"), heads: "none", style: "beat" } },
         flows: [rr(), { route: ["hb"], kind: "ping", rate: 0.8, bounce: true }],
       },
@@ -1322,4 +1322,712 @@ function write(lesson) {
   });
 }
 
-// @@NEXT
+// ════════════════════════════════════════════════════════════════════════════
+// 05-3  forget-me-now — stateless services
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const users = (count = 12) => crowd(count, "Shoppers", { y0: -24, y1: -18 });
+  const priya = (tags) => device(-14, -4, "Priya", { form: "phone", ...(tags ? { tags } : {}) });
+  const lb = (extra = {}) => balancer(0, -9, ["Load", "Balancer"], extra);
+  const SX = [-6, 4, 14];
+  const s = (i, extra = {}) => server(SX[i], 4, ["App", `server ${i + 1}`], { cpu: 0.4, ...extra });
+  const store = (extra = {}) => ({ type: "block", x: -6, y: 15, s: 4, h: 36, color: "orange", glyph: "database", label: ["Session", "store"], sub: "Redis", ...extra });
+  const replica = { type: "block", x: 2, y: 19, s: 3.2, h: 28, color: "orange", glyph: "database", label: ["Store", "replica"], dim: 0.15 };
+  const cart = (n = 2, tone = "violet") => tag(`Priya's cart · ${n} items`, tone, "cart");
+  const base = (extra = {}) => ({
+    in: { ...L("users", "lb", "cartwheel.shop"), heads: "both" },
+    p: { ...L("priya", "lb"), heads: "both" },
+    b0: { ...L("lb", "s0"), heads: "both" },
+    b1: { ...L("lb", "s1"), heads: "both" },
+    ...extra,
+  });
+  const storeLinks = (n = 2) => Object.fromEntries([...Array(n).keys()].map((i) => [`r${i}`, { ...L(`s${i}`, "store"), heads: "both" }]));
+  const M = (errors, p95, survive, scale) => ({ errors, p95, survive, scale });
+  const labMem = (n) =>
+    lab(40000, 800, [["users", "users", "Shoppers"], ["lb", "load_balancer", "Load balancer"], ["app", "api_server", n > 1 ? `App servers ×${n}` : "App server", "sessions in memory", n > 1 ? "warn" : undefined]], [["users", "lb"], ["lb", "app"]]);
+  const labStore = (n) =>
+    lab(40000, 800, [["users", "users", "Shoppers"], ["lb", "load_balancer", "Load balancer"], ["app", "api_server", `App servers ×${n}`, "stateless"], ["redis", "redis", "Session store"]], [["users", "lb"], ["lb", "app"], ["app", "redis"]]);
+
+  const steps = [
+    step(
+      "Remembered",
+      "setup",
+      "A server that remembers you",
+      [
+        "Cartwheel, a small homeware shop, runs on one app server. When Priya logs in and adds two mugs to her cart, the server keeps that in a <b>session</b> in its own memory, keyed by a cookie in her browser.",
+        "It works perfectly — every request she makes lands on the one machine that remembers her.",
+      ],
+      M(0, 140, "no", "no"),
+      {
+        entities: { users: users(8), priya: priya(), lb: lb({ dim: 0.6 }), s0: s(0, { tags: [cart()] }) },
+        links: { in: base().in, p: base().p, b0: base().b0 },
+        flows: [{ route: ["in", "b0"], bounce: true, rate: 1.4 }, { route: ["p", "b0"], kind: "mine", bounce: true, rate: 0.6 }],
+      },
+      { callout: co("insight", `A ${T("session")} is whatever the server must remember between your requests: who you are, your cart, the step you're on.`), lab: labMem(1) },
+    ),
+    step(
+      "Second server",
+      "problem",
+      "Add a server, lose your cart",
+      [
+        "Traffic grows and Cartwheel adds a second server behind the balancer, which uses round robin. Priya's next click lands on server 2 — which has never heard of her. She's logged out and her cart is empty.",
+        "It's not just Priya: every shopper's session lives on whichever server they happened to start on, so about half of all requests now go to a server that doesn't know them.",
+      ],
+      M(50, 140, "no", "no"),
+      {
+        entities: { users: users(), priya: priya([tag("logged out?!", "red", "alert")]), lb: lb({ tags: [tag("round robin", "gray", "replay")] }), s0: s(0, { tags: [cart()] }), s1: s(1, { tags: [tag("who is Priya?", "red", "alert")] }) },
+        links: base({ b0: { ...L("lb", "s0"), heads: "both", fail: 0.5 }, b1: { ...L("lb", "s1"), heads: "both", fail: 0.5 } }),
+        flows: [{ route: ["in", ["b0", "b1"]], bounce: true, rate: 2.4 }, { route: ["p", ["b0", "b1"]], kind: "mine", bounce: true, rate: 0.8 }],
+      },
+      { changes: ["+ App server 2", "~ Half of requests reach a server without the session"], lab: labMem(2) },
+    ),
+    step(
+      "Sticky",
+      "technique",
+      "Sticky sessions: always the same server",
+      [
+        `A quick fix is ${T("sticky sessions")} (session affinity): the balancer sets a cookie recording which server a shopper first used, and keeps sending them there. Priya always reaches server 1, so her cart is always there.`,
+        "Errors vanish. But stickiness fights the balancer: a server with a few heavy shoppers can't hand them off, and a newly added server only gets <i>new</i> visitors, so it fills up slowly.",
+      ],
+      M(0, 150, "no", "limited"),
+      {
+        entities: { users: users(), priya: priya(), lb: lb({ tags: [tag("sticky cookie", "amber", "key")] }), s0: s(0, { cpu: 0.6, tags: [cart()] }), s1: s(1, { cpu: 0.35 }) },
+        links: base(),
+        flows: [{ route: ["in", ["b0", "b1"]], bounce: true, rate: 2.4 }, { route: ["p", "b0"], kind: "mine", bounce: true, rate: 0.8 }],
+      },
+      { changes: ["~ Balancer pins each shopper to one server", "~ Errors 50% → 0%"], lab: labMem(2) },
+    ),
+    step(
+      "Server dies",
+      "problem",
+      "Sticky to a server that's gone",
+      [
+        "Then server 1 crashes during a sale. The balancer moves its shoppers to server 2 — but their sessions died with server 1's memory. Priya is logged out mid-checkout and her cart is empty again, along with the carts of everyone pinned to that machine.",
+        "Deploys hurt in the same way: restarting a server to release new code wipes every session it was holding.",
+      ],
+      M(45, 220, "no", "limited"),
+      {
+        entities: { users: users(), priya: priya([tag("cart empty", "red", "cart")]), lb: lb({ tags: [tag("sticky cookie", "amber", "key")] }), s0: s(0, { ...DOWN, tags: [tag("sessions lost", "red", "skull")] }), s1: s(1, { cpu: 0.8, heat: 0.5 }) },
+        links: base({ b0: { ...L("lb", "s0"), heads: "both", style: "cut" } }),
+        flows: [{ route: ["in", "b1"], bounce: true, rate: 2.4 }, { route: ["p", "b1"], kind: "mine", bounce: true, rate: 0.8 }],
+      },
+      { callout: co("warn", "Anything kept only in one server's memory is lost when that server goes away — by crash, deploy or autoscaler."), changes: ["~ Server 1 DOWN", "- Every session it held"], lab: labMem(2) },
+    ),
+    step(
+      "Shared store",
+      "solution",
+      "Move the memory out of the server",
+      [
+        `The real fix: keep sessions in a ${T("shared session store")} — a fast in-memory database such as Redis that every server can reach. The cookie now holds only a session ID; any server can look it up in about a millisecond.`,
+        `The app servers become ${T("stateless")}: they keep nothing between requests. Any server can handle any request, so the balancer is free to use round robin again.`,
+      ],
+      M(0, 145, "yes", "yes"),
+      {
+        entities: { users: users(), priya: priya(), lb: lb({ tags: [tag("round robin", "gray", "replay")] }), s0: s(0), s1: s(1), store: store({ tags: [cart()] }) },
+        links: { ...base(), ...storeLinks(2) },
+        flows: [
+          { routes: [{ path: ["in", "b0"] }, { path: ["in", "b1"] }], bounce: true, rate: 2.4 },
+          { routes: [{ path: ["p", "b0", "r0"] }, { path: ["p", "b1", "r1"] }], kind: "mine", bounce: true, rate: 0.8 },
+        ],
+      },
+      { changes: ["+ Shared session store (Redis)", "~ Servers keep no session state", "- Sticky cookie"], lab: labStore(2) },
+    ),
+    step(
+      "Tokens",
+      "technique",
+      "Or let the client carry it",
+      [
+        `Another option is a ${T("signed token")}, such as a JWT. At login the server signs a small document — “user = Priya, expires 18:00” — and the browser sends it with each request. Any server can verify the signature with a shared key, with no lookup at all.`,
+        "Tokens suit identity (who you are), less so big or changing data like a cart. And a signed token can't easily be withdrawn: if Priya logs out or is banned, it stays valid until it expires.",
+      ],
+      M(0, 140, "yes", "yes"),
+      {
+        entities: {
+          users: users(),
+          priya: priya([tag("token: priya · exp 18:00", "violet", "key")]),
+          lb: lb(),
+          s0: s(0, { tags: [tag("verify signature", "green", "check")] }),
+          s1: s(1, { tags: [tag("verify signature", "green", "check")] }),
+          store: store({ tags: [cart()] }),
+          card: card("Session store vs signed token", "key", ["store · server looks up a session ID", "store · easy to revoke, holds big data", "token · client carries signed claims", "token · no lookup, but hard to revoke", "# common: token for identity, store for cart"]),
+        },
+        links: { ...base(), ...storeLinks(2) },
+        flows: [{ routes: [{ path: ["in", "b0"] }, { path: ["in", "b1"] }], bounce: true, rate: 2.4 }, { route: ["p", ["b0", "b1"]], kind: "mine", bounce: true, rate: 0.8 }],
+      },
+      { changes: ["+ Signed token for identity", "~ Cart still lives in the store"] },
+    ),
+    step(
+      "Store matters",
+      "tradeoff",
+      "The state didn't vanish — it moved",
+      [
+        "Stateless servers are easy to replace because the state lives somewhere else. That somewhere is now critical: if the session store goes down, every shopper is logged out at once.",
+        "So the store gets the care a database gets — a replica ready to take over, monitoring, and enough memory to hold every active session with room to spare.",
+      ],
+      M(0, 145, "yes", "yes"),
+      {
+        entities: { users: users(), priya: priya(), lb: lb(), s0: s(0), s1: s(1), store: store({ tags: [cart()] }), replica },
+        links: { ...base(), ...storeLinks(2), rep: { ...L("store", "replica"), style: "dashed" } },
+        flows: [
+          { routes: [{ path: ["in", "b0"] }, { path: ["in", "b1"] }], bounce: true, rate: 2.4 },
+          { routes: [{ path: ["p", "b0", "r0"] }, { path: ["p", "b1", "r1"] }], kind: "mine", bounce: true, rate: 0.8 },
+          { route: ["rep"], kind: "write", rate: 0.8 },
+        ],
+      },
+      { callout: co("insight", "“Stateless” describes the app servers, not the system. Good design puts the state in a few places built to protect it."), changes: ["+ Session store replica"], lab: labStore(2) },
+    ),
+    step(
+      "Autoscale",
+      "solution",
+      "Servers come and go freely",
+      [
+        "Payoff: on Black Friday the autoscaler adds a third server. It's useful the instant it boots — Priya's very next request can land there and her cart is still there.",
+        "In the evening the autoscaler removes it again, and nobody is logged out. Deploys work the same way: replace servers one by one without anyone noticing.",
+      ],
+      M(0, 140, "yes", "yes"),
+      {
+        entities: { users: users(18), priya: priya(), lb: lb(), s0: s(0), s1: s(1), s2: s(2, { tags: [tag("new · ready instantly", "green", "rocket")] }), store: store({ tags: [cart()] }), replica },
+        links: { ...base(), b2: { ...L("lb", "s2"), heads: "both" }, ...storeLinks(3), rep: { ...L("store", "replica"), style: "dashed" } },
+        flows: [
+          { routes: [{ path: ["in", "b0"] }, { path: ["in", "b1"] }, { path: ["in", "b2"] }], bounce: true, rate: 3 },
+          { routes: [{ path: ["p", "b2", "r2"] }, { path: ["p", "b0", "r0"] }, { path: ["p", "b1", "r1"] }], kind: "mine", bounce: true, rate: 0.8 },
+          { route: ["rep"], kind: "write", rate: 0.8 },
+        ],
+      },
+      { changes: ["+ App server 3 (autoscaled)", "~ Priya's request served by the new server"], lab: labStore(3) },
+    ),
+    step(
+      "Recap",
+      "recap",
+      "Forget me now",
+      [
+        ul(
+          "Sessions kept in one server's memory break as soon as there are two servers.",
+          "Sticky sessions hide the problem, but unbalance load and lose sessions when a server dies.",
+          "Stateless servers keep sessions in a shared store, or in signed tokens the client carries.",
+          "The shared store becomes critical — replicate and monitor it.",
+          "Stateless servers can be added, removed and redeployed at will.",
+        ),
+      ],
+      M(0, 140, "yes", "yes"),
+      {
+        entities: { users: users(18), priya: priya(), lb: lb(), s0: s(0), s1: s(1), s2: s(2), store: store({ tags: [cart()] }), replica },
+        links: { ...base(), b2: { ...L("lb", "s2"), heads: "both" }, ...storeLinks(3), rep: { ...L("store", "replica"), style: "dashed" } },
+        flows: [
+          { routes: [{ path: ["in", "b0"] }, { path: ["in", "b1"] }, { path: ["in", "b2"] }], bounce: true, rate: 3 },
+          { routes: [{ path: ["p", "b0", "r0"] }, { path: ["p", "b1", "r1"] }, { path: ["p", "b2", "r2"] }], kind: "mine", bounce: true, rate: 0.8 },
+        ],
+      },
+      { callout: co("next", "Next: keeping popular answers close at hand — caching.") },
+    ),
+  ];
+
+  write({
+    id: "forget-me-now",
+    title: "Forget Me Now",
+    summary: "Why servers that remember users can't scale out — and how to move session state somewhere every server can reach.",
+    minutes: 9,
+    level: "beginner",
+    metrics: ["errors", "p95", "survive", "scale"],
+    legend: ["req", "res", ["mine", "Priya's request"], ["write", "replication"], "fail"],
+    goals: [
+      { text: "See why in-memory sessions break with two servers", step: 1 },
+      { text: "Weigh sticky sessions", step: 3 },
+      { text: "Make servers stateless with a shared store or tokens", step: 5 },
+      { text: "Protect the state you moved", step: 6 },
+    ],
+    steps,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 05-4  the-hot-answer — caching
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const users = (count = 14) => crowd(count, "Hikers", { y0: -24, y1: -18 });
+  const ranger = (tags) => device(17, -5, "Ranger desk", tags ? { tags } : {});
+  const app = (extra = {}) => server(0, -6, ["Trail", "API"], { cpu: 0.35, ...extra });
+  const cache = (extra = {}) => cacheBox(-8, 5, ["Cache"], { sub: "Redis · 4 GB", ...extra });
+  const db = (extra = {}) => dbase(8, 7, "Postgres", extra);
+  const links = (extra = {}) => ({
+    in: { ...L("users", "app", "GET /trails/eagle-ridge"), heads: "both" },
+    c: { ...L("app", "cache"), heads: "both" },
+    d: { ...L("app", "db", "SQL"), heads: "both" },
+    ...extra,
+  });
+  const rg = { ...L("ranger", "app", "trail update"), heads: "end" };
+  const hitMiss = (hit, rate = 3) => ({
+    routes: [
+      { path: ["in", "c"], weight: hit },
+      { path: ["in", "d"], kind: "slow", weight: 100 - hit },
+    ],
+    pick: "weights",
+    bounce: true,
+    rate,
+  });
+  const M = (hitRate, p50, dbLoad, fresh) => ({ hitRate, p50, dbLoad, fresh });
+  const labNo = lab(50000, 2000, [["users", "users", "Hikers"], ["api", "api_server", "Trail API"], ["db", "postgres", "Postgres", undefined, "warn"]], [["users", "api"], ["api", "db"]]);
+  const labCache = lab(50000, 2000, [["users", "users", "Hikers"], ["api", "api_server", "Trail API"], ["redis", "redis", "Cache"], ["db", "postgres", "Postgres"]], [["users", "api"], ["api", "redis"], ["api", "db"]]);
+  const open = tag("Eagle Ridge: OPEN", "green", "signpost");
+
+  const steps = [
+    step(
+      "Same question",
+      "problem",
+      "Thousands ask the same thing",
+      [
+        "Ridgeline shows hikers live trail conditions. Every page view runs a query joining trails, weather and ranger reports — about 90 ms of database work. On a sunny Saturday morning that's 2,000 requests a second.",
+        "Most of them ask for the same few popular trails, and the answer changes maybe twice a day. The database is 80% busy recomputing the same answer over and over.",
+      ],
+      M(0, 95, 80, "fresh"),
+      {
+        entities: { users: users(), app: app(), db: db({ cpu: 0.8, heat: 0.6 }) },
+        links: { in: links().in, d: links().d },
+        flows: [{ route: ["in", "d"], kind: "slow", bounce: true, rate: 3 }],
+      },
+      { lab: labNo },
+    ),
+    step(
+      "Cache-aside",
+      "solution",
+      "Look in the cache first",
+      [
+        `Add a ${T("cache")}: a small, fast in-memory store of recent answers. With the ${T("cache-aside")} pattern the app checks the cache first. On a <b>hit</b>, it returns the stored answer in about a millisecond.`,
+        "On a <b>miss</b>, it queries the database as before, then writes the result into the cache for next time. Just after a restart the cache is cold: only 35% of requests hit.",
+      ],
+      M(35, 70, 55, "fresh"),
+      {
+        entities: { users: users(), app: app(), cache: cache({ tags: [tag("cold", "gray", "clock")] }), db: db({ cpu: 0.55 }) },
+        links: links(),
+        flows: [hitMiss(35), { route: ["c"], kind: "write", rate: 1.2 }],
+      },
+      { changes: ["+ Cache (cache-aside)", "~ Misses fill the cache"], lab: labCache },
+    ),
+    step(
+      "Warm",
+      "solution",
+      "A warm cache carries the load",
+      [
+        `Within minutes the popular trails are all cached and the ${T("hit ratio")} settles at 93%. Only 7 requests in 100 reach the database.`,
+        "Median latency drops from 95 ms to 16 ms and database CPU from 80% to 14%. Popularity is uneven — a few trails get most views — which is exactly why a small cache can absorb most traffic.",
+      ],
+      M(93, 16, 14, "fresh"),
+      {
+        entities: { users: users(), app: app(), cache: cache({ tags: [tag("warm · 93% hits", "green", "zap")] }), db: db({ cpu: 0.14 }) },
+        links: links(),
+        flows: [hitMiss(93)],
+      },
+      { callout: co("insight", "Every point of hit ratio matters: going from 90% to 95% hits halves the load on the database."), changes: ["~ Hit ratio 35% → 93%", "~ Database CPU 55% → 14%"], lab: labCache },
+    ),
+    step(
+      "Stale",
+      "problem",
+      "The cache doesn't know the trail closed",
+      [
+        `Each entry has a ${T("TTL")} (time to live) of one hour, after which it's dropped and re-read. At 10:05 a ranger closes Eagle Ridge after a rockslide. The database is updated — but the cache keeps serving “OPEN” until 10:58.`,
+        "For most data a little staleness is fine. For a closed trail it isn't. Shorter TTLs help but cost hit ratio; the real fix is to tell the cache when data changes.",
+      ],
+      M(93, 16, 14, "stale"),
+      {
+        entities: {
+          users: users(),
+          ranger: ranger([tag("CLOSED · rockslide", "red", "alert")]),
+          app: app(),
+          cache: cache({ tags: [tag("Eagle Ridge: OPEN · 53 min left", "amber", "clock")] }),
+          db: db({ cpu: 0.14, tags: [tag("Eagle Ridge: CLOSED", "red", "ban")] }),
+        },
+        links: links({ rg }),
+        flows: [hitMiss(93), { route: ["rg", "d"], kind: "write", rate: 0.5 }],
+      },
+      { changes: ["+ Ranger closes the trail", "~ Cache still serves the old answer"] },
+    ),
+    step(
+      "Invalidate",
+      "solution",
+      "Write, then delete the key",
+      [
+        `Now every update goes through the app, which writes the database and then <b>deletes</b> the cache entry — ${T("invalidation")}. The next reader misses, reads “CLOSED” from the database, and refills the cache.`,
+        "Deleting is safer than writing the new value into the cache: if two updates race, a delete can't leave the wrong one behind. Keep the TTL as a safety net for any update path you forget.",
+      ],
+      M(92, 17, 15, "fresh"),
+      {
+        entities: {
+          users: users(),
+          ranger: ranger([tag("CLOSED · rockslide", "red", "alert")]),
+          app: app(),
+          cache: cache({ tags: [tag("Eagle Ridge: CLOSED", "green", "check")] }),
+          db: db({ cpu: 0.15, tags: [tag("Eagle Ridge: CLOSED", "red", "ban")] }),
+        },
+        links: links({ rg }),
+        flows: [hitMiss(92), { routes: [{ path: ["rg", "d"], kind: "write" }, { path: ["rg", "c"], kind: "kill" }], rate: 0.8, hold: 0.3 }],
+      },
+      { changes: ["+ Update deletes the cached key", "~ Hikers see CLOSED within a second"], lab: labCache },
+    ),
+    step(
+      "Eviction",
+      "technique",
+      "When the cache is full",
+      [
+        `The cache has 4 GB; Ridgeline has 60 GB of trail data. When it's full, something must go. Most caches use ${T("LRU")} — evict the least recently used entry — so popular trails stay and forgotten ones leave.`,
+        "Because a small slice of trails gets most views, caching just 7% of the data still yields about 90% hits. Doubling the cache would add only a few points.",
+      ],
+      M(90, 18, 17, "fresh"),
+      {
+        entities: {
+          users: users(),
+          app: app(),
+          cache: cache({ tags: [tag("full · evicting LRU", "amber", "layers")] }),
+          db: db({ cpu: 0.17 }),
+          card: {
+            type: "panel",
+            title: "Hit ratio vs cache size",
+            icon: "chart",
+            chart: "bars",
+            bars: [
+              { label: "1 GB", note: "71% hits", to: 0.71, tone: "amber" },
+              { label: "4 GB (now)", note: "90% hits", to: 0.9, tone: "green", bold: true },
+              { label: "8 GB", note: "94% hits", to: 0.94, tone: "green" },
+              { label: "60 GB (all)", note: "99% hits", to: 0.99, tone: "gray" },
+            ],
+            lines: ["# popular data is small"],
+          },
+        },
+        links: links(),
+        flows: [hitMiss(90)],
+      },
+      { changes: ["~ Cache full: least recently used entries evicted"] },
+    ),
+    step(
+      "Stampede",
+      "problem",
+      "Everyone misses at once",
+      [
+        "7:00 a.m.: the cached “Summit forecast” — the most popular entry, read 1,500 times a second — expires. In the 300 ms it takes to rebuild, hundreds of requests all miss, and <b>every one</b> runs the same heavy query.",
+        `That's a ${T("cache stampede")} (thundering herd). Database CPU hits 99%, the rebuild itself slows down, more requests miss while waiting, and median latency jumps to 1.4 s.`,
+      ],
+      M(41, 1400, 99, "fresh"),
+      {
+        entities: { users: users(20), app: app({ cpu: 0.7 }), cache: cache({ tags: [tag("Summit forecast expired", "red", "hourglass")] }), db: db({ cpu: 0.99, heat: 1, tags: [tag("same query × 400", "red", "flame")] }) },
+        links: links(),
+        flows: [hitMiss(41, 4)],
+      },
+      { changes: ["~ Hot key expires", "~ Hundreds of identical misses hit the database"] },
+    ),
+    step(
+      "Calm herd",
+      "solution",
+      "One rebuild, everyone waits for it",
+      [
+        `${T("Request coalescing")}: on a miss, the first request takes a short lock and rebuilds the entry; the others wait briefly for its result, or get the slightly old value meanwhile (${T("stale-while-revalidate")}). One query instead of hundreds.`,
+        "Add <b>jitter</b> to TTLs — say 55–65 minutes instead of exactly 60 — so entries filled together don't all expire together.",
+      ],
+      M(91, 17, 16, "fresh"),
+      {
+        entities: { users: users(20), app: app({ tags: [tag("1 rebuild per key", "green", "key")] }), cache: cache({ tags: [tag("TTL 60 min ± 5", "green", "clock")] }), db: db({ cpu: 0.16 }) },
+        links: links(),
+        flows: [hitMiss(91, 4)],
+      },
+      { changes: ["+ Coalesce misses per key", "+ Jittered TTLs", "~ Database CPU 99% → 16%"], lab: labCache },
+    ),
+    step(
+      "Recap",
+      "recap",
+      "The hot answer",
+      [
+        ul(
+          "Cache answers that are read often and change rarely; uneven popularity makes small caches effective.",
+          "Cache-aside: check the cache, on a miss read the database and fill the cache.",
+          "Hit ratio is the number to watch — every miss costs a database trip.",
+          "TTLs bound staleness; delete keys on write for data that must be fresh.",
+          "LRU eviction keeps the popular set; coalescing and jitter stop stampedes.",
+        ),
+      ],
+      M(91, 17, 16, "fresh"),
+      {
+        entities: { users: users(), ranger: ranger(), app: app(), cache: cache({ tags: [open] }), db: db({ cpu: 0.16 }) },
+        links: links({ rg }),
+        flows: [hitMiss(91), { routes: [{ path: ["rg", "d"], kind: "write" }, { path: ["rg", "c"], kind: "kill" }], rate: 0.4, hold: 0.3 }],
+      },
+      { callout: co("next", "Next: caching again, but this time physically close to the user — CDNs.") },
+    ),
+  ];
+
+  write({
+    id: "the-hot-answer",
+    title: "The Hot Answer",
+    summary: "Caching: serve popular answers from memory, keep them fresh enough, and survive the moment they expire.",
+    minutes: 11,
+    level: "intermediate",
+    metrics: ["hitRate", "p50", "dbLoad", "fresh"],
+    legend: ["req", "res", ["slow", "database query"], ["write", "database update"], ["kill", "delete cache key"]],
+    goals: [
+      { text: "Use cache-aside and read the hit ratio", step: 1 },
+      { text: "Keep cached data fresh with TTLs and invalidation", step: 4 },
+      { text: "Understand eviction", step: 5 },
+      { text: "Prevent a cache stampede", step: 7 },
+    ],
+    steps,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 05-5  closer-to-home — CDNs
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const wei = (tags) => device(-9, -9, "Wei · Singapore", { form: "phone", ...(tags ? { tags } : {}) });
+  const lena = device(-19.5, 1.5, "Lena · Berlin", { form: "phone" });
+  const rafa = device(1.5, -19.5, "Rafa · São Paulo", { form: "phone" });
+  const origin = (extra = {}) => server(11, 11, ["Origin", "server"], { sub: "Iowa, US", cpu: 0.3, ...extra });
+  const edge = (x, y, label, extra = {}) => ({ type: "block", x, y, s: 3.4, h: 30, color: "green", glyph: "globe", label: ["Edge", label], ...extra });
+  const sg = (extra) => edge(-3, -3, "Singapore", extra);
+  const fra = (extra) => edge(-13.5, 7.5, "Frankfurt", extra);
+  const sao = (extra) => edge(7.5, -13.5, "São Paulo", extra);
+  const shield = (extra = {}) => ({ type: "block", x: 4, y: 4, s: 3.6, h: 34, color: "purple", glyph: "shield", label: ["Origin", "shield"], sub: "Chicago", ...extra });
+  const M = (imgLoad, hitRate, origin, fresh) => ({ imgLoad, hitRate, origin, fresh });
+  const labDirect = lab(2000000, 12000, [["users", "users", "Viewers worldwide"], ["api", "api_server", "Origin", "Iowa", "warn"]], [["users", "api"]]);
+  const labCdn = lab(2000000, 12000, [["users", "users", "Viewers worldwide"], ["cdn", "cdn", "CDN edges"], ["api", "api_server", "Origin", "Iowa"]], [["users", "cdn"], ["cdn", "api"]]);
+  const near = (id, to, extra = {}) => ({ ...L(id, to), heads: "both", ...extra });
+  const far = (from, to, label, extra = {}) => ({ ...L(from, to, label), heads: "both", ...extra });
+  const world = (o = {}) => ({
+    wei: wei(o.weiTags),
+    lena,
+    rafa,
+    sg: sg(o.sg),
+    fra: fra(o.fra),
+    sao: sao(o.sao),
+    origin: origin(o.origin),
+  });
+  const worldLinks = (viaShield, extra = {}) => ({
+    w: near("wei", "sg"),
+    l: near("lena", "fra"),
+    r: near("rafa", "sao"),
+    ...(viaShield
+      ? { o1: far("sg", "shield"), o2: far("fra", "shield"), o3: far("sao", "shield"), so: far("shield", "origin", "one fetch per object") }
+      : { o1: far("sg", "origin"), o2: far("fra", "origin"), o3: far("sao", "origin") }),
+    ...extra,
+  });
+  const hits = (hit, misses, rate = 2.4, near = ["w", "l", "r"]) => ({
+    routes: [
+      ...near.map((n) => ({ path: [n], weight: hit })),
+      ...misses.map((p) => ({ path: p, kind: "slow", weight: 100 - hit })),
+    ],
+    pick: "weights",
+    bounce: true,
+    rate,
+  });
+
+  const steps = [
+    step(
+      "Far away",
+      "problem",
+      "Half a world away",
+      [
+        "Pantry Post is a recipe site whose servers sit in Iowa. Wei opens a recipe in Singapore, 15,000 km away. Each round trip across that distance takes about 200 ms, and a page with photos needs several of them: connection, TLS, the HTML, then the images.",
+        "Her first photo appears after about 660 ms. And every viewer on Earth hits the same origin: 12,000 requests a second, most of them for the same photos.",
+      ],
+      M(660, 0, 12000, "fresh"),
+      {
+        entities: { wei: wei(), origin: origin({ cpu: 0.75, heat: 0.4 }) },
+        links: { d: far("wei", "origin", "15,000 km · ~200 ms round trip", { labelTone: "red" }) },
+        flows: [{ route: ["d"], kind: "slow", bounce: true, rate: 1.4 }],
+      },
+      { lab: labDirect },
+    ),
+    step(
+      "Physics",
+      "insight",
+      "You can't out-code the speed of light",
+      [
+        "Light in optical fibre travels at about 200,000 km/s — two-thirds of its speed in a vacuum. 15,000 km takes 75 ms one way, 150 ms there and back, before any routing detour or queueing. Real paths add more.",
+        "No faster server can fix that. The only way to cut distance latency is to <b>shorten the distance</b>: put the content near the user.",
+      ],
+      M(660, 0, 12000, "fresh"),
+      {
+        entities: {
+          wei: wei(),
+          origin: origin({ cpu: 0.75, heat: 0.4 }),
+          card: card("Distance → minimum round trip", "globe", ["fibre ≈ 200,000 km/s = 200 km per ms", "same city (50 km) · ~0.5 ms", "Singapore ↔ Tokyo (5,300 km) · ~55 ms", "Singapore ↔ Iowa (15,000 km) · ~150 ms", "! real routes: 1.3–1.5× longer"]),
+        },
+        links: { d: far("wei", "origin", "15,000 km · ~200 ms round trip", { labelTone: "red" }) },
+        flows: [{ route: ["d"], kind: "slow", bounce: true, rate: 1.4 }],
+      },
+      { callout: co("insight", "Each round trip pays the full distance. Distance × round trips sets a floor no hardware can beat.") },
+    ),
+    step(
+      "First miss",
+      "solution",
+      "An edge server near Wei",
+      [
+        `A ${T("CDN")} (content delivery network) runs ${T("edge servers")} in hundreds of cities. Pantry Post points its image domain at the CDN, and Wei's requests now go to an edge in Singapore, ~5 ms away.`,
+        "The first time anyone there asks for this photo, the edge doesn't have it — a <b>miss</b>. It fetches the photo from Iowa over a connection it keeps warm, stores a copy and returns it: 230 ms.",
+      ],
+      M(230, 30, 8400, "fresh"),
+      {
+        entities: { wei: wei(), sg: sg({ tags: [tag("miss → fetch", "amber", "search")] }), origin: origin({ cpu: 0.6 }) },
+        links: { w: near("wei", "sg", "~5 ms"), o1: far("sg", "origin", "long haul") },
+        flows: [{ route: ["w", "o1"], kind: "slow", bounce: true, rate: 1 }, { route: ["w"], bounce: true, rate: 0.6 }],
+      },
+      { changes: ["+ Singapore edge server", "~ Images now served through the CDN"], lab: labCdn },
+    ),
+    step(
+      "Edge hit",
+      "solution",
+      "Every viewer after the first",
+      [
+        "The next viewer in Singapore asking for that photo gets it straight from the edge: a <b>hit</b>. Load time falls to about 22 ms — 30× faster than going to Iowa.",
+        "Popular recipe photos are requested thousands of times a day, so most requests are now hits. The origin sees only misses: about 600 requests a second instead of 12,000.",
+      ],
+      M(22, 95, 600, "fresh"),
+      {
+        entities: { wei: wei([tag("photo in 22 ms", "green", "zap")]), sg: sg({ tags: [tag("hit", "green", "check")] }), origin: origin({ cpu: 0.1 }) },
+        links: { w: near("wei", "sg", "~5 ms"), o1: far("sg", "origin", "long haul") },
+        flows: [hits(95, [["w", "o1"]], 2, ["w"])],
+      },
+      { callout: co("tip", "The best request is one that never reaches your servers."), changes: ["~ Most requests hit at the edge", "~ Origin load 8,400 → 600 req/s"] },
+    ),
+    step(
+      "Many edges",
+      "problem",
+      "Every edge misses on its own",
+      [
+        "Pantry Post's viewers are everywhere, so many edges are serving them — Frankfurt, São Paulo, and dozens more. Each edge has its own cache and misses on its own, and each miss crosses the world to Iowa.",
+        "When a new recipe goes viral, hundreds of edges ask the origin for the same photo within seconds. Origin load climbs back to about 4,000 req/s.",
+      ],
+      M(24, 88, 4000, "fresh"),
+      {
+        entities: world({ origin: { cpu: 0.5, tags: [tag("same photo × 200 edges", "amber", "layers")] } }),
+        links: worldLinks(false),
+        flows: [hits(88, [["w", "o1"], ["l", "o2"], ["r", "o3"]], 3)],
+      },
+      { changes: ["+ Frankfurt and São Paulo edges", "~ Each edge misses separately"], lab: labCdn },
+    ),
+    step(
+      "Shield",
+      "solution",
+      "One more layer: the origin shield",
+      [
+        `An ${T("origin shield")} is a single CDN cache placed near the origin — here, Chicago. Edges that miss ask the shield instead of the origin; only when the shield misses too does the request reach Iowa.`,
+        "Now a new photo is fetched from the origin roughly once, not once per edge. Origin load falls to about 150 req/s and the overall hit ratio rises to 98%.",
+      ],
+      M(23, 98, 150, "fresh"),
+      {
+        entities: { ...world({ origin: { cpu: 0.05 } }), shield: shield() },
+        links: worldLinks(true),
+        flows: [hits(96, [["w", "o1"], ["l", "o2"], ["r", "o3"]], 3), { route: ["so"], kind: "slow", bounce: true, rate: 0.3 }],
+      },
+      { changes: ["+ Origin shield in Chicago", "~ Origin load 4,000 → 150 req/s"], lab: labCdn },
+    ),
+    step(
+      "Headers",
+      "technique",
+      "The origin decides what's cacheable",
+      [
+        `The CDN doesn't guess: the origin labels each response with a ${T("Cache-Control")} header. It says whether the response may be cached, by whom, and for how long.`,
+        "Photos that never change can be cached for a year. The HTML of a recipe page might be cached for a minute. A signed-in user's saved recipes must not be stored at the edge at all.",
+      ],
+      M(23, 98, 150, "fresh"),
+      {
+        entities: {
+          ...world({ origin: { cpu: 0.05 } }),
+          shield: shield(),
+          card: card("Cache-Control examples", "file", ["photo · public, max-age=31536000, immutable", "recipe page · public, max-age=60", "saved recipes · private, no-store", "# ETag lets an edge revalidate cheaply"]),
+        },
+        links: worldLinks(true),
+        flows: [hits(96, [["w", "o1"], ["l", "o2"], ["r", "o3"]], 3)],
+      },
+      { changes: ["+ Cache-Control on every response"] },
+    ),
+    step(
+      "Stale logo",
+      "problem",
+      "Same name, new picture",
+      [
+        "Pantry Post rebrands and uploads a new logo — to the same URL, <code>/logo.png</code>, which was cached for a week. Edges that already have the old file keep serving it until it expires.",
+        "Viewers see a mix of old and new logos for days, depending on which edge they hit.",
+      ],
+      M(23, 98, 150, "stale"),
+      {
+        entities: {
+          ...world({ origin: { cpu: 0.05, tags: [tag("new logo.png", "green", "sparkles")] }, sg: { tags: [tag("old logo · 5 days left", "amber", "clock")] }, fra: { tags: [tag("old logo", "amber", "clock")] } }),
+          shield: shield(),
+        },
+        links: worldLinks(true),
+        flows: [hits(96, [["w", "o1"], ["l", "o2"], ["r", "o3"]], 3)],
+      },
+      { changes: ["~ Logo replaced at the same URL", "~ Edges keep the old copy"] },
+    ),
+    step(
+      "Purge",
+      "solution",
+      "Purge — or change the name",
+      [
+        `Most CDNs offer a ${T("purge")}: an API call telling every edge to drop a URL, which takes effect within seconds. It's the emergency tool.`,
+        `The everyday fix is ${T("versioned URLs")}: name files after their contents, like <code>logo.3f9a.png</code>. A new logo gets a new name, pages link to it, and both files can be cached forever — nothing stale is ever served.`,
+      ],
+      M(23, 98, 150, "fresh"),
+      {
+        entities: {
+          ...world({ origin: { cpu: 0.05, tags: [tag("logo.3f9a.png", "green", "hash")] }, sg: { tags: [tag("purged", "green", "check")] }, fra: { tags: [tag("purged", "green", "check")] }, sao: { tags: [tag("purged", "green", "check")] } }),
+          shield: shield(),
+        },
+        links: worldLinks(true, { p1: { ...L("origin", "sg"), style: "dashed" }, p2: { ...L("origin", "fra"), style: "dashed" }, p3: { ...L("origin", "sao"), style: "dashed" } }),
+        flows: [hits(96, [["w", "o1"], ["l", "o2"], ["r", "o3"]], 3), { route: [["p1", "p2", "p3"]], kind: "kill", rate: 1.2 }],
+      },
+      { changes: ["+ Purge sent to every edge", "~ Assets renamed by content hash"] },
+    ),
+    step(
+      "Dynamic",
+      "tradeoff",
+      "What the edge can't cache",
+      [
+        "Personal pages — Wei's saved recipes, her shopping list — can't be cached; they must come from the origin. But the CDN still helps: Wei's TLS handshake finishes at the nearby edge in a few milliseconds, and the edge forwards her request over a connection to the origin that's already open.",
+        "That saves the extra round trips across the ocean, even though the request itself still has to make the long trip once.",
+      ],
+      M(23, 98, 150, "fresh"),
+      {
+        entities: { ...world({ origin: { cpu: 0.08 }, weiTags: [tag("saved recipes", "violet", "bookmark")], sg: { tags: [tag("TLS ends here", "violet", "lock")] } }), shield: shield() },
+        links: worldLinks(true, { dyn: { ...L("sg", "origin"), heads: "both", style: "dashed" } }),
+        flows: [hits(96, [["l", "o2"], ["r", "o3"]], 2.4), { route: ["w", "dyn"], kind: "mine", bounce: true, rate: 0.6 }],
+      },
+      { callout: co("insight", "A CDN helps uncacheable requests too, by ending TLS nearby and reusing long-haul connections."), changes: ["+ Personal request passes through the edge"] },
+    ),
+    step(
+      "Recap",
+      "recap",
+      "Closer to home",
+      [
+        ul(
+          "Distance sets a latency floor: ~1 ms per 100 km of round trip, per round trip.",
+          "CDN edges cache content near users; hits skip the long haul entirely.",
+          "An origin shield collapses many edge misses into one origin fetch.",
+          "Cache-Control headers decide what is cached and for how long.",
+          "Versioned URLs avoid stale files; purge is the emergency brake.",
+        ),
+      ],
+      M(23, 98, 150, "fresh"),
+      {
+        entities: { ...world({ origin: { cpu: 0.05 } }), shield: shield() },
+        links: worldLinks(true),
+        flows: [hits(96, [["w", "o1"], ["l", "o2"], ["r", "o3"]], 3), { route: ["so"], kind: "slow", bounce: true, rate: 0.3 }],
+      },
+      { callout: co("next", "Next module: what happens to data when one database is no longer enough.") },
+    ),
+  ];
+
+  write({
+    id: "closer-to-home",
+    title: "Closer to Home",
+    summary: "CDNs: beat the speed of light by moving content near your users — and keep it fresh once it's out there.",
+    minutes: 12,
+    level: "intermediate",
+    metrics: ["imgLoad", "hitRate", "origin", "fresh"],
+    legend: ["req", "res", ["slow", "long-haul request"], ["mine", "personal request"], ["kill", "purge"]],
+    goals: [
+      { text: "See why distance sets a latency floor", step: 1 },
+      { text: "Serve hits from edge servers", step: 3 },
+      { text: "Protect the origin with a shield", step: 5 },
+      { text: "Control caching and purge stale files", step: 8 },
+    ],
+    steps,
+  });
+}

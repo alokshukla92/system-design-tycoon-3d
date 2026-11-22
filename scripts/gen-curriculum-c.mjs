@@ -699,8 +699,8 @@ function write(lesson) {
     riders: crowd(0, -30, "Riders", 10),
     disp: api(0, -19, ["Dispatch", "API"]),
     n1: node(0, -6, 1, { tags: LEAD(1) }),
-    n2: node(-9, 5, 2, { tags: FOL(1) }),
-    n3: node(9, 5, 3, { tags: FOL(1) }),
+    n2: node(-11, 9, 2, { tags: FOL(1) }),
+    n3: node(11, 9, 3, { tags: FOL(1) }),
   });
   const links = (leader = "n1") => ({
     r: L("riders", "disp", "book ride"),
@@ -813,7 +813,7 @@ function write(lesson) {
   s7.links.a = { from: "n2", to: "n1", pts: ["n2", "n1"], style: "beat", label: "term 2 heartbeat" };
   s7.links.b = { from: "n1", to: "n3", pts: ["n1", "n3"], style: "off" };
   s7.links.c = { from: "n2", to: "n3", pts: ["n2", "n3"], style: "beat" };
-  s7.entities.n1.tags = [tag("steps down · term 2", "violet", "undo"), tag("drops its uncommitted #42", "amber", "alert")];
+  s7.entities.n1.tags = [tag("follower · term 2", "violet", "undo"), tag("drops #42", "amber", "alert")];
   s7.entities.n2.tags = LEAD(2);
   s7.entities.n3.tags = FOL(2);
   s7.flows = [
@@ -824,8 +824,8 @@ function write(lesson) {
 
   // s8 — five nodes survive two failures
   const s8 = { entities: base(), links: links("n2"), flows: [] };
-  s8.entities.n4 = node(-14, -8, 4, { tags: FOL(3) });
-  s8.entities.n5 = node(14, -8, 5, { tags: FOL(3) });
+  s8.entities.n4 = node(-16, -2, 4, { tags: FOL(3) });
+  s8.entities.n5 = node(16, -6, 5, { tags: FOL(3) });
   Object.assign(s8.entities.n1, DOWN);
   Object.assign(s8.entities.n3, DOWN);
   s8.entities.n2.tags = LEAD(3);
@@ -833,7 +833,7 @@ function write(lesson) {
   s8.links.b = { from: "n1", to: "n3", pts: ["n1", "n3"], style: "off" };
   s8.links.c = { from: "n2", to: "n3", pts: ["n2", "n3"], style: "cut" };
   s8.links.d = L("n2", "n4", "append");
-  s8.links.e = { from: "n2", to: "n5", pts: ["n2", [-9, -12], [9, -12], "n5"], label: "append" };
+  s8.links.e = L("n2", "n5", "append");
   s8.flows = [
     { route: ["r", "w"], kind: "write", bounce: true, rate: 1.1 },
     { fanout: true, routes: [{ path: ["d"], kind: "write" }, { path: ["e"], kind: "write" }], bounce: true, rate: 0.9 },
@@ -851,7 +851,7 @@ function write(lesson) {
   // s9 — recap: healthy five-node cluster
   const s9 = clone(s8);
   s9.entities.n1 = node(0, -6, 1, { tags: FOL(3) });
-  s9.entities.n3 = node(9, 5, 3, { tags: FOL(3) });
+  s9.entities.n3 = node(11, 9, 3, { tags: FOL(3) });
   delete s9.entities.card;
   s9.links.a = { from: "n2", to: "n1", pts: ["n2", "n1"], style: "beat" };
   s9.links.c = { from: "n2", to: "n3", pts: ["n2", "n3"], style: "beat" };
@@ -1049,7 +1049,7 @@ function write(lesson) {
   // s5 — serializable: one aborts and retries
   const s5 = { entities: base([tag("14C: Maya", "violet", "ticket"), tag("SERIALIZABLE", "violet", "layers")]), links: links(), flows: [] };
   s5.links.q.label = "BEGIN ISOLATION SERIALIZABLE";
-  s5.entities.theo.tags = [tag("aborted → retry → taken", "amber", "refresh")];
+  s5.entities.theo.tags = [tag("retried → gone", "amber", "refresh")];
   s5.flows = both({}, { kind: "slow", pattern: ["req", "slow"] });
   s5.entities.card = panel("Isolation levels", "layers", [
     "Read uncommitted · may see unfinished writes",
@@ -1061,7 +1061,7 @@ function write(lesson) {
 
   // s6 — pessimistic row lock
   const s6 = { entities: base([tag("14C locked by Maya", "violet", "lock")]), links: links(), flows: [] };
-  s6.entities.wait = { type: "queue", x: 3.6, y: 4, n: 1, gap: 1.1, dir: [0, -1] };
+  s6.entities.wait = { type: "queue", x: 2, y: 3, n: 1, gap: 1.1, dir: [0, -1] };
   s6.links.q.label = "SELECT … FOR UPDATE";
   s6.entities.theo.tags = [tag("waits, then 'taken'", "amber", "hourglass")];
   s6.flows = both({}, { kind: "slow", hold: 1.4 });
@@ -1089,7 +1089,7 @@ function write(lesson) {
   };
   Object.assign(s8.entities.db, CRIT);
   Object.assign(s8.entities.api, WARN);
-  s8.entities.wait = { type: "queue", x: 3.6, y: 4, n: 6, gap: 1.1, dir: [0, -1] };
+  s8.entities.wait = { type: "queue", x: 2, y: 3, n: 6, gap: 1.1, dir: [0, -1] };
   s8.flows = [{ route: ["c", "q"], bounce: true, pattern: ["req", "slow", "slow"], hold: 0.6, rate: 2.4 }];
   s8.entities.card = panel("Under contention", "flame", ["# 2,000 buyers chasing 180 seats"], {
     chart: "bars",
@@ -1111,7 +1111,7 @@ function write(lesson) {
     q: { from: "api", to: "db", pts: ["api", "db"], heads: "both", label: "hold seat · 3 ms" },
     p: L("api", "pay", "charge · no lock held", { style: "dashed" }),
   };
-  s9.entities.wait = { type: "queue", x: 3.6, y: 4, n: 0, gap: 1.1, dir: [0, -1] };
+  s9.entities.wait = { type: "queue", x: 2, y: 3, n: 0, gap: 1.1, dir: [0, -1] };
   s9.flows = [
     { route: ["c", "q"], bounce: true, rate: 2.2 },
     { route: ["p"], kind: "slow", bounce: true, hold: 0.8, rate: 0.7 },
@@ -1385,9 +1385,10 @@ function write(lesson) {
 
   // s7 — CDN delivery
   const s7 = clone(s6);
-  s7.entities.cdn = block(-11, -22, "yellow", "globe", ["CDN"], { tags: [tag("95% hits", "green", "zap")] });
+  s7.entities.cdn = block(22, -20, "yellow", "globe", ["CDN"], { tags: [tag("95% hits", "green", "zap")] });
   s7.links.cv = L("users", "cdn", "GET photo");
-  s7.links.co = { from: "cdn", to: "obj", pts: ["cdn", [-11, -34], [22, -34], [22, "obj"], "obj"], label: "miss only", style: "dashed" };
+  s7.links.co = { ...L("cdn", "obj", "miss only"), style: "dashed" };
+  s7.links.up = L("users", "obj", "PUT · signed URL");
   s7.flows = [
     { routes: [{ path: ["cv"], weight: 19 }, { path: ["cv", "co"], kind: "slow", weight: 1 }], pick: "weights", bounce: true, rate: 2.4 },
     { route: ["u", "d"], bounce: true, rate: 0.6 },
@@ -1439,7 +1440,7 @@ function write(lesson) {
           "<b>Crumbly</b> is where 2 million home cooks share recipes, and every recipe has photos. Each upload goes to the API, gets resized inside the request, and is saved as a <span class=\"term\">BLOB</span> in the same Postgres that holds the recipes.",
           "One system, one backup, transactions for free. It worked fine for the first ten thousand photos.",
         ],
-        metrics: { dbGrowth: "+2 TB / month", appTraffic: "every photo byte", respond: 3800, imgLoad: 850, storeCost: "$1,900" },
+        metrics: { dbGrowth: "+2 TB/mo", appTraffic: "all bytes", respond: 3800, imgLoad: 850, storeCost: "$1,900" },
         scene: s1,
         lab: labBase([], [], { dbSub: "recipes + photos" }),
       },
@@ -1452,7 +1453,7 @@ function write(lesson) {
           "Worse, image pages crowd recipe rows out of the database's memory cache. Queries that used to be served from RAM now hit disk — the photos slow down everything else.",
         ],
         changes: ["~ Database: 18 TB, 97% of it photos", "~ Backups and replicas slow down"],
-        metrics: { dbGrowth: "+2 TB / month", appTraffic: "every photo byte", respond: 4200, imgLoad: 1400, storeCost: "$1,900" },
+        metrics: { dbGrowth: "+2 TB/mo", appTraffic: "all bytes", respond: 4200, imgLoad: 1400, storeCost: "$1,900" },
         scene: s2,
         lab: labBase([], [], { dbSub: "18 TB", db: "crit" }),
       },
@@ -1466,7 +1467,7 @@ function write(lesson) {
         ],
         callout: { kind: "warn", text: "Moving large bytes is a different job from running business logic. Don't make one server do both." },
         changes: ["~ API threads tied up by uploads", "+ Timeouts on unrelated requests"],
-        metrics: { dbGrowth: "+2 TB / month", appTraffic: "every photo byte", respond: 6500, imgLoad: 1400, storeCost: "$1,900" },
+        metrics: { dbGrowth: "+2 TB/mo", appTraffic: "all bytes", respond: 6500, imgLoad: 1400, storeCost: "$1,900" },
         scene: s3,
         lab: labBase([], [], { dbSub: "18 TB", db: "crit", api: "crit" }),
       },
@@ -1480,7 +1481,7 @@ function write(lesson) {
         ],
         callout: { kind: "tip", text: "Keep the database as the source of truth for what exists; the bucket just holds the bytes behind each key." },
         changes: ["+ Object storage for photo bytes", "~ Database stores metadata rows only"],
-        metrics: { dbGrowth: "+3 GB / month", appTraffic: "every photo byte", respond: 3500, imgLoad: 700, storeCost: "$420" },
+        metrics: { dbGrowth: "+3 GB/mo", appTraffic: "all bytes", respond: 3500, imgLoad: 700, storeCost: "$420" },
         scene: s4,
         lab: labBase([], [], { api: "warn" }),
       },
@@ -1493,7 +1494,7 @@ function write(lesson) {
           "The phone uploads straight to storage. The API only handles a small JSON request, and storage absorbs slow connections and retries.",
         ],
         changes: ["+ Pre-signed upload URLs", "~ Photo bytes bypass the API entirely"],
-        metrics: { dbGrowth: "+3 GB / month", appTraffic: "small JSON only", respond: 60, imgLoad: 700, storeCost: "$420" },
+        metrics: { dbGrowth: "+3 GB/mo", appTraffic: "small JSON", respond: 60, imgLoad: 700, storeCost: "$420" },
         scene: s5,
         lab: labBase(),
       },
@@ -1506,7 +1507,7 @@ function write(lesson) {
           "Finally a worker flips the row to <code>ready</code>. The feed shows a placeholder for a second or two; nobody's request waits on resizing.",
         ],
         changes: ["+ Upload events → queue", "+ Image workers write thumbnails", "~ Row status pending → ready"],
-        metrics: { dbGrowth: "+3 GB / month", appTraffic: "small JSON only", respond: 60, imgLoad: 400, storeCost: "$440" },
+        metrics: { dbGrowth: "+3 GB/mo", appTraffic: "small JSON", respond: 60, imgLoad: 400, storeCost: "$440" },
         scene: s6,
         lab: labFull(false),
       },
@@ -1519,7 +1520,7 @@ function write(lesson) {
           "Because a processed variant never changes, its key can include a version or hash and be cached for a year.",
         ],
         changes: ["+ CDN in front of object storage", "~ Photo views served from the edge"],
-        metrics: { dbGrowth: "+3 GB / month", appTraffic: "small JSON only", respond: 60, imgLoad: 45, storeCost: "$440" },
+        metrics: { dbGrowth: "+3 GB/mo", appTraffic: "small JSON", respond: 60, imgLoad: 45, storeCost: "$440" },
         scene: s7,
         lab: labFull(true),
       },
@@ -1532,7 +1533,7 @@ function write(lesson) {
           "Some uploads never finish, leaving <b>orphans</b>: pending rows and stray objects that a lifecycle rule cleans up after a day. Rarely viewed originals can move to a cheaper storage tier, and private photos need short-lived signed links instead of public URLs.",
         ],
         changes: ["+ Lifecycle rules: orphans, older originals", "~ Signed URLs limited by size, type and time"],
-        metrics: { dbGrowth: "+3 GB / month", appTraffic: "small JSON only", respond: 60, imgLoad: 45, storeCost: "$260" },
+        metrics: { dbGrowth: "+3 GB/mo", appTraffic: "small JSON", respond: 60, imgLoad: 45, storeCost: "$260" },
         scene: s8,
         lab: labFull(true),
       },
@@ -1543,7 +1544,7 @@ function write(lesson) {
         body: [
           "<ul class=\"takeaways\"><li>Big files in the database bloat backups, replicas and memory.</li><li>Object storage holds the bytes; the database holds metadata and status.</li><li>Pre-signed URLs let clients upload directly, keeping API servers light.</li><li>Process asynchronously from upload events; serve variants through a CDN.</li></ul>",
         ],
-        metrics: { dbGrowth: "+3 GB / month", appTraffic: "small JSON only", respond: 60, imgLoad: 45, storeCost: "$260" },
+        metrics: { dbGrowth: "+3 GB/mo", appTraffic: "small JSON", respond: 60, imgLoad: 45, storeCost: "$260" },
         scene: s9,
         lab: labFull(true),
       },

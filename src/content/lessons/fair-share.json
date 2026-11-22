@@ -1805,14 +1805,7 @@
               "Gateway",
               "#2"
             ],
-            "h": 30,
-            "tags": [
-              {
-                "text": "free 10/s · pro 100/s",
-                "tone": "violet",
-                "icon": "key"
-              }
-            ]
+            "h": 30
           },
           "api": {
             "type": "block",

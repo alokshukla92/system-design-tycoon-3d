@@ -1,0 +1,3211 @@
+{
+  "id": "build-a-link-shortener",
+  "title": "Build a Link Shortener",
+  "summary": "Design Tinylane end to end, interview style: requirements, estimates, API, key generation, storage, a cached redirect path and async click analytics.",
+  "minutes": 13,
+  "level": "intermediate",
+  "metrics": [
+    "redirectMs",
+    "dbQps",
+    "codeKind",
+    "linksKept"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "write",
+    "slow",
+    "msg",
+    [
+      "ping",
+      "id lease"
+    ],
+    [
+      "poison",
+      "collision"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Turn a vague prompt into requirements and numbers",
+      "step": 1
+    },
+    {
+      "text": "Generate short codes that never collide",
+      "step": 5
+    },
+    {
+      "text": "Make redirects fast with a cache and an edge CDN",
+      "step": 7
+    },
+    {
+      "text": "Keep analytics off the redirect path",
+      "step": 8
+    },
+    {
+      "text": "Name the bottlenecks and how the design bends",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Requirements",
+      "chapter": "setup",
+      "title": "Pin down what we're building",
+      "body": [
+        "The prompt: <i>“Design a URL shortener.”</i> Before drawing anything, agree on scope. <b>Tinylane</b> turns long campaign URLs into <code>tnyl.co/xxxxxxx</code> and redirects anyone who clicks.",
+        "Must-haves: create a short link, redirect quickly, never break a link. Nice-to-haves: custom aliases, expiry dates, click counts. Equally important are the non-functional ones: redirects must be <b>fast and always available</b>, and codes must not be guessable in sequence."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Spend the first few minutes on requirements. Every later choice is justified by one of them."
+      },
+      "metrics": {
+        "redirectMs": null,
+        "dbQps": null,
+        "codeKind": null,
+        "linksKept": null
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -8,
+            "s": 7,
+            "h": 80,
+            "label": "Tinylane?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Requirements",
+            "icon": "listChecks",
+            "lines": [
+              "**must**: long URL → tnyl.co/xxxxxxx",
+              "**must**: code → redirect, fast, always up",
+              "**nice**: custom alias · expiry date",
+              "**nice**: click counts per link",
+              "# codes unique and not guessable in order",
+              "# analytics may lag a minute"
+            ]
+          }
+        },
+        "links": {
+          "cb": {
+            "from": "creator",
+            "to": "box",
+            "pts": [
+              "creator",
+              "box"
+            ],
+            "label": "shorten"
+          },
+          "kb": {
+            "from": "clickers",
+            "to": "box",
+            "pts": [
+              "clickers",
+              "box"
+            ],
+            "label": "click"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cb"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "kb"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Estimates",
+      "chapter": "setup",
+      "title": "Rough numbers",
+      "body": [
+        "Assume <b>100 million</b> new links a month: about 40 writes a second. If each link is clicked about 100 times, that's roughly <b>4,000 redirects a second</b>, and maybe 20,000 at peak.",
+        "Over five years that's 6 billion links. At ~500 bytes each, about <b>3 TB</b>: big for one machine's RAM, small for a database cluster. And 7 base62 characters (a–z, A–Z, 0–9) give 3.5 trillion codes, far more than we'll ever need.",
+        "The headline: this system is <b>read-heavy, 100 : 1</b>. Optimize the redirect."
+      ],
+      "changes": [
+        "+ Panel: back-of-the-envelope numbers",
+        "~ Arrows labelled with rates"
+      ],
+      "metrics": {
+        "redirectMs": null,
+        "dbQps": null,
+        "codeKind": null,
+        "linksKept": "6 B (5 years)"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -8,
+            "s": 7,
+            "h": 80,
+            "label": "Tinylane?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Back of the envelope",
+            "icon": "sigma",
+            "lines": [
+              "100 M new links / month → **~40 writes/s**",
+              "~100 clicks per link → **~4,000 redirects/s**",
+              "evening peak ×5 → **20,000 redirects/s**",
+              "5 years → 6 B links × 500 B ≈ **3 TB**",
+              "= 62⁷ ≈ 3.5 trillion codes: 7 chars is plenty",
+              "# reads outnumber writes 100 : 1"
+            ]
+          }
+        },
+        "links": {
+          "cb": {
+            "from": "creator",
+            "to": "box",
+            "pts": [
+              "creator",
+              "box"
+            ],
+            "label": "40 /s"
+          },
+          "kb": {
+            "from": "clickers",
+            "to": "box",
+            "pts": [
+              "clickers",
+              "box"
+            ],
+            "label": "4,000 /s"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cb"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "route": [
+              "kb"
+            ],
+            "bounce": true,
+            "rate": 4
+          }
+        ]
+      }
+    },
+    {
+      "short": "API",
+      "chapter": "technique",
+      "title": "Two endpoints",
+      "body": [
+        "Creating a link is a <code>POST</code> with the long URL and optional alias and expiry. Following one is a plain <code>GET /{code}</code> answered with a redirect.",
+        "Which redirect? A <b>301</b> (permanent) gets cached by browsers, so repeat clicks never reach us: cheaper, but we can't count them, change the target, or expire the link. A <b>302</b> (temporary) keeps every click visible. Tinylane picks 302."
+      ],
+      "changes": [
+        "+ Panel: create and redirect endpoints",
+        "~ Arrows labelled with their endpoints"
+      ],
+      "metrics": {
+        "redirectMs": null,
+        "dbQps": null,
+        "codeKind": null,
+        "linksKept": "6 B (5 years)"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -8,
+            "s": 7,
+            "h": 80,
+            "label": "Tinylane?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The API",
+            "icon": "braces",
+            "lines": [
+              "POST /api/links",
+              "  { long_url, alias?, expires_at? }",
+              "= 201 { code, short_url }",
+              "GET /{code}",
+              "= 302 Found · Location: long_url",
+              "! 404 if unknown or expired",
+              "# 302, not 301: browsers cache a 301 forever"
+            ]
+          }
+        },
+        "links": {
+          "cb": {
+            "from": "creator",
+            "to": "box",
+            "pts": [
+              "creator",
+              "box"
+            ],
+            "label": "POST /api/links"
+          },
+          "kb": {
+            "from": "clickers",
+            "to": "box",
+            "pts": [
+              "clickers",
+              "box"
+            ],
+            "label": "GET /{code}"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cb"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "kb"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "High level",
+      "chapter": "solution",
+      "title": "First sketch of the system",
+      "body": [
+        "Behind a load balancer, split the two paths: a small <b>Create service</b> for writes and a larger, stateless <b>Redirect service</b> for reads, so each scales on its own.",
+        "The data is one key mapping to one row, with no joins, so a replicated <span class=\"term\">key-value store</span> partitioned by code fits well: every lookup goes to exactly one partition, and adding nodes adds capacity.",
+        "Every click still goes all the way to the store: about 90 ms for a user far from our region."
+      ],
+      "changes": [
+        "- Placeholder box",
+        "+ Load balancer, Create and Redirect services",
+        "+ Links KV store with 2 replicas"
+      ],
+      "metrics": {
+        "redirectMs": 90,
+        "dbQps": 4000,
+        "codeKind": null,
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.55,
+            "sub": "8 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "card": {
+            "type": "panel",
+            "title": "Data model",
+            "icon": "database",
+            "lines": [
+              "**links**: code (PK) → long_url,",
+              "    owner_id, created_at, expires_at",
+              "= one key in, one row out: no joins",
+              "→ a key-value store, partitioned by code",
+              "# 3 TB × 3 replicas, spread over 12 nodes"
+            ]
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "kl": {
+            "from": "clickers",
+            "to": "lb",
+            "pts": [
+              "clickers",
+              "lb"
+            ],
+            "label": "GET /{code}"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "rd": {
+            "from": "redirect",
+            "to": "db",
+            "pts": [
+              "redirect",
+              "db"
+            ],
+            "label": "get"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "kl",
+              "lr",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "r2"
+                ]
+              },
+              {
+                "path": [
+                  "r3"
+                ]
+              }
+            ],
+            "kind": "write",
+            "rate": 0.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 4000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Clickers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "create",
+            "kind": "api_server",
+            "label": "Create service"
+          },
+          {
+            "id": "redirect",
+            "kind": "api_server",
+            "label": "Redirect service"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Links KV"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "create"
+          },
+          {
+            "from": "lb",
+            "to": "redirect"
+          },
+          {
+            "from": "create",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hash codes?",
+      "chapter": "problem",
+      "title": "Deep dive: why not hash the URL?",
+      "body": [
+        "Tempting: take <code>md5(long_url)</code>, base62-encode it, keep 7 characters. But 7 characters is a small space for a hash. By the <span class=\"term\">birthday paradox</span>, there's a 50% chance of a clash after only ~2.2 million links, and at 6 billion we'd expect about <b>5 million</b> clashes.",
+        "So every create must first read “is this code taken?”, rehash with a salt if so, and still risk two servers claiming the same code at the same moment."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Truncated hashes collide long before the space looks full. Collisions grow with the square of the number of links."
+      },
+      "changes": [
+        "~ Create service hashes the URL",
+        "~ Writes check before inserting",
+        "~ Some writes collide"
+      ],
+      "metrics": {
+        "redirectMs": 90,
+        "dbQps": 4000,
+        "codeKind": "hash: collides",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [
+              {
+                "text": "md5(url) → 7 chars",
+                "tone": "amber",
+                "icon": "hash"
+              }
+            ],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.55,
+            "sub": "8 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "code taken!",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0.6
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "card": {
+            "type": "panel",
+            "title": "Hashing collides",
+            "icon": "alert",
+            "lines": [
+              "7 base62 chars = 3.5 trillion codes",
+              "! 50% chance of a clash by ~2.2 M links",
+              "! at 6 B links: ~5 M clashes expected",
+              "! each write: read first, retry with salt",
+              "! two servers can still race on one code"
+            ]
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "kl": {
+            "from": "clickers",
+            "to": "lb",
+            "pts": [
+              "clickers",
+              "lb"
+            ],
+            "label": "GET /{code}"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "exists? → put",
+            "labelTone": "amber"
+          },
+          "rd": {
+            "from": "redirect",
+            "to": "db",
+            "pts": [
+              "redirect",
+              "db"
+            ],
+            "label": "get"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "bounce": true,
+            "rate": 1,
+            "pattern": [
+              "write",
+              "write",
+              "poison"
+            ]
+          },
+          {
+            "route": [
+              "kl",
+              "lr",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 1.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "ID ranges",
+      "chapter": "solution",
+      "title": "Counters, leased in blocks",
+      "body": [
+        "Instead, give every link a number that's unique by construction, then base62-encode it. A single global counter would be a bottleneck, so a tiny <b>Range service</b> leases each create server a block of <b>a million ids</b>. The server hands them out from memory and comes back once per block.",
+        "Starting at 62⁶ makes every code exactly 7 characters. To avoid codes that reveal volume or can be walked in order, pass the id through a keyed, reversible <span class=\"term\">permutation</span> first: it stays unique, but looks random."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "If a server crashes mid-block, the rest of that block is simply never used. Gaps are fine; duplicates are not."
+      },
+      "changes": [
+        "+ Range service leases id blocks",
+        "~ Create service encodes ids in base62",
+        "- Read-before-write check"
+      ],
+      "metrics": {
+        "redirectMs": 90,
+        "dbQps": 4000,
+        "codeKind": "counter: unique",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [
+              {
+                "text": "ids 7,000,000–7,999,999",
+                "tone": "green",
+                "icon": "hash"
+              }
+            ],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.55,
+            "sub": "8 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "ranges": {
+            "type": "block",
+            "x": -19,
+            "y": -5,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "listOrdered",
+            "label": [
+              "Range",
+              "service"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Counter → base62",
+            "icon": "hash",
+            "lines": [
+              "each create server leases **1 M ids** at a time",
+              "id = 62⁶ + n → always 7 base62 chars",
+              "  62⁶ = 56,800,235,584 → \"1000000\"",
+              "scramble(id) with a keyed permutation",
+              "= unique by construction, no read-before-write",
+              "# a crash just skips the rest of a lease"
+            ]
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "kl": {
+            "from": "clickers",
+            "to": "lb",
+            "pts": [
+              "clickers",
+              "lb"
+            ],
+            "label": "GET /{code}"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "rd": {
+            "from": "redirect",
+            "to": "db",
+            "pts": [
+              "redirect",
+              "db"
+            ],
+            "label": "get"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          },
+          "rc": {
+            "from": "ranges",
+            "to": "create",
+            "pts": [
+              "ranges",
+              "create"
+            ],
+            "label": "lease 1M ids",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "kl",
+              "lr",
+              "rd"
+            ],
+            "bounce": true,
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "rc"
+            ],
+            "kind": "ping",
+            "rate": 0.15
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 4000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Clickers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "create",
+            "kind": "api_server",
+            "label": "Create service"
+          },
+          {
+            "id": "redirect",
+            "kind": "api_server",
+            "label": "Redirect service"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Links KV"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "create"
+          },
+          {
+            "from": "lb",
+            "to": "redirect"
+          },
+          {
+            "from": "create",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cache",
+      "chapter": "solution",
+      "title": "Deep dive: the redirect path",
+      "body": [
+        "Clicks are heavily skewed: a small share of fresh, popular links gets most of the traffic. A <b>Redis</b> cache in front of the store (cache-aside: read Redis, on a miss read the store and fill Redis) serves about <b>90%</b> of lookups from a 20 GB hot set.",
+        "Store lookups fall from 4,000 to about 400 a second. Unknown codes from scanners get cached too, as short-lived “not found” entries, so they don't hammer the store."
+      ],
+      "changes": [
+        "+ Redis cache between Redirect service and store",
+        "~ Only misses reach Links KV"
+      ],
+      "metrics": {
+        "redirectMs": 70,
+        "dbQps": 400,
+        "codeKind": "counter: unique",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.55,
+            "sub": "8 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "ranges": {
+            "type": "block",
+            "x": -19,
+            "y": -5,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "listOrdered",
+            "label": [
+              "Range",
+              "service"
+            ]
+          },
+          "cache": {
+            "type": "block",
+            "x": 8,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "20 GB hot set",
+            "tags": [
+              {
+                "text": "hit 90%",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "kl": {
+            "from": "clickers",
+            "to": "lb",
+            "pts": [
+              "clickers",
+              "lb"
+            ],
+            "label": "GET /{code}"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          },
+          "rc": {
+            "from": "ranges",
+            "to": "create",
+            "pts": [
+              "ranges",
+              "create"
+            ],
+            "label": "lease 1M ids",
+            "style": "dashed"
+          },
+          "rc2": {
+            "from": "redirect",
+            "to": "cache",
+            "pts": [
+              "redirect",
+              "cache"
+            ],
+            "label": "get"
+          },
+          "cad": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "miss"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "kl",
+              "lr",
+              "rc2"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "kl",
+              "lr",
+              "rc2",
+              "cad"
+            ],
+            "bounce": true,
+            "rate": 0.35,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "rc"
+            ],
+            "kind": "ping",
+            "rate": 0.1
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 4000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Clickers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "create",
+            "kind": "api_server",
+            "label": "Create service"
+          },
+          {
+            "id": "redirect",
+            "kind": "api_server",
+            "label": "Redirect service"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Links KV"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "create"
+          },
+          {
+            "from": "lb",
+            "to": "redirect"
+          },
+          {
+            "from": "create",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Edge CDN",
+      "chapter": "solution",
+      "title": "Answer at the edge",
+      "body": [
+        "The remaining time is mostly distance. Putting a <b>CDN</b> in front lets an edge server near the clicker answer popular redirects itself: the 302 carries <code>Cache-Control: max-age=300</code>, so the edge reuses it for five minutes.",
+        "A hit now takes under 20 ms anywhere in the world, and the Redirect fleet shrinks from eight servers to four. The cost: an expired or edited link can live on at the edge for up to five minutes."
+      ],
+      "changes": [
+        "+ Edge CDN in front of the load balancer",
+        "~ Redirect service: 8 → 4 servers"
+      ],
+      "metrics": {
+        "redirectMs": 18,
+        "dbQps": 150,
+        "codeKind": "counter: unique",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.2,
+            "sub": "4 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "ranges": {
+            "type": "block",
+            "x": -19,
+            "y": -5,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "listOrdered",
+            "label": [
+              "Range",
+              "service"
+            ]
+          },
+          "cache": {
+            "type": "block",
+            "x": 8,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "20 GB hot set",
+            "tags": [
+              {
+                "text": "hit 90%",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "edge": {
+            "type": "block",
+            "x": 13,
+            "y": -20,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "CDN"
+            ],
+            "tags": [
+              {
+                "text": "302 cached 5 min",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          },
+          "rc": {
+            "from": "ranges",
+            "to": "create",
+            "pts": [
+              "ranges",
+              "create"
+            ],
+            "label": "lease 1M ids",
+            "style": "dashed"
+          },
+          "rc2": {
+            "from": "redirect",
+            "to": "cache",
+            "pts": [
+              "redirect",
+              "cache"
+            ],
+            "label": "get"
+          },
+          "cad": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "miss"
+          },
+          "ke": {
+            "from": "clickers",
+            "to": "edge",
+            "pts": [
+              "clickers",
+              "edge"
+            ],
+            "label": "GET /{code}"
+          },
+          "el": {
+            "from": "edge",
+            "to": "lb",
+            "pts": [
+              "edge",
+              "lb"
+            ],
+            "label": "miss"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ke"
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "ke",
+              "el",
+              "lr",
+              "rc2"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "ke",
+              "el",
+              "lr",
+              "rc2",
+              "cad"
+            ],
+            "bounce": true,
+            "rate": 0.15,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Clickers"
+          },
+          {
+            "id": "edge",
+            "kind": "cdn",
+            "label": "Edge CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "create",
+            "kind": "api_server",
+            "label": "Create service"
+          },
+          {
+            "id": "redirect",
+            "kind": "api_server",
+            "label": "Redirect service"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Links KV"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "create"
+          },
+          {
+            "from": "lb",
+            "to": "redirect"
+          },
+          {
+            "from": "create",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Analytics",
+      "chapter": "technique",
+      "title": "Count clicks without slowing them",
+      "body": [
+        "Counting clicks must never delay a redirect. The Redirect service fires a small <b>click event</b> into a log like Kafka and responds immediately. Edge hits never reach us, so the CDN's access logs are streamed into the same topic.",
+        "A <b>click counter</b> consumes the events, adds them up per link per minute, and writes the totals to a stats store. Dashboards lag by about a minute, which the requirements allowed."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Anything that isn't needed to answer the request belongs after the response: queue it."
+      },
+      "changes": [
+        "+ Click events topic",
+        "+ Click counter worker and stats store",
+        "+ CDN logs feed the same topic"
+      ],
+      "metrics": {
+        "redirectMs": 18,
+        "dbQps": 150,
+        "codeKind": "counter: unique",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.2,
+            "sub": "4 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "ranges": {
+            "type": "block",
+            "x": -19,
+            "y": -5,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "listOrdered",
+            "label": [
+              "Range",
+              "service"
+            ]
+          },
+          "cache": {
+            "type": "block",
+            "x": 8,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "20 GB hot set",
+            "tags": [
+              {
+                "text": "hit 90%",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "edge": {
+            "type": "block",
+            "x": 13,
+            "y": -20,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "CDN"
+            ],
+            "tags": [
+              {
+                "text": "302 cached 5 min",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "events": {
+            "type": "block",
+            "x": 19,
+            "y": -5,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Click",
+              "events"
+            ]
+          },
+          "agg": {
+            "type": "block",
+            "x": 19,
+            "y": 6,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Click",
+              "counter"
+            ],
+            "cpu": 0.3
+          },
+          "stats": {
+            "type": "db",
+            "x": 19,
+            "y": 16,
+            "label": "Click stats"
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          },
+          "rc": {
+            "from": "ranges",
+            "to": "create",
+            "pts": [
+              "ranges",
+              "create"
+            ],
+            "label": "lease 1M ids",
+            "style": "dashed"
+          },
+          "rc2": {
+            "from": "redirect",
+            "to": "cache",
+            "pts": [
+              "redirect",
+              "cache"
+            ],
+            "label": "get"
+          },
+          "cad": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "miss"
+          },
+          "ke": {
+            "from": "clickers",
+            "to": "edge",
+            "pts": [
+              "clickers",
+              "edge"
+            ],
+            "label": "GET /{code}"
+          },
+          "el": {
+            "from": "edge",
+            "to": "lb",
+            "pts": [
+              "edge",
+              "lb"
+            ],
+            "label": "miss"
+          },
+          "re": {
+            "from": "redirect",
+            "to": "events",
+            "pts": [
+              "redirect",
+              "events"
+            ],
+            "label": "click",
+            "style": "dashed"
+          },
+          "ee": {
+            "from": "edge",
+            "to": "events",
+            "pts": [
+              "edge",
+              "events"
+            ],
+            "label": "edge logs",
+            "style": "dashed"
+          },
+          "ea": {
+            "from": "events",
+            "to": "agg",
+            "pts": [
+              "events",
+              "agg"
+            ],
+            "label": "consume"
+          },
+          "as": {
+            "from": "agg",
+            "to": "stats",
+            "pts": [
+              "agg",
+              "stats"
+            ],
+            "label": "+n per minute"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ke"
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "ke",
+              "el",
+              "lr",
+              "rc2"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "re",
+                  "ea",
+                  "as"
+                ]
+              },
+              {
+                "path": [
+                  "ee",
+                  "ea",
+                  "as"
+                ]
+              }
+            ],
+            "kind": "msg",
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Clickers"
+          },
+          {
+            "id": "edge",
+            "kind": "cdn",
+            "label": "Edge CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "create",
+            "kind": "api_server",
+            "label": "Create service"
+          },
+          {
+            "id": "redirect",
+            "kind": "api_server",
+            "label": "Redirect service"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Links KV"
+          },
+          {
+            "id": "events",
+            "kind": "kafka",
+            "label": "Click events"
+          },
+          {
+            "id": "agg",
+            "kind": "worker",
+            "label": "Click counter"
+          },
+          {
+            "id": "stats",
+            "kind": "postgres",
+            "label": "Click stats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "create"
+          },
+          {
+            "from": "lb",
+            "to": "redirect"
+          },
+          {
+            "from": "create",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "events"
+          },
+          {
+            "from": "events",
+            "to": "agg"
+          },
+          {
+            "from": "agg",
+            "to": "stats"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Bottlenecks",
+      "chapter": "tradeoff",
+      "title": "Where it bends",
+      "body": [
+        "Finish by stress-testing your own design. A viral link becomes one very hot key, but the edge absorbs it. If the Range service goes down, each create server still holds a lease that lasts about <b>21 hours</b> at current rates. If a cache node dies, misses spike, so collapse duplicate misses into one store read.",
+        "Then the parts people forget: rate-limit link creation and scan target URLs for malware, and enforce expiry on read with a nightly sweep to delete dead rows."
+      ],
+      "changes": [
+        "~ Edge absorbs a viral link",
+        "+ Notes on range, cache and abuse risks"
+      ],
+      "metrics": {
+        "redirectMs": 18,
+        "dbQps": 300,
+        "codeKind": "counter: unique",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.2,
+            "sub": "4 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "ranges": {
+            "type": "block",
+            "x": -19,
+            "y": -5,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "listOrdered",
+            "label": [
+              "Range",
+              "service"
+            ],
+            "tags": [
+              {
+                "text": "down? leases last ~21 h",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "pills": "above"
+          },
+          "cache": {
+            "type": "block",
+            "x": 8,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "20 GB hot set",
+            "tags": [
+              {
+                "text": "node lost → misses",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "edge": {
+            "type": "block",
+            "x": 13,
+            "y": -20,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "CDN"
+            ],
+            "tags": [
+              {
+                "text": "viral link: 30k/s",
+                "tone": "amber",
+                "icon": "flame"
+              }
+            ],
+            "heat": 0.7
+          },
+          "events": {
+            "type": "block",
+            "x": 19,
+            "y": -5,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Click",
+              "events"
+            ]
+          },
+          "agg": {
+            "type": "block",
+            "x": 19,
+            "y": 6,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Click",
+              "counter"
+            ],
+            "cpu": 0.3
+          },
+          "stats": {
+            "type": "db",
+            "x": 19,
+            "y": 16,
+            "label": "Click stats"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Where it bends",
+            "icon": "gauge",
+            "lines": [
+              "! one viral link → one hot key: the edge absorbs it",
+              "! range service down → servers keep their leases",
+              "! cache node lost → coalesce misses, warm replica",
+              "! spam & malware → rate-limit creates, scan URLs",
+              "! expiry → check expires_at on read, sweep nightly"
+            ]
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          },
+          "rc": {
+            "from": "ranges",
+            "to": "create",
+            "pts": [
+              "ranges",
+              "create"
+            ],
+            "label": "lease 1M ids",
+            "style": "dashed"
+          },
+          "rc2": {
+            "from": "redirect",
+            "to": "cache",
+            "pts": [
+              "redirect",
+              "cache"
+            ],
+            "label": "get"
+          },
+          "cad": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "miss"
+          },
+          "ke": {
+            "from": "clickers",
+            "to": "edge",
+            "pts": [
+              "clickers",
+              "edge"
+            ],
+            "label": "GET /{code}"
+          },
+          "el": {
+            "from": "edge",
+            "to": "lb",
+            "pts": [
+              "edge",
+              "lb"
+            ],
+            "label": "miss"
+          },
+          "re": {
+            "from": "redirect",
+            "to": "events",
+            "pts": [
+              "redirect",
+              "events"
+            ],
+            "label": "click",
+            "style": "dashed"
+          },
+          "ee": {
+            "from": "edge",
+            "to": "events",
+            "pts": [
+              "edge",
+              "events"
+            ],
+            "label": "edge logs",
+            "style": "dashed"
+          },
+          "ea": {
+            "from": "events",
+            "to": "agg",
+            "pts": [
+              "events",
+              "agg"
+            ],
+            "label": "consume"
+          },
+          "as": {
+            "from": "agg",
+            "to": "stats",
+            "pts": [
+              "agg",
+              "stats"
+            ],
+            "label": "+n per minute"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ke"
+            ],
+            "bounce": true,
+            "rate": 4.5
+          },
+          {
+            "route": [
+              "ke",
+              "el",
+              "lr",
+              "rc2",
+              "cad"
+            ],
+            "bounce": true,
+            "rate": 0.5,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "re",
+                  "ea",
+                  "as"
+                ]
+              },
+              {
+                "path": [
+                  "ee",
+                  "ea",
+                  "as"
+                ]
+              }
+            ],
+            "kind": "msg",
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Tinylane, end to end",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Requirements and estimates first</b>: 40 writes/s vs 4,000 reads/s decides everything.</li><li><b>302 over 301</b> keeps clicks visible and links editable.</li><li><b>Leased counter ranges + base62</b> give unique 7-char codes with no coordination per write; a keyed permutation hides the order.</li><li><b>Key-value store</b> partitioned by code, replicated 3×.</li><li><b>Cache + CDN</b> serve the hot set; the store sees a trickle.</li><li><b>Analytics are async</b>: events after the response, counted in the background.</li></ul>"
+      ],
+      "metrics": {
+        "redirectMs": 18,
+        "dbQps": 150,
+        "codeKind": "counter: unique",
+        "linksKept": "6 B · 3 TB"
+      },
+      "scene": {
+        "entities": {
+          "creator": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "label": "Marketer"
+          },
+          "clickers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Clickers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "create": {
+            "type": "block",
+            "x": -8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Create",
+              "service"
+            ],
+            "cpu": 0.15,
+            "sub": "3 servers",
+            "tags": [],
+            "pills": "above"
+          },
+          "redirect": {
+            "type": "block",
+            "x": 8,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Redirect",
+              "service"
+            ],
+            "cpu": 0.2,
+            "sub": "4 servers"
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 16,
+            "label": "Links KV",
+            "tags": [
+              {
+                "text": "key: code",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "db2": {
+            "type": "db",
+            "x": -10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "db3": {
+            "type": "db",
+            "x": 10,
+            "y": 19,
+            "label": "replica",
+            "opacity": 0.85
+          },
+          "ranges": {
+            "type": "block",
+            "x": -19,
+            "y": -5,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "listOrdered",
+            "label": [
+              "Range",
+              "service"
+            ]
+          },
+          "cache": {
+            "type": "block",
+            "x": 8,
+            "y": 6,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Redis"
+            ],
+            "sub": "20 GB hot set",
+            "tags": [
+              {
+                "text": "hit 90%",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "edge": {
+            "type": "block",
+            "x": 13,
+            "y": -20,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "CDN"
+            ],
+            "tags": []
+          },
+          "events": {
+            "type": "block",
+            "x": 19,
+            "y": -5,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "Click",
+              "events"
+            ]
+          },
+          "agg": {
+            "type": "block",
+            "x": 19,
+            "y": 6,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Click",
+              "counter"
+            ],
+            "cpu": 0.3
+          },
+          "stats": {
+            "type": "db",
+            "x": 19,
+            "y": 16,
+            "label": "Click stats"
+          }
+        },
+        "links": {
+          "cl": {
+            "from": "creator",
+            "to": "lb",
+            "pts": [
+              "creator",
+              "lb"
+            ],
+            "label": "POST /api/links"
+          },
+          "lc": {
+            "from": "lb",
+            "to": "create",
+            "pts": [
+              "lb",
+              "create"
+            ]
+          },
+          "lr": {
+            "from": "lb",
+            "to": "redirect",
+            "pts": [
+              "lb",
+              "redirect"
+            ]
+          },
+          "cd": {
+            "from": "create",
+            "to": "db",
+            "pts": [
+              "create",
+              "db"
+            ],
+            "label": "put"
+          },
+          "r2": {
+            "from": "db",
+            "to": "db2",
+            "pts": [
+              "db",
+              "db2"
+            ],
+            "style": "dashed"
+          },
+          "r3": {
+            "from": "db",
+            "to": "db3",
+            "pts": [
+              "db",
+              "db3"
+            ],
+            "style": "dashed"
+          },
+          "rc": {
+            "from": "ranges",
+            "to": "create",
+            "pts": [
+              "ranges",
+              "create"
+            ],
+            "label": "lease 1M ids",
+            "style": "dashed"
+          },
+          "rc2": {
+            "from": "redirect",
+            "to": "cache",
+            "pts": [
+              "redirect",
+              "cache"
+            ],
+            "label": "get"
+          },
+          "cad": {
+            "from": "cache",
+            "to": "db",
+            "pts": [
+              "cache",
+              "db"
+            ],
+            "label": "miss"
+          },
+          "ke": {
+            "from": "clickers",
+            "to": "edge",
+            "pts": [
+              "clickers",
+              "edge"
+            ],
+            "label": "GET /{code}"
+          },
+          "el": {
+            "from": "edge",
+            "to": "lb",
+            "pts": [
+              "edge",
+              "lb"
+            ],
+            "label": "miss"
+          },
+          "re": {
+            "from": "redirect",
+            "to": "events",
+            "pts": [
+              "redirect",
+              "events"
+            ],
+            "label": "click",
+            "style": "dashed"
+          },
+          "ee": {
+            "from": "edge",
+            "to": "events",
+            "pts": [
+              "edge",
+              "events"
+            ],
+            "label": "edge logs",
+            "style": "dashed"
+          },
+          "ea": {
+            "from": "events",
+            "to": "agg",
+            "pts": [
+              "events",
+              "agg"
+            ],
+            "label": "consume"
+          },
+          "as": {
+            "from": "agg",
+            "to": "stats",
+            "pts": [
+              "agg",
+              "stats"
+            ],
+            "label": "+n per minute"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ke"
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "ke",
+              "el",
+              "lr",
+              "rc2"
+            ],
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "cl",
+              "lc",
+              "cd"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "re",
+                  "ea",
+                  "as"
+                ]
+              },
+              {
+                "path": [
+                  "ee",
+                  "ea",
+                  "as"
+                ]
+              }
+            ],
+            "kind": "msg",
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 20000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Clickers"
+          },
+          {
+            "id": "edge",
+            "kind": "cdn",
+            "label": "Edge CDN"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "create",
+            "kind": "api_server",
+            "label": "Create service"
+          },
+          {
+            "id": "redirect",
+            "kind": "api_server",
+            "label": "Redirect service"
+          },
+          {
+            "id": "cache",
+            "kind": "redis",
+            "label": "Redis"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "Links KV"
+          },
+          {
+            "id": "events",
+            "kind": "kafka",
+            "label": "Click events"
+          },
+          {
+            "id": "agg",
+            "kind": "worker",
+            "label": "Click counter"
+          },
+          {
+            "id": "stats",
+            "kind": "postgres",
+            "label": "Click stats"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "create"
+          },
+          {
+            "from": "lb",
+            "to": "redirect"
+          },
+          {
+            "from": "create",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "cache"
+          },
+          {
+            "from": "cache",
+            "to": "db"
+          },
+          {
+            "from": "redirect",
+            "to": "events"
+          },
+          {
+            "from": "events",
+            "to": "agg"
+          },
+          {
+            "from": "agg",
+            "to": "stats"
+          }
+        ]
+      }
+    }
+  ]
+}

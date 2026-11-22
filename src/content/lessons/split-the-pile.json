@@ -1,0 +1,3116 @@
+{
+  "id": "split-the-pile",
+  "title": "Split the Pile",
+  "summary": "Stampwise's loyalty receipts outgrew the biggest database server money can buy. Split the data across shards — and learn why the shard key decides everything: hot shards, scatter-gather queries and resharding.",
+  "minutes": 13,
+  "level": "intermediate",
+  "metrics": [
+    "shards",
+    "perShard",
+    "hottest",
+    "size"
+  ],
+  "legend": [
+    "write",
+    "req",
+    "res",
+    "slow",
+    [
+      "heavy",
+      "hot key / bulk copy"
+    ],
+    [
+      "ping",
+      "range lookup"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Explain why replicas don't scale writes, and sharding does",
+      "step": 0
+    },
+    {
+      "text": "Compare range and hash partitioning",
+      "step": 1
+    },
+    {
+      "text": "See the cost of queries that span shards",
+      "step": 4
+    },
+    {
+      "text": "Choose a shard key and handle a hot key",
+      "step": 5
+    },
+    {
+      "text": "Reshard by moving partitions instead of rehashing rows",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Too big",
+      "chapter": "setup",
+      "title": "One leader, too many writes",
+      "body": [
+        "<b>Stampwise</b> runs loyalty cards for supermarkets: every till sale writes a receipt and updates points. Peak load is <b>48,000 writes a second</b>, and the table is 6 TB and growing.",
+        "Read replicas don't help here — every write must still land on the one leader. The biggest machine available handles about 15,000 writes a second. Requests start timing out."
+      ],
+      "metrics": {
+        "shards": 1,
+        "perShard": 48000,
+        "hottest": 100,
+        "size": "6 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "big": {
+            "type": "db",
+            "x": 2,
+            "y": 2,
+            "label": "receipts",
+            "tags": [
+              {
+                "text": "6 TB",
+                "tone": "paper",
+                "icon": "database"
+              },
+              {
+                "text": "48k writes / s",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "heat": 1,
+            "cpu": 0.96,
+            "r": 2.4,
+            "h": 52
+          },
+          "card": {
+            "type": "panel",
+            "title": "Biggest machine we can buy",
+            "icon": "server",
+            "lines": [
+              "# replicas add reads, but every write still hits the leader"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Writes needed",
+                "note": "48,000 / s",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "Node can take",
+                "note": "~15,000 / s",
+                "to": 0.31,
+                "tone": "amber"
+              },
+              {
+                "label": "Disk used",
+                "note": "6 of 8 TB",
+                "to": 0.75,
+                "tone": "amber"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "big",
+            "pts": [
+              "app",
+              "big"
+            ],
+            "label": "INSERT receipt",
+            "fail": 0.35
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "big",
+            "kind": "postgres",
+            "label": "receipts",
+            "sub": "6 TB",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "big"
+          }
+        ]
+      }
+    },
+    {
+      "short": "By range",
+      "chapter": "solution",
+      "title": "Split the rows: range partitioning",
+      "body": [
+        "<span class=\"term\">Sharding</span> (horizontal partitioning) splits one table's rows across several independent databases. Each shard holds a subset and takes only that subset's writes. A <span class=\"term\">shard key</span> decides where a row lives, and a router sends each query to the right shard.",
+        "The first idea: shard by <code>created_at</code>, one quarter of the year per shard. Each shard owns a contiguous <em>range</em>, so “receipts from March” touches a single shard."
+      ],
+      "changes": [
+        "- One big database",
+        "+ Shard router",
+        "+ 4 shards, one per quarter"
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": "?",
+        "hottest": "?",
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "key → shard"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "Jan–Mar",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "Apr–Jun",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "Jul–Sep",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "Oct–Dec",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.25
+          },
+          "card": {
+            "type": "panel",
+            "title": "Partition by range",
+            "icon": "listOrdered",
+            "lines": [
+              "shard key: created_at",
+              "each shard owns a contiguous slice of dates",
+              "= “all receipts in March” → one shard, one scan",
+              "# the router keeps a small table of boundaries"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "receipts by date"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "kind": "ping",
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hot shard",
+      "chapter": "problem",
+      "title": "Every new receipt hits the same shard",
+      "body": [
+        "It's November. Every new receipt has today's date, so <b>100%</b> of writes go to the Oct–Dec shard while the other three sit idle. Four databases, the throughput of one.",
+        "This is a <span class=\"term\">hot shard</span>. Range keys that grow over time — dates, auto-increment ids — always concentrate new writes at the edge of the key space."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "A shard key is good only if traffic, not just data, spreads evenly across its values."
+      },
+      "changes": [
+        "~ Shard 4 takes all writes and overloads",
+        "~ Shards 1–3 idle"
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": 48000,
+        "hottest": 100,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "key → shard"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "Jan–Mar",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.1
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "Apr–Jun",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.1
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "Jul–Sep",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.1
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "Oct–Dec",
+                "tone": "paper",
+                "icon": "clock"
+              },
+              {
+                "text": "all of today",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.98,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "Writes per shard today",
+            "icon": "gauge",
+            "lines": [
+              "# new receipts always have the newest date"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "shard 1",
+                "note": "0%",
+                "to": 0,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 2",
+                "note": "0%",
+                "to": 0,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 3",
+                "note": "0%",
+                "to": 0,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 4",
+                "note": "100%",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ],
+            "fail": 0.4
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "kind": "write",
+            "rate": 2.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "By hash",
+      "chapter": "solution",
+      "title": "Hash partitioning spreads the load",
+      "body": [
+        "Instead, shard by <code>hash(customer_id) % 4</code>. A good hash scatters similar ids far apart, so each shard gets roughly a quarter of customers — and a quarter of writes.",
+        "Each shard now takes about <b>12,000 writes a second</b>, comfortably below its limit, and all receipts of one customer live together on one shard: showing someone's points is a single-shard query."
+      ],
+      "changes": [
+        "~ Shard key: hash(customer_id)",
+        "~ Writes evenly spread"
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": 12000,
+        "hottest": 26,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "hash % 4 = 0",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.62
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "hash % 4 = 1",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.6
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "hash % 4 = 2",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.63
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "hash % 4 = 3",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.61
+          },
+          "card": {
+            "type": "panel",
+            "title": "Writes per shard",
+            "icon": "gauge",
+            "lines": [
+              "# hash(customer_id) % 4 scatters customers evenly"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "shard 1",
+                "note": "25%",
+                "to": 0.25,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 2",
+                "note": "25%",
+                "to": 0.25,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 3",
+                "note": "26%",
+                "to": 0.26,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 4",
+                "note": "24%",
+                "to": 0.24,
+                "tone": "green",
+                "bold": false
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "kind": "write",
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cross-shard",
+      "chapter": "tradeoff",
+      "title": "Queries without the key ask everyone",
+      "body": [
+        "A store dashboard wants “today's receipts for store 77”. Those receipts belong to thousands of customers, hashed onto every shard. The router must <span class=\"term\">scatter-gather</span>: query all four shards and merge the results.",
+        "That's four times the work, and the answer waits for the slowest shard. Range scans over the hash key are gone too. Transactions that touch two customers on different shards need a distributed protocol — slow and complex."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "For important queries that don't include the shard key, keep a second copy of the data organised by the other key (e.g. a per-store table fed by events)."
+      },
+      "changes": [
+        "+ Store dashboard querying by store",
+        "~ Router fans out to all shards"
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": 12000,
+        "hottest": 26,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "hash % 4 = 0",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.62
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "hash % 4 = 1",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.6
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "hash % 4 = 2",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.63
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "hash % 4 = 3",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.61
+          },
+          "store": {
+            "type": "block",
+            "x": 0,
+            "y": -24,
+            "s": 3.6,
+            "h": 28,
+            "color": "green",
+            "glyph": "building",
+            "label": [
+              "Store",
+              "dashboard"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Scatter-gather",
+            "icon": "split",
+            "lines": [
+              "query doesn't include customer_id →",
+              "router asks all 4 shards, then merges",
+              "! cost ×4, latency = the slowest shard",
+              "# by customer: 1 shard ✓   by store: 4 shards"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          },
+          "e3": {
+            "from": "store",
+            "to": "rt",
+            "pts": [
+              "store",
+              "rt"
+            ],
+            "label": "today's receipts, store 77"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "kind": "write",
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "rate": 0.5,
+            "bounce": true,
+            "hold": 1.2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "k1"
+                ],
+                "kind": "req"
+              },
+              {
+                "path": [
+                  "k2"
+                ],
+                "kind": "req"
+              },
+              {
+                "path": [
+                  "k3"
+                ],
+                "kind": "slow"
+              },
+              {
+                "path": [
+                  "k4"
+                ],
+                "kind": "req"
+              }
+            ],
+            "fanout": true,
+            "bounce": true,
+            "rate": 0.5
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shard key",
+      "chapter": "insight",
+      "title": "The shard key is the big decision",
+      "body": [
+        "A good shard key has <b>many distinct values</b> (so data can be split finely), <b>even traffic</b> across those values, and appears in <b>your most frequent queries</b> (so they stay on one shard).",
+        "<code>customer_id</code> wins for Stampwise: millions of customers, each a small slice of traffic, and the hottest screens are per customer. Changing the key later means moving every row — choose deliberately."
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": 12000,
+        "hottest": 26,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "hash % 4 = 0",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.62
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "hash % 4 = 1",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.6
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "hash % 4 = 2",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.63
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "hash % 4 = 3",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.61
+          },
+          "card": {
+            "type": "panel",
+            "title": "Choosing a shard key",
+            "icon": "key",
+            "lines": [
+              "created_at  → ranges easy, newest shard melts",
+              "store_id    → store reports local, big chains skew",
+              "**customer_id → even writes, a wallet is 1 shard**",
+              "= pick a key with many values, even traffic,",
+              "= and that your hottest queries include"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "kind": "write",
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hot key",
+      "chapter": "problem",
+      "title": "One customer bigger than a shard's share",
+      "body": [
+        "Brightmart signs up and gives every employee discounts through a single staff account. That one <code>customer_id</code> produces <b>16% of all writes</b> — and a key always hashes to the same shard.",
+        "Shard 2 now carries 37% of the load. Hashing spreads <em>keys</em> evenly; it can't split a single <span class=\"term\">hot key</span>."
+      ],
+      "changes": [
+        "+ Brightmart staff account",
+        "~ Shard 2 hot"
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": 17800,
+        "hottest": 37,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "hash % 4 = 0",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.62
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "hash % 4 = 1",
+                "tone": "paper",
+                "icon": "hash"
+              },
+              {
+                "text": "hot key",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.9,
+            "heat": 0.7
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "hash % 4 = 2",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.63
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "hash % 4 = 3",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.61
+          },
+          "corp": {
+            "type": "block",
+            "x": -24,
+            "y": 0,
+            "s": 3.6,
+            "h": 28,
+            "color": "orange",
+            "glyph": "building",
+            "label": [
+              "Brightmart",
+              "staff card"
+            ],
+            "tags": [
+              {
+                "text": "16% of all writes",
+                "tone": "amber",
+                "icon": "trendingUp"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Writes per shard",
+            "icon": "gauge",
+            "lines": [
+              "# one giant account always hashes to the same shard"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "shard 1",
+                "note": "21%",
+                "to": 0.21,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 2",
+                "note": "37%",
+                "to": 0.37,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "shard 3",
+                "note": "21%",
+                "to": 0.21,
+                "tone": "green",
+                "bold": false
+              },
+              {
+                "label": "shard 4",
+                "note": "21%",
+                "to": 0.21,
+                "tone": "green",
+                "bold": false
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          },
+          "e4": {
+            "from": "corp",
+            "to": "app",
+            "pts": [
+              "corp",
+              "app"
+            ],
+            "label": "one customer_id"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              21,
+              37,
+              21,
+              21
+            ],
+            "kind": "write",
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "e4",
+              "e2",
+              "k2"
+            ],
+            "kind": "heavy",
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2",
+            "status": "warn"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Salting",
+      "chapter": "solution",
+      "title": "Split the hot key",
+      "body": [
+        "For known hot keys, append a small random suffix — <code>brightmart#0</code> … <code>brightmart#7</code> — so its writes hash onto different shards. This is called <span class=\"term\">salting</span> the key.",
+        "Writes even out again. The cost moves to reads: Brightmart's balance must sum eight sub-keys. Apply it only to the few keys that need it."
+      ],
+      "changes": [
+        "~ Brightmart key split into 8 sub-keys",
+        "~ Shard 2 back to normal"
+      ],
+      "metrics": {
+        "shards": 4,
+        "perShard": 12000,
+        "hottest": 26,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "hash % 4 = 0",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.62
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "hash % 4 = 1",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.64,
+            "heat": 0
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "hash % 4 = 2",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.63
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "hash % 4 = 3",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.61
+          },
+          "corp": {
+            "type": "block",
+            "x": -24,
+            "y": 0,
+            "s": 3.6,
+            "h": 28,
+            "color": "orange",
+            "glyph": "building",
+            "label": [
+              "Brightmart",
+              "staff card"
+            ],
+            "tags": [
+              {
+                "text": "split into 8 sub-keys",
+                "tone": "green",
+                "icon": "split"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Salt the hot key",
+            "icon": "split",
+            "lines": [
+              "brightmart → brightmart#0 … brightmart#7",
+              "suffix chosen per write, so they hash apart",
+              "= the hot account spreads over every shard",
+              "! reading its balance now gathers 8 sub-keys"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "earn · redeem"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          },
+          "e4": {
+            "from": "corp",
+            "to": "app",
+            "pts": [
+              "corp",
+              "app"
+            ],
+            "label": "brightmart#0 … #7"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "kind": "write",
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "e4",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "kind": "heavy",
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Resharding",
+      "chapter": "technique",
+      "title": "Growing from 4 shards to 8",
+      "body": [
+        "Next year's traffic doubles. Changing <code>hash % 4</code> to <code>hash % 8</code> would send about half of all rows to a different shard at once — a huge migration.",
+        "Better: hash keys into <b>64 fixed partitions</b> from day one and keep a map of which shard holds which partition. To grow, copy whole partitions to new shards, let them catch up on recent writes, then flip the map. No key ever changes partition."
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "The next lesson shows another way to add servers while moving only a small fraction of keys: consistent hashing."
+      },
+      "changes": [
+        "+ Shards 5–8",
+        "~ Half of each old shard's partitions copied over"
+      ],
+      "metrics": {
+        "shards": "4 → 8",
+        "perShard": "12,000 → 6,000/s",
+        "hottest": 13,
+        "size": "1.5 → 0.75 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "partitions 0–7",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.58
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "partitions 16–23",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.58,
+            "heat": 0
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "partitions 32–39",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.58
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "partitions 48–55",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.58
+          },
+          "s5": {
+            "type": "db",
+            "x": -1,
+            "y": 29,
+            "label": "shard 5",
+            "tags": [
+              {
+                "text": "partitions 8–15",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "s6": {
+            "type": "db",
+            "x": 9,
+            "y": 19,
+            "label": "shard 6",
+            "tags": [
+              {
+                "text": "partitions 24–31",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "s7": {
+            "type": "db",
+            "x": 19,
+            "y": 9,
+            "label": "shard 7",
+            "tags": [
+              {
+                "text": "partitions 40–47",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "s8": {
+            "type": "db",
+            "x": 29,
+            "y": -1,
+            "label": "shard 8",
+            "tags": [
+              {
+                "text": "partitions 56–63",
+                "tone": "paper",
+                "icon": "layers"
+              },
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "card": {
+            "type": "panel",
+            "title": "Move partitions, not rows",
+            "icon": "boxes",
+            "lines": [
+              "64 fixed partitions: partition = hash(key) % 64",
+              "a map says which shard holds each partition",
+              "= adding shards moves whole partitions; keys stay put",
+              "! hash % N with a new N would move ~half of all rows",
+              "# copy, catch up on new writes, flip the map"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "×2 traffic next year"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          },
+          "m1": {
+            "from": "s1",
+            "to": "s5",
+            "pts": [
+              "s1",
+              "s5"
+            ],
+            "label": "copy 8 partitions",
+            "style": "dashed"
+          },
+          "m2": {
+            "from": "s2",
+            "to": "s6",
+            "pts": [
+              "s2",
+              "s6"
+            ],
+            "style": "dashed"
+          },
+          "m3": {
+            "from": "s3",
+            "to": "s7",
+            "pts": [
+              "s3",
+              "s7"
+            ],
+            "style": "dashed"
+          },
+          "m4": {
+            "from": "s4",
+            "to": "s8",
+            "pts": [
+              "s4",
+              "s8"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "kind": "write",
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "m1"
+                ]
+              },
+              {
+                "path": [
+                  "m2"
+                ]
+              },
+              {
+                "path": [
+                  "m3"
+                ]
+              },
+              {
+                "path": [
+                  "m4"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "heavy",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          },
+          {
+            "id": "s5",
+            "kind": "postgres",
+            "label": "shard 5"
+          },
+          {
+            "id": "s6",
+            "kind": "postgres",
+            "label": "shard 6"
+          },
+          {
+            "id": "s7",
+            "kind": "postgres",
+            "label": "shard 7"
+          },
+          {
+            "id": "s8",
+            "kind": "postgres",
+            "label": "shard 8"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          },
+          {
+            "from": "app",
+            "to": "s5"
+          },
+          {
+            "from": "app",
+            "to": "s6"
+          },
+          {
+            "from": "app",
+            "to": "s7"
+          },
+          {
+            "from": "app",
+            "to": "s8"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Sharding in one breath",
+      "body": [
+        "<ul class=\"takeaways\"><li>Shard when a single leader can't take the <b>writes</b> or hold the <b>data</b>.</li><li><b>Range</b> partitioning keeps scans cheap but can create hot edges; <b>hash</b> spreads load but scatters ranges.</li><li>The <b>shard key</b> should have many values, even traffic, and appear in hot queries. Salt the rare hot key.</li><li>Cross-shard queries and transactions are expensive. Reshard by moving <b>partitions</b>, not rehashing rows.</li></ul>"
+      ],
+      "metrics": {
+        "shards": 8,
+        "perShard": 12000,
+        "hottest": 13,
+        "size": "1.5 TB"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -18.2,
+            "x1": -11.8,
+            "y0": -28.2,
+            "y1": -21.8,
+            "count": 10,
+            "label": "Shoppers & tills"
+          },
+          "app": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Receipts",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "rt": {
+            "type": "block",
+            "x": -4,
+            "y": -4,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "split",
+            "label": [
+              "Shard",
+              "router"
+            ],
+            "sub": "hash key"
+          },
+          "s1": {
+            "type": "db",
+            "x": -10,
+            "y": 20,
+            "label": "shard 1",
+            "tags": [
+              {
+                "text": "partitions 0–7",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.55
+          },
+          "s2": {
+            "type": "db",
+            "x": 0,
+            "y": 10,
+            "label": "shard 2",
+            "tags": [
+              {
+                "text": "partitions 16–23",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.55,
+            "heat": 0
+          },
+          "s3": {
+            "type": "db",
+            "x": 10,
+            "y": 0,
+            "label": "shard 3",
+            "tags": [
+              {
+                "text": "partitions 32–39",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.55
+          },
+          "s4": {
+            "type": "db",
+            "x": 20,
+            "y": -10,
+            "label": "shard 4",
+            "tags": [
+              {
+                "text": "partitions 48–55",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.55
+          },
+          "s5": {
+            "type": "db",
+            "x": -1,
+            "y": 29,
+            "label": "shard 5",
+            "tags": [
+              {
+                "text": "partitions 8–15",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "s6": {
+            "type": "db",
+            "x": 9,
+            "y": 19,
+            "label": "shard 6",
+            "tags": [
+              {
+                "text": "partitions 24–31",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "s7": {
+            "type": "db",
+            "x": 19,
+            "y": 9,
+            "label": "shard 7",
+            "tags": [
+              {
+                "text": "partitions 40–47",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "s8": {
+            "type": "db",
+            "x": 29,
+            "y": -1,
+            "label": "shard 8",
+            "tags": [
+              {
+                "text": "partitions 56–63",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "card": {
+            "type": "panel",
+            "title": "Sharding checklist",
+            "icon": "listChecks",
+            "lines": [
+              "shard when one leader can't take the writes or data",
+              "range: easy scans, hot edges · hash: even, no scans",
+              "key = high cardinality + in your hottest queries",
+              "! cross-shard queries and transactions get expensive",
+              "= plan resharding from day one"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "×2 traffic next year"
+          },
+          "e2": {
+            "from": "app",
+            "to": "rt",
+            "pts": [
+              "app",
+              "rt"
+            ],
+            "label": "INSERT receipt"
+          },
+          "k1": {
+            "from": "rt",
+            "to": "s1",
+            "pts": [
+              "rt",
+              "s1"
+            ]
+          },
+          "k2": {
+            "from": "rt",
+            "to": "s2",
+            "pts": [
+              "rt",
+              "s2"
+            ]
+          },
+          "k3": {
+            "from": "rt",
+            "to": "s3",
+            "pts": [
+              "rt",
+              "s3"
+            ]
+          },
+          "k4": {
+            "from": "rt",
+            "to": "s4",
+            "pts": [
+              "rt",
+              "s4"
+            ]
+          },
+          "k5": {
+            "from": "rt",
+            "to": "s5",
+            "pts": [
+              "rt",
+              [
+                9.5,
+                9.5
+              ],
+              [
+                -5.5,
+                24.5
+              ],
+              "s5"
+            ],
+            "heads": "end"
+          },
+          "k6": {
+            "from": "rt",
+            "to": "s6",
+            "pts": [
+              "rt",
+              [
+                9.5,
+                9.5
+              ],
+              [
+                4.5,
+                14.5
+              ],
+              "s6"
+            ],
+            "heads": "end"
+          },
+          "k7": {
+            "from": "rt",
+            "to": "s7",
+            "pts": [
+              "rt",
+              [
+                9.5,
+                9.5
+              ],
+              [
+                14.5,
+                4.5
+              ],
+              "s7"
+            ],
+            "heads": "end"
+          },
+          "k8": {
+            "from": "rt",
+            "to": "s8",
+            "pts": [
+              "rt",
+              [
+                9.5,
+                9.5
+              ],
+              [
+                24.5,
+                -5.5
+              ],
+              "s8"
+            ],
+            "heads": "end"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              [
+                "k1",
+                "k2",
+                "k3",
+                "k4",
+                "k5",
+                "k6",
+                "k7",
+                "k8"
+              ]
+            ],
+            "kind": "write",
+            "rate": 3.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 6000000,
+        "rps": 48000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Receipts API"
+          },
+          {
+            "id": "s1",
+            "kind": "postgres",
+            "label": "shard 1"
+          },
+          {
+            "id": "s2",
+            "kind": "postgres",
+            "label": "shard 2"
+          },
+          {
+            "id": "s3",
+            "kind": "postgres",
+            "label": "shard 3"
+          },
+          {
+            "id": "s4",
+            "kind": "postgres",
+            "label": "shard 4"
+          },
+          {
+            "id": "s5",
+            "kind": "postgres",
+            "label": "shard 5"
+          },
+          {
+            "id": "s6",
+            "kind": "postgres",
+            "label": "shard 6"
+          },
+          {
+            "id": "s7",
+            "kind": "postgres",
+            "label": "shard 7"
+          },
+          {
+            "id": "s8",
+            "kind": "postgres",
+            "label": "shard 8"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "s1"
+          },
+          {
+            "from": "app",
+            "to": "s2"
+          },
+          {
+            "from": "app",
+            "to": "s3"
+          },
+          {
+            "from": "app",
+            "to": "s4"
+          },
+          {
+            "from": "app",
+            "to": "s5"
+          },
+          {
+            "from": "app",
+            "to": "s6"
+          },
+          {
+            "from": "app",
+            "to": "s7"
+          },
+          {
+            "from": "app",
+            "to": "s8"
+          }
+        ]
+      }
+    }
+  ]
+}

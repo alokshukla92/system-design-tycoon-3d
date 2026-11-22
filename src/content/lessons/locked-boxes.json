@@ -1,0 +1,2010 @@
+{
+  "id": "locked-boxes",
+  "title": "Locked Boxes",
+  "summary": "Mendly stores patients' telehealth notes. Encrypt data on the wire and on disk, manage the keys that do it, and get passwords out of the codebase for good.",
+  "minutes": 10,
+  "level": "intermediate",
+  "metrics": [
+    "inTransit",
+    "atRest",
+    "secrets"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "poison",
+      "attacker"
+    ],
+    [
+      "empty",
+      "unreadable"
+    ],
+    [
+      "ping",
+      "key / secret fetch"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Encrypt traffic with TLS, inside and out",
+      "step": 3
+    },
+    {
+      "text": "Know what encryption at rest does and doesn't stop",
+      "step": 4
+    },
+    {
+      "text": "Explain envelope encryption with a key service",
+      "step": 5
+    },
+    {
+      "text": "Move secrets into a manager and rotate them",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Open wire",
+      "chapter": "setup",
+      "title": "Notes in the clear",
+      "body": [
+        "<b>Mendly</b> lets patients message their doctors and keeps the visit notes. Version one is a load balancer, an API and a database — talking plain HTTP, storing plain files on disk, with the database password in a config file in the repo.",
+        "Each is fine until someone is in the wrong place: on the network path, holding a disk, or reading the code. <span class=\"term\">Encryption</span> makes data useless without a key; the hard part is everything around the keys."
+      ],
+      "metrics": {
+        "inTransit": "no",
+        "atRest": "no",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "DB_PASS in config.js",
+                "tone": "red",
+                "icon": "code"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB",
+            "tags": [
+              {
+                "text": "plain files on disk",
+                "tone": "red",
+                "icon": "eye"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "http://"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "http"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SQL"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sniffed",
+      "chapter": "problem",
+      "title": "Anyone on the path can read",
+      "body": [
+        "A patient sends a message from café Wi-Fi. Every router between them and Mendly can read the request: the session cookie, the message, the doctor's reply.",
+        "Worse, anyone on the path can <b>change</b> it — inject a script or alter a reply — and neither side would know. Plain HTTP has no secrecy, no integrity and no proof of who you're talking to."
+      ],
+      "changes": [
+        "+ Snooper on shared Wi-Fi",
+        "~ Cookies and notes readable in transit"
+      ],
+      "metrics": {
+        "inTransit": "no",
+        "atRest": "no",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          },
+          "cafe": {
+            "type": "ghost",
+            "x": -17,
+            "y": -16,
+            "s": 3.6,
+            "h": 40,
+            "label": "Café Wi-Fi snooper"
+          },
+          "card": {
+            "type": "panel",
+            "title": "What the snooper sees",
+            "icon": "eye",
+            "lines": [
+              "# POST /notes HTTP/1.1",
+              "# Cookie: sid=7c41…",
+              "! \"Patient reports chest pain since…\"",
+              "! can also change the reply in flight"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "http://"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "http"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "sn": {
+            "from": "users",
+            "to": "cafe",
+            "pts": [
+              "users",
+              "cafe"
+            ],
+            "label": "copies every packet",
+            "style": "dashed",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "sn"
+            ],
+            "rate": 1,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "TLS",
+      "chapter": "solution",
+      "title": "TLS at the front door",
+      "body": [
+        "<span class=\"term\">TLS</span> fixes all three. The load balancer presents a certificate for <code>mendly.health</code>, signed by an authority the browser trusts, proving it's the real site. The handshake agrees on fresh session keys, and everything after is encrypted and tamper-evident.",
+        "The snooper now sees random bytes going to Mendly's address. But TLS ends at the load balancer — behind it, traffic still flows in plain HTTP across the internal network."
+      ],
+      "changes": [
+        "+ HTTPS with a trusted certificate",
+        "+ HTTP redirects to HTTPS",
+        "~ Internal hops still plain"
+      ],
+      "metrics": {
+        "inTransit": "partly",
+        "atRest": "no",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "certificate for mendly.health",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "plain http inside",
+                "tone": "amber",
+                "icon": "unplug"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          },
+          "cafe": {
+            "type": "ghost",
+            "x": -17,
+            "y": -16,
+            "s": 3.6,
+            "h": 40,
+            "label": "Café Wi-Fi snooper"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "http"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SQL"
+          },
+          "sn": {
+            "from": "users",
+            "to": "cafe",
+            "pts": [
+              "users",
+              "cafe"
+            ],
+            "label": "random bytes",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "sn"
+            ],
+            "rate": 0.8,
+            "kind": "empty"
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "TLS inside",
+      "chapter": "technique",
+      "title": "No trusted inside",
+      "body": [
+        "Internal networks get breached too, and cloud networks are shared. So Mendly encrypts every hop: <span class=\"term\">mutual TLS</span> between load balancer and API — both sides present certificates — and TLS to the database.",
+        "A service mesh or platform can issue and renew these short-lived internal certificates automatically, so no one forgets the one that expires on a Sunday. Modern CPUs make the encryption cost negligible."
+      ],
+      "changes": [
+        "+ mTLS between internal services",
+        "+ TLS to the database",
+        "+ Automatic certificate renewal"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "no",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "certs auto-renewed",
+                "tone": "green",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "own certificate · mTLS",
+                "tone": "green",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "At rest",
+      "chapter": "solution",
+      "title": "Encrypt what's on disk",
+      "body": [
+        "<span class=\"term\">Encryption at rest</span> protects stored data: the database volume and its backups are encrypted with AES-256. A lost backup drive or a disk pulled from a rack is just noise.",
+        "Know its limit. The running database decrypts transparently for anyone it lets in — so a SQL injection or a stolen app credential still reads plaintext. Disk encryption guards hardware, not access."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "\"Encrypted at rest\" on a checklist often means only disk encryption. Ask who can make the system decrypt."
+      },
+      "changes": [
+        "+ Encrypted volumes and backups"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "partly",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB",
+            "tags": [
+              {
+                "text": "AES-256 disk + backups",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "bak": {
+            "type": "ghost",
+            "x": 14,
+            "y": 13,
+            "s": 3.6,
+            "h": 40,
+            "label": "Lost backup drive"
+          },
+          "card": {
+            "type": "panel",
+            "title": "What disk encryption covers",
+            "icon": "database",
+            "lines": [
+              "= stolen disk or backup → unreadable",
+              "= decommissioned hardware → safe",
+              "! the running DB decrypts for anyone it trusts",
+              "! a SQL injection still reads plaintext"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          },
+          "bk": {
+            "from": "db",
+            "to": "bak",
+            "pts": [
+              "db",
+              "bak"
+            ],
+            "label": "ciphertext only",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "bk"
+            ],
+            "rate": 0.6,
+            "kind": "empty"
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Envelope",
+      "chapter": "technique",
+      "title": "Keys inside keys",
+      "body": [
+        "For the notes themselves, Mendly uses <span class=\"term\">envelope encryption</span>. Each patient's notes are encrypted by the app with their own random <b>data key</b>. That data key is then encrypted — wrapped — by a <b>master key</b> held in a <span class=\"term\">key management service</span> (KMS), and stored next to the data.",
+        "The master key never leaves the KMS; the app sends a wrapped key and gets it unwrapped only if allowed, and every unwrap is logged. A database dump alone is useless, and deleting one data key crypto-shreds that patient's notes."
+      ],
+      "changes": [
+        "+ Key service holds the master key",
+        "+ Per-patient data keys, stored wrapped",
+        "~ Notes encrypted by the app"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "yes",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB",
+            "tags": [
+              {
+                "text": "note + wrapped data key",
+                "tone": "green",
+                "icon": "fileKey"
+              }
+            ]
+          },
+          "kms": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "key",
+            "label": [
+              "Key",
+              "Service"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "master key never leaves",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Envelope encryption",
+            "icon": "boxes",
+            "lines": [
+              "# 1 · new random data key per patient",
+              "# 2 · encrypt the note with the data key",
+              "# 3 · KMS wraps the data key with the master key",
+              "= store ciphertext + wrapped key together",
+              "= every unwrap is checked and logged"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          },
+          "k1": {
+            "from": "api",
+            "to": "kms",
+            "pts": [
+              "api",
+              "kms"
+            ],
+            "label": "unwrap data key",
+            "heads": "both",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "k1"
+            ],
+            "rate": 0.8,
+            "kind": "ping",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          },
+          {
+            "id": "kms",
+            "kind": "api_server",
+            "label": "Key Service"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "kms"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Leaked key",
+      "chapter": "problem",
+      "title": "The password in the repo",
+      "body": [
+        "All that cryptography, and the database password still sits in <code>config.js</code>. An engineer pushes a copy of the repo to a public fork by mistake; automated scanners find credentials on public repos within minutes.",
+        "Deleting the commit doesn't help — it's in the history, in every clone and in CI logs. Secrets in code are copied everywhere the code goes and are almost never changed."
+      ],
+      "changes": [
+        "+ Repo copy pushed publicly",
+        "~ Scanner logs in with the database password"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "yes",
+        "secrets": "source code"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          },
+          "kms": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "key",
+            "label": [
+              "Key",
+              "Service"
+            ],
+            "h": 34
+          },
+          "repo": {
+            "type": "device",
+            "x": -16,
+            "y": 0,
+            "w": 5,
+            "d": 5,
+            "label": "Git repo",
+            "tags": [
+              {
+                "text": "DB_PASS=Mendly2021!",
+                "tone": "red",
+                "icon": "code"
+              }
+            ]
+          },
+          "bot": {
+            "type": "ghost",
+            "x": -16,
+            "y": -18,
+            "s": 3.6,
+            "h": 40,
+            "label": "Public-repo scanner"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          },
+          "k1": {
+            "from": "api",
+            "to": "kms",
+            "pts": [
+              "api",
+              "kms"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          },
+          "r1": {
+            "from": "repo",
+            "to": "api",
+            "pts": [
+              "repo",
+              "api"
+            ],
+            "label": "deploy",
+            "style": "dashed"
+          },
+          "r2": {
+            "from": "repo",
+            "to": "bot",
+            "pts": [
+              "repo",
+              "bot"
+            ],
+            "label": "pushed by mistake",
+            "labelTone": "red"
+          },
+          "r3": {
+            "from": "bot",
+            "to": "db",
+            "pts": [
+              "bot",
+              "db"
+            ],
+            "label": "logs in",
+            "labelTone": "red",
+            "labelAt": 0.75
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "r2",
+              "r3"
+            ],
+            "rate": 0.9,
+            "kind": "poison"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Secrets mgr",
+      "chapter": "solution",
+      "title": "A safe for secrets",
+      "body": [
+        "Mendly moves every credential into a <span class=\"term\">secrets manager</span>. The API proves its identity — via its platform workload identity, not another password — and fetches the database credentials at startup.",
+        "Secrets are encrypted (by the KMS), access is granted per service, and every read is audited. The code and config now hold only the <i>name</i> of a secret. A leaked repo leaks nothing usable."
+      ],
+      "changes": [
+        "+ Secrets manager",
+        "- Passwords in code and config",
+        "~ API fetches credentials at startup"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "yes",
+        "secrets": "secrets manager"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "no secrets in code",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          },
+          "kms": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "key",
+            "label": [
+              "Key",
+              "Service"
+            ],
+            "h": 34
+          },
+          "vault": {
+            "type": "block",
+            "x": -15,
+            "y": 0,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "fileKey",
+            "label": [
+              "Secrets",
+              "Manager"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "access by service identity",
+                "tone": "green",
+                "icon": "idCard"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          },
+          "k1": {
+            "from": "api",
+            "to": "kms",
+            "pts": [
+              "api",
+              "kms"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          },
+          "v1": {
+            "from": "api",
+            "to": "vault",
+            "pts": [
+              "api",
+              "vault"
+            ],
+            "label": "fetch at startup",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "v1"
+            ],
+            "rate": 0.5,
+            "kind": "ping",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          },
+          {
+            "id": "kms",
+            "kind": "api_server",
+            "label": "Key Service"
+          },
+          {
+            "id": "vault",
+            "kind": "api_server",
+            "label": "Secrets Manager"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "kms"
+          },
+          {
+            "from": "api",
+            "to": "vault"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Rotation",
+      "chapter": "insight",
+      "title": "Assume keys leak; rotate them",
+      "body": [
+        "Any secret may leak eventually, so limit how long it's useful. <span class=\"term\">Rotation</span> replaces credentials on a schedule — and instantly after any suspected leak. Better still, the secrets manager issues <b>dynamic</b> database users that expire after an hour.",
+        "Keys rotate too: the KMS creates a new master key version and new data keys get wrapped with it, while old versions stay available for decryption. Practise rotation regularly so it's a routine, not an emergency."
+      ],
+      "changes": [
+        "+ Short-lived database credentials",
+        "+ Yearly master-key rotation"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "yes",
+        "secrets": "secrets manager"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          },
+          "kms": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "key",
+            "label": [
+              "Key",
+              "Service"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "master key rotated yearly",
+                "tone": "violet",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "vault": {
+            "type": "block",
+            "x": -15,
+            "y": 0,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "fileKey",
+            "label": [
+              "Secrets",
+              "Manager"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "DB creds expire in 1 h",
+                "tone": "violet",
+                "icon": "refresh"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          },
+          "k1": {
+            "from": "api",
+            "to": "kms",
+            "pts": [
+              "api",
+              "kms"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          },
+          "v1": {
+            "from": "api",
+            "to": "vault",
+            "pts": [
+              "api",
+              "vault"
+            ],
+            "label": "fetch at startup",
+            "heads": "both"
+          },
+          "v2": {
+            "from": "vault",
+            "to": "db",
+            "pts": [
+              "vault",
+              "db"
+            ],
+            "label": "create · revoke user",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "v2"
+            ],
+            "rate": 0.6,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "v1"
+            ],
+            "rate": 0.8,
+            "kind": "ping",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          },
+          {
+            "id": "kms",
+            "kind": "api_server",
+            "label": "Key Service"
+          },
+          {
+            "id": "vault",
+            "kind": "api_server",
+            "label": "Secrets Manager"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "kms"
+          },
+          {
+            "from": "api",
+            "to": "vault"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Locked boxes: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>TLS everywhere</b> → secrecy, integrity and identity on every hop, inside too</li><li><b>At rest</b> → disk encryption guards hardware, not access</li><li><b>Envelope encryption</b> → data keys wrapped by a master key that never leaves the KMS</li><li><b>Secrets manager</b> → no credentials in code; access by identity, audited</li><li><b>Rotation</b> → short-lived secrets and rotated keys limit any leak</li></ul>"
+      ],
+      "metrics": {
+        "inTransit": "yes",
+        "atRest": "yes",
+        "secrets": "secrets manager"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -5,
+            "x1": 3,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Patients"
+          },
+          "edge": {
+            "type": "block",
+            "x": 0,
+            "y": -15,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "h": 32
+          },
+          "api": {
+            "type": "block",
+            "x": 0,
+            "y": 0,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "no secrets in code",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 13,
+            "label": "Notes DB"
+          },
+          "kms": {
+            "type": "block",
+            "x": 15,
+            "y": 0,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "key",
+            "label": [
+              "Key",
+              "Service"
+            ],
+            "h": 34
+          },
+          "vault": {
+            "type": "block",
+            "x": -15,
+            "y": 0,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "fileKey",
+            "label": [
+              "Secrets",
+              "Manager"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "access by service identity",
+                "tone": "green",
+                "icon": "idCard"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "edge",
+            "pts": [
+              "users",
+              "edge"
+            ],
+            "label": "https:// · TLS 1.3"
+          },
+          "e2": {
+            "from": "edge",
+            "to": "api",
+            "pts": [
+              "edge",
+              "api"
+            ],
+            "label": "mTLS"
+          },
+          "e3": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "TLS"
+          },
+          "k1": {
+            "from": "api",
+            "to": "kms",
+            "pts": [
+              "api",
+              "kms"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          },
+          "v1": {
+            "from": "api",
+            "to": "vault",
+            "pts": [
+              "api",
+              "vault"
+            ],
+            "label": "fetch at startup",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "v1"
+            ],
+            "rate": 0.5,
+            "kind": "ping",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 250000,
+        "rps": 900,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Patients"
+          },
+          {
+            "id": "edge",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Notes DB"
+          },
+          {
+            "id": "kms",
+            "kind": "api_server",
+            "label": "Key Service"
+          },
+          {
+            "id": "vault",
+            "kind": "api_server",
+            "label": "Secrets Manager"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "edge"
+          },
+          {
+            "from": "edge",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "kms"
+          },
+          {
+            "from": "api",
+            "to": "vault"
+          }
+        ]
+      }
+    }
+  ]
+}

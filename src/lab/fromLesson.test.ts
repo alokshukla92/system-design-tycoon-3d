@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { COURSE } from "../content/course";
 import { LESSONS } from "../content/lessons/all";
 import type { StepLab } from "../types/lesson";
 import { CATALOG } from "./sim/catalog/components";
@@ -24,11 +25,15 @@ const stepLab = (lessonId: string, step: number): StepLab => {
 const dataOf = (lab: StepLab, id: string) => lessonLabGraph(lab).graph.nodes.find((n) => n.id === id)!.data;
 
 describe("lesson → lab graph", () => {
-  it("every lesson step carries a loadable architecture", () => {
+  // Modules converted from the game (01–03) carry a lab graph on every step; curriculum lessons (04+) only where it fits.
+  const ALWAYS_LAB = new Set(COURSE.slice(0, 3).flatMap((m) => m.lessons.map((l) => l.id)));
+
+  it("every lesson step with lab data carries a loadable architecture", () => {
     for (const lesson of Object.values(LESSONS))
       lesson.steps.forEach((s, i) => {
         const at = `${lesson.id}/${i}`;
-        expect(hasLab(s.lab), at).toBe(true);
+        if (ALWAYS_LAB.has(lesson.id)) expect(hasLab(s.lab), at).toBe(true);
+        if (!s.lab) return;
         const { graph, sandbox } = lessonLabGraph(s.lab!);
         const ids = new Set(graph.nodes.map((n) => n.id));
         expect(graph.nodes.filter((n) => n.data.kind === "users"), at).toHaveLength(1);
@@ -39,7 +44,7 @@ describe("lesson → lab graph", () => {
         for (const e of graph.edges) expect(ids.has(e.source) && ids.has(e.target), `${at} ${e.id}`).toBe(true);
         for (const e of s.lab!.edges.filter((e) => !(e.from === "queue" && e.to === "db" && lesson.id === "planet-scale")))
           expect(graph.edges.some((g) => g.source === e.from && g.target === e.to), `${at} ${e.from}→${e.to}`).toBe(true);
-        if (s.lab!.rps <= SIM_RPS_CAP) expect(sandbox.users, at).toBe(s.metrics.users);
+        if (s.lab!.rps <= SIM_RPS_CAP) expect(sandbox.users, at).toBe(s.lab!.users);
         else expect(sandbox.users, at).toBe(Math.round((s.lab!.users * SIM_RPS_CAP) / s.lab!.rps));
       });
   });

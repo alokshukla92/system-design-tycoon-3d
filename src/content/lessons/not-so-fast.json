@@ -1,0 +1,2058 @@
+{
+  "id": "not-so-fast",
+  "title": "Not So Fast",
+  "summary": "Ledgerly, an invoicing app for small firms, knows who you are. The harder question: what are you allowed to see and do — and who checks it, on which request?",
+  "minutes": 10,
+  "level": "intermediate",
+  "metrics": [
+    "exposed",
+    "checks",
+    "privilege"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "poison",
+      "unauthorized"
+    ],
+    [
+      "ping",
+      "policy check"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Tell authentication apart from authorization",
+      "step": 0
+    },
+    {
+      "text": "Find and fix an IDOR with a server-side check",
+      "step": 2
+    },
+    {
+      "text": "Model permissions with RBAC and ABAC",
+      "step": 4
+    },
+    {
+      "text": "Centralise policy and limit what services can reach",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Logged in",
+      "chapter": "setup",
+      "title": "Logged in is not allowed",
+      "body": [
+        "<b>Ledgerly</b> hosts invoices for thousands of small firms in one database. Login works well — every request carries a signed token saying who the caller is. That's authentication.",
+        "<span class=\"term\">Authorization</span> is the next question: <i>may this person do this to this thing?</i> Ledgerly's API mostly relies on the app — it only shows you your own invoices, and hides buttons you shouldn't press."
+      ],
+      "metrics": {
+        "exposed": "—",
+        "checks": "token only",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · Pinecraft"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Bo · Rivet & Co"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "token valid? → OK",
+                "tone": "amber",
+                "icon": "userCheck"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Two different questions",
+            "icon": "keyhole",
+            "lines": [
+              "# authentication: who are you?",
+              "= Ana, from Pinecraft (signed token)",
+              "# authorization: may Ana do this?",
+              "! …nobody is asking yet"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "GET /invoices/2210"
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "a1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "b1",
+                  "d1"
+                ]
+              }
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "IDOR",
+      "chapter": "problem",
+      "title": "Just change the number",
+      "body": [
+        "Bo, at another firm, opens his invoice <code>/invoices/2210</code>, edits the URL to <code>1042</code> — and gets Pinecraft's invoice, bank details and all. The API checked Bo was logged in, not that the invoice was his.",
+        "This is an <span class=\"term\">IDOR</span>, one of the most common serious web bugs. Hiding links in the UI does nothing: anyone can send any request with any ID."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "The client is the attacker's computer. Every rule the UI enforces must be enforced again on the server."
+      },
+      "changes": [
+        "~ Bo requests an invoice ID he doesn't own",
+        "~ API returns it"
+      ],
+      "metrics": {
+        "exposed": "yes",
+        "checks": "token only",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · Pinecraft"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Bo · Rivet & Co",
+            "tags": [
+              {
+                "text": "sees Pinecraft's invoice",
+                "tone": "red",
+                "icon": "eyeOff"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "logged in → here you go",
+                "tone": "red",
+                "icon": "eye"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Insecure direct object reference",
+            "icon": "hash",
+            "lines": [
+              "# Bo's own invoice: /invoices/2210",
+              "# Bo edits the URL: /invoices/1042",
+              "! API checks login, not ownership",
+              "! count 1 … 99999 → every customer"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "GET /invoices/1042",
+            "labelTone": "red"
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "d1"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1",
+              "d1"
+            ],
+            "rate": 1.4,
+            "bounce": true,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Every request",
+      "chapter": "solution",
+      "title": "Check on the server, every time",
+      "body": [
+        "The fix is a check on <b>every</b> request, on the server, against the object being touched: load the invoice only if its <code>tenant_id</code> matches the caller's tenant from the token. Bo now gets a 404 — not even confirmation that 1042 exists.",
+        "Build it into the data access layer so a forgotten <code>WHERE</code> is hard to write, and add tests that log in as one tenant and try to read another's data. Random, unguessable IDs help a little, but are no substitute for the check."
+      ],
+      "changes": [
+        "+ Ownership check on every query",
+        "~ Other tenants' IDs return 404"
+      ],
+      "metrics": {
+        "exposed": "no",
+        "checks": "every request",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · Pinecraft"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Bo · Rivet & Co",
+            "tags": [
+              {
+                "text": "404 Not Found",
+                "tone": "green",
+                "icon": "ban"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "tenant = token.tenant",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "GET /invoices/1042",
+            "fail": 1
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "WHERE id AND tenant"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "d1"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1"
+            ],
+            "rate": 1.2,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "RBAC",
+      "chapter": "technique",
+      "title": "Roles",
+      "body": [
+        "Inside a firm, people need different powers. With <span class=\"term\">role-based access control</span> (RBAC), users get roles — owner, accountant, viewer — and each role maps to a set of permissions like <code>invoices:delete</code>.",
+        "Cal is a viewer, so <code>DELETE /invoices/1042</code> returns 403. RBAC is easy to reason about and audit: \"who can delete invoices?\" is one lookup. Code should check permissions, not role names, so roles can change without code changes."
+      ],
+      "changes": [
+        "+ Roles: owner, accountant, viewer",
+        "+ Permission check before each action"
+      ],
+      "metrics": {
+        "exposed": "no",
+        "checks": "per role",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · owner"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Cal · viewer"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "viewer can't delete → 403",
+                "tone": "green",
+                "icon": "ban"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Roles → permissions",
+            "icon": "users",
+            "lines": [
+              "# owner · invoices:* users:*",
+              "# accountant · invoices:read,write",
+              "# viewer · invoices:read",
+              "= check the permission, not the role name"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "DELETE /invoices/1042",
+            "fail": 1
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "d1"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1"
+            ],
+            "rate": 1,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "ABAC",
+      "chapter": "technique",
+      "title": "Rules about attributes",
+      "body": [
+        "Then the rules get specific: approvers may approve invoices from <i>their own department</i>, under <i>$5,000</i>. Roles alone would need a role per department per limit — a <span class=\"term\">role explosion</span>.",
+        "<span class=\"term\">Attribute-based access control</span> (ABAC) decides with rules over attributes of the user, the resource and the context. Dev's $48,000 Ops invoice is over his limit and is refused. Most real systems combine both: roles for the broad strokes, attributes for the fine print."
+      ],
+      "changes": [
+        "+ Rule: same department, under $5,000",
+        "~ Over-limit approval refused"
+      ],
+      "metrics": {
+        "exposed": "no",
+        "checks": "roles + attributes",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · approver, Sales"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Dev · approver, Ops"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "An attribute rule",
+            "icon": "filter",
+            "lines": [
+              "# allow approve if",
+              "= user.dept == invoice.dept",
+              "= and invoice.amount < 5000",
+              "= and request.time in office hours",
+              "! else ask a finance lead"
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "approve $3,200 Sales"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "approve $48,000 Ops",
+            "fail": 1
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "d1"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1"
+            ],
+            "rate": 1,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Drift",
+      "chapter": "problem",
+      "title": "Every service, its own rules",
+      "body": [
+        "Ledgerly grows an Exports service and a Mobile API. Each team copies the permission code — at different versions. Exports never learned the new approval rules, and the Mobile API forgot the tenant check entirely.",
+        "Bo is back, through <code>/m/inv/1042</code>. With checks scattered across services, nobody can answer \"who can see invoice 1042?\" or prove every path enforces the same policy."
+      ],
+      "changes": [
+        "+ Exports and Mobile API read the same data",
+        "~ Checks copied and drifted",
+        "~ Mobile API skips the tenant check"
+      ],
+      "metrics": {
+        "exposed": "yes",
+        "checks": "copied ×3, drifted",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · Pinecraft"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Bo · Rivet & Co"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "checks v3",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "exp": {
+            "type": "block",
+            "x": -18,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Exports"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "checks v1 · no ABAC",
+                "tone": "amber",
+                "icon": "shield"
+              }
+            ]
+          },
+          "mob": {
+            "type": "block",
+            "x": 10,
+            "y": 10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Mobile",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "forgot to check",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "GET /invoices/2210"
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          },
+          "x1": {
+            "from": "ana",
+            "to": "exp",
+            "pts": [
+              "ana",
+              "exp"
+            ],
+            "label": "CSV export"
+          },
+          "x2": {
+            "from": "exp",
+            "to": "db",
+            "pts": [
+              "exp",
+              "db"
+            ]
+          },
+          "m1": {
+            "from": "bo",
+            "to": "mob",
+            "pts": [
+              "bo",
+              "mob"
+            ],
+            "label": "GET /m/inv/1042"
+          },
+          "m2": {
+            "from": "mob",
+            "to": "db",
+            "pts": [
+              "mob",
+              "db"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "d1"
+            ],
+            "rate": 1.2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "x1",
+              "x2"
+            ],
+            "rate": 0.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "m1",
+              "m2"
+            ],
+            "rate": 1.2,
+            "bounce": true,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "exp",
+            "kind": "api_server",
+            "label": "Exports"
+          },
+          {
+            "id": "mob",
+            "kind": "api_server",
+            "label": "Mobile API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          },
+          {
+            "id": "pdp",
+            "kind": "api_server",
+            "label": "Policy Engine"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "users",
+            "to": "exp"
+          },
+          {
+            "from": "users",
+            "to": "mob"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "exp",
+            "to": "db"
+          },
+          {
+            "from": "mob",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "pdp"
+          },
+          {
+            "from": "exp",
+            "to": "pdp"
+          },
+          {
+            "from": "mob",
+            "to": "pdp"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Central policy",
+      "chapter": "solution",
+      "title": "One policy, many enforcers",
+      "body": [
+        "Ledgerly moves the rules into a <span class=\"term\">policy engine</span>. Services stay the <b>enforcement points</b>: on each request they ask \"may user X do action Y on resource Z?\" and obey the answer. The decisions come from one place.",
+        "Policies live as code: reviewed, versioned, unit-tested and logged on every decision. A rule change ships once and applies everywhere. Keep the engine close — usually a sidecar or library with cached policy — so the check costs microseconds, not a network round-trip."
+      ],
+      "changes": [
+        "+ Central policy engine",
+        "~ All three services ask before acting",
+        "+ Every decision logged for audit"
+      ],
+      "metrics": {
+        "exposed": "no",
+        "checks": "central policy",
+        "privilege": "—"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · Pinecraft"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Bo · Rivet & Co"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "exp": {
+            "type": "block",
+            "x": -18,
+            "y": 6,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Exports"
+            ],
+            "cpu": 0.3
+          },
+          "mob": {
+            "type": "block",
+            "x": 10,
+            "y": 10,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Mobile",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "pdp": {
+            "type": "block",
+            "x": 14,
+            "y": -10,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "scale",
+            "label": [
+              "Policy",
+              "Engine"
+            ],
+            "h": 32,
+            "tags": [
+              {
+                "text": "policy as code · tested",
+                "tone": "green",
+                "icon": "code"
+              }
+            ]
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "GET /invoices/2210"
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          },
+          "x1": {
+            "from": "ana",
+            "to": "exp",
+            "pts": [
+              "ana",
+              "exp"
+            ],
+            "label": "CSV export"
+          },
+          "x2": {
+            "from": "exp",
+            "to": "db",
+            "pts": [
+              "exp",
+              "db"
+            ]
+          },
+          "m1": {
+            "from": "bo",
+            "to": "mob",
+            "pts": [
+              "bo",
+              "mob"
+            ],
+            "label": "GET /m/inv/1042",
+            "fail": 1
+          },
+          "m2": {
+            "from": "mob",
+            "to": "db",
+            "pts": [
+              "mob",
+              "db"
+            ]
+          },
+          "p1": {
+            "from": "api",
+            "to": "pdp",
+            "pts": [
+              "api",
+              "pdp"
+            ],
+            "label": "allowed?",
+            "heads": "both",
+            "style": "dashed"
+          },
+          "p2": {
+            "from": "mob",
+            "to": "pdp",
+            "pts": [
+              "mob",
+              "pdp"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          },
+          "p3": {
+            "from": "exp",
+            "to": "pdp",
+            "pts": [
+              "exp",
+              [
+                "exp",
+                "pdp"
+              ],
+              "pdp"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "a1",
+              "p1",
+              "d1"
+            ],
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "m1"
+            ],
+            "rate": 1,
+            "kind": "poison"
+          },
+          {
+            "route": [
+              "p2"
+            ],
+            "rate": 0.8,
+            "kind": "ping",
+            "bounce": true
+          },
+          {
+            "route": [
+              "x1",
+              "p3"
+            ],
+            "rate": 0.6,
+            "kind": "ping"
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "exp",
+            "kind": "api_server",
+            "label": "Exports"
+          },
+          {
+            "id": "mob",
+            "kind": "api_server",
+            "label": "Mobile API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          },
+          {
+            "id": "pdp",
+            "kind": "api_server",
+            "label": "Policy Engine"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "users",
+            "to": "exp"
+          },
+          {
+            "from": "users",
+            "to": "mob"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "exp",
+            "to": "db"
+          },
+          {
+            "from": "mob",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "pdp"
+          },
+          {
+            "from": "exp",
+            "to": "pdp"
+          },
+          {
+            "from": "mob",
+            "to": "pdp"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Superuser",
+      "chapter": "problem",
+      "title": "The service that could read everything",
+      "body": [
+        "Users aren't the only callers. The Reports service connects to the database as <code>admin</code> — easiest at the time. Then a compromised third-party package runs inside it.",
+        "With admin credentials, the attacker reads not just invoices but payroll and the users table. The damage of a breach equals the access of whatever was breached."
+      ],
+      "changes": [
+        "~ Reports uses the admin database account",
+        "+ Malicious dependency inside Reports",
+        "~ Payroll and Users dumped"
+      ],
+      "metrics": {
+        "exposed": "yes",
+        "checks": "central policy",
+        "privilege": "everything"
+      },
+      "scene": {
+        "entities": {
+          "api": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "rep": {
+            "type": "block",
+            "x": 4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Reports"
+            ],
+            "cpu": 0.97,
+            "tags": [
+              {
+                "text": "DB_USER=admin",
+                "tone": "red",
+                "icon": "key"
+              },
+              {
+                "text": "compromised dependency",
+                "tone": "red",
+                "icon": "bug"
+              }
+            ],
+            "heat": 1
+          },
+          "db": {
+            "type": "db",
+            "x": -12,
+            "y": 4,
+            "label": "Invoices DB"
+          },
+          "pay": {
+            "type": "db",
+            "x": 4,
+            "y": 4,
+            "label": "Payroll DB"
+          },
+          "users": {
+            "type": "db",
+            "x": 18,
+            "y": 4,
+            "label": "Users DB"
+          }
+        },
+        "links": {
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ]
+          },
+          "r1": {
+            "from": "rep",
+            "to": "db",
+            "pts": [
+              "rep",
+              "db"
+            ],
+            "label": "SELECT"
+          },
+          "r2": {
+            "from": "rep",
+            "to": "pay",
+            "pts": [
+              "rep",
+              "pay"
+            ],
+            "label": "SELECT *",
+            "labelTone": "red"
+          },
+          "r3": {
+            "from": "rep",
+            "to": "users",
+            "pts": [
+              "rep",
+              "users"
+            ],
+            "label": "SELECT *",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "r1"
+                ]
+              },
+              {
+                "path": [
+                  "r2"
+                ]
+              },
+              {
+                "path": [
+                  "r3"
+                ]
+              }
+            ],
+            "rate": 2,
+            "kind": "poison",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "rep",
+            "kind": "worker",
+            "label": "Reports",
+            "sub": "admin creds",
+            "status": "crit"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          },
+          {
+            "id": "pay",
+            "kind": "postgres",
+            "label": "Payroll DB"
+          },
+          {
+            "id": "users",
+            "kind": "postgres",
+            "label": "Users DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "rep",
+            "to": "db"
+          },
+          {
+            "from": "rep",
+            "to": "pay"
+          },
+          {
+            "from": "rep",
+            "to": "users"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Least priv.",
+      "chapter": "solution",
+      "title": "Least privilege between services",
+      "body": [
+        "Apply <span class=\"term\">least privilege</span>: each service gets its own identity and only the access its job needs. Reports gets a read-only role on a reporting view — nothing else.",
+        "Services prove who they are with mutual TLS or short-lived workload tokens, and the Invoices API authorizes by caller identity too. Acting for a user, Reports passes the user's context so tenant rules still apply."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Assume something will be compromised. Design so that when it is, it can reach as little as possible."
+      },
+      "changes": [
+        "+ Per-service identities",
+        "~ Reports: read-only view only",
+        "- Shared admin credentials"
+      ],
+      "metrics": {
+        "exposed": "no",
+        "checks": "central policy",
+        "privilege": "least privilege"
+      },
+      "scene": {
+        "entities": {
+          "api": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "mTLS · knows its caller",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "rep": {
+            "type": "block",
+            "x": 4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Reports"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "identity: reports · read invoices",
+                "tone": "green",
+                "icon": "idCard"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -12,
+            "y": 4,
+            "label": "Invoices DB"
+          },
+          "pay": {
+            "type": "db",
+            "x": 4,
+            "y": 4,
+            "label": "Payroll DB"
+          },
+          "users": {
+            "type": "db",
+            "x": 18,
+            "y": 4,
+            "label": "Users DB"
+          }
+        },
+        "links": {
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ]
+          },
+          "r1": {
+            "from": "rep",
+            "to": "db",
+            "pts": [
+              "rep",
+              "db"
+            ],
+            "label": "read-only view"
+          },
+          "r2": {
+            "from": "rep",
+            "to": "pay",
+            "pts": [
+              "rep",
+              "pay"
+            ],
+            "label": "denied",
+            "fail": 1,
+            "labelTone": "red"
+          },
+          "r3": {
+            "from": "rep",
+            "to": "users",
+            "pts": [
+              "rep",
+              "users"
+            ],
+            "label": "denied",
+            "fail": 1,
+            "labelTone": "red"
+          },
+          "a1": {
+            "from": "rep",
+            "to": "api",
+            "pts": [
+              "rep",
+              "api"
+            ],
+            "label": "on behalf of Ana",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r1"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "r2"
+                ]
+              },
+              {
+                "path": [
+                  "r3"
+                ]
+              }
+            ],
+            "rate": 1,
+            "kind": "poison"
+          },
+          {
+            "route": [
+              "a1",
+              "d1"
+            ],
+            "rate": 0.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "rep",
+            "kind": "worker",
+            "label": "Reports",
+            "sub": "read-only"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          },
+          {
+            "id": "pay",
+            "kind": "postgres",
+            "label": "Payroll DB"
+          },
+          {
+            "id": "users",
+            "kind": "postgres",
+            "label": "Users DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "rep",
+            "to": "db"
+          },
+          {
+            "from": "rep",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Not so fast: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Authn ≠ authz</b> → knowing who someone is doesn't say what they may do</li><li><b>Server-side, every request</b> → check ownership of the object; the UI proves nothing</li><li><b>RBAC + ABAC</b> → roles for broad access, attribute rules for the fine print</li><li><b>Central policy</b> → one source of rules, enforced by every service</li><li><b>Least privilege</b> → services get only the access their job needs</li></ul>"
+      ],
+      "metrics": {
+        "exposed": "no",
+        "checks": "central policy",
+        "privilege": "least privilege"
+      },
+      "scene": {
+        "entities": {
+          "ana": {
+            "type": "device",
+            "x": -15,
+            "y": -26,
+            "w": 5,
+            "d": 5,
+            "label": "Ana · Pinecraft"
+          },
+          "bo": {
+            "type": "device",
+            "x": 5,
+            "y": -28,
+            "w": 5,
+            "d": 5,
+            "label": "Bo · Rivet & Co"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -12,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Invoices",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "checks every request",
+                "tone": "green",
+                "icon": "shield"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": -4,
+            "y": 4,
+            "label": "Invoices DB",
+            "tags": [
+              {
+                "text": "all tenants, one table",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "pdp": {
+            "type": "block",
+            "x": 14,
+            "y": -10,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "scale",
+            "label": [
+              "Policy",
+              "Engine"
+            ],
+            "h": 32
+          }
+        },
+        "links": {
+          "a1": {
+            "from": "ana",
+            "to": "api",
+            "pts": [
+              "ana",
+              "api"
+            ],
+            "label": "GET /invoices/1042"
+          },
+          "b1": {
+            "from": "bo",
+            "to": "api",
+            "pts": [
+              "bo",
+              "api"
+            ],
+            "label": "GET /invoices/2210"
+          },
+          "d1": {
+            "from": "api",
+            "to": "db",
+            "pts": [
+              "api",
+              "db"
+            ],
+            "label": "SELECT by id"
+          },
+          "p1": {
+            "from": "api",
+            "to": "pdp",
+            "pts": [
+              "api",
+              "pdp"
+            ],
+            "label": "allowed?",
+            "heads": "both",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "a1",
+                  "d1"
+                ]
+              },
+              {
+                "path": [
+                  "b1",
+                  "d1"
+                ]
+              }
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 300,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Customers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Invoices API"
+          },
+          {
+            "id": "exp",
+            "kind": "api_server",
+            "label": "Exports"
+          },
+          {
+            "id": "mob",
+            "kind": "api_server",
+            "label": "Mobile API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Invoices DB"
+          },
+          {
+            "id": "pdp",
+            "kind": "api_server",
+            "label": "Policy Engine"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "users",
+            "to": "exp"
+          },
+          {
+            "from": "users",
+            "to": "mob"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          },
+          {
+            "from": "exp",
+            "to": "db"
+          },
+          {
+            "from": "mob",
+            "to": "db"
+          },
+          {
+            "from": "api",
+            "to": "pdp"
+          },
+          {
+            "from": "exp",
+            "to": "pdp"
+          },
+          {
+            "from": "mob",
+            "to": "pdp"
+          }
+        ]
+      }
+    }
+  ]
+}

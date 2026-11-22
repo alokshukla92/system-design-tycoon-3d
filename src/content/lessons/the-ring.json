@@ -1,0 +1,3588 @@
+{
+  "id": "the-ring",
+  "title": "The Ring",
+  "summary": "Tilewise caches map tiles on three servers. Adding a fourth with hash % N would wipe out three quarters of the cache. Consistent hashing puts servers and keys on a ring so only a small slice moves.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "nodes",
+    "moved",
+    "maxShare",
+    "hitRate"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "slow",
+      "cache miss → renderer"
+    ],
+    [
+      "write",
+      "replica copy"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "See why hash % N reshuffles almost every key when N changes",
+      "step": 1
+    },
+    {
+      "text": "Place servers and keys on a hash ring and find a key's owner",
+      "step": 2
+    },
+    {
+      "text": "Show that adding or removing a server moves only ~1/N of keys",
+      "step": 3
+    },
+    {
+      "text": "Use virtual nodes to balance load",
+      "step": 5
+    }
+  ],
+  "steps": [
+    {
+      "short": "Modulo",
+      "chapter": "setup",
+      "title": "Three caches and a simple rule",
+      "body": [
+        "<b>Tilewise</b> serves map tiles. Rendering a tile takes ~120 ms, so rendered tiles are kept in a fleet of cache servers; <b>92%</b> of requests are hits.",
+        "To pick a cache, every API node computes <code>hash(tile_id) % 3</code>. Same tile, same answer, on every node — no lookup table needed, and tiles spread evenly."
+      ],
+      "metrics": {
+        "nodes": 3,
+        "moved": "—",
+        "maxShare": 34,
+        "hitRate": 92
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "Which cache holds a tile?",
+            "icon": "hash",
+            "lines": [
+              "cache = hash(tile_id) % 3",
+              "hash(\"z14/9301/5772\") = 2,718,281  →  % 3 = 2  →  cache C",
+              "= every API node computes the same answer",
+              "= no lookup table, keys spread evenly"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.20800000000000002
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Add one",
+      "chapter": "problem",
+      "title": "Adding a server reshuffles everything",
+      "body": [
+        "Traffic grows, so the team adds <code>cache D</code> and switches to <code>% 4</code>. A tile keeps its server only if its hash leaves the same remainder for 3 and for 4 — true for about <b>1 in 4</b> tiles.",
+        "So ~75% of tiles are suddenly looked up on a server that doesn't have them. The hit rate collapses from 92% to about 25%, and the renderer is hit with four times its usual load."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "The same happens when a server <em>dies</em>: N drops by one and almost every key moves. A single failure becomes a fleet-wide cache flush."
+      },
+      "changes": [
+        "+ cache D",
+        "~ Rule: hash % 3 → hash % 4",
+        "~ Renderer overloaded by misses"
+      ],
+      "metrics": {
+        "nodes": 4,
+        "moved": "75% of keys",
+        "maxShare": 25,
+        "hitRate": 25
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "4× load",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "cpu": 0.96,
+            "heat": 1
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "miss",
+                "tone": "red"
+              }
+            ]
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "miss",
+                "tone": "red"
+              }
+            ]
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "miss",
+                "tone": "red"
+              }
+            ]
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "hash % 3  vs  hash % 4",
+            "icon": "alert",
+            "lines": [
+              "hash 2,718,281:  % 3 = 2 (C)   % 4 = 1 (B)   moved",
+              "hash 1,000,004:  % 3 = 2 (C)   % 4 = 0 (A)   moved",
+              "hash   614,124:  % 3 = 0 (A)   % 4 = 0 (A)   stays",
+              "! a key stays only if both remainders match",
+              "! ≈ 1 in 4 stay → 75% of keys move at once"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "% 3 → % 4"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.9500000000000002
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "c4",
+            "kind": "redis",
+            "label": "cache D"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c4"
+          },
+          {
+            "from": "c4",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "The ring",
+      "chapter": "solution",
+      "title": "Bend the hash space into a ring",
+      "body": [
+        "<span class=\"term\">Consistent hashing</span> hashes <em>servers</em> as well as keys into the same range (say 0 to 2³²−1) and bends that range into a circle, so the largest value sits next to 0.",
+        "Each server owns the stretch of ring between its point and the next server's point. To find a tile, hash it to a point and see whose stretch it falls in. The rule involves no N at all."
+      ],
+      "changes": [
+        "+ Hash ring with servers A, B, C",
+        "- Rule hash % N"
+      ],
+      "metrics": {
+        "nodes": 3,
+        "moved": "—",
+        "maxShare": 50,
+        "hitRate": 92
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 20,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 150,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 330,
+                "color": "orange",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Put servers and keys on a circle",
+            "icon": "replay",
+            "lines": [
+              "hash space 0 … 2³² − 1, bent into a ring",
+              "each server hashed to a point (◆)",
+              "each key hashed to a point (●)",
+              "= a key belongs to the server whose stretch it lands in",
+              "# arc colour = owning server"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.20800000000000002
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Add D",
+      "chapter": "solution",
+      "title": "A new server takes one slice",
+      "body": [
+        "Now add cache D. It hashes to a point inside B's stretch and takes over just the part between its point and the next server. Every other key keeps its owner.",
+        "In the picture, 6 of 24 keys move (25% of keys). In general a new server takes about <b>1/N</b> of the keys — the minimum possible, since it has to hold its share of something. The hit rate dips to ~70% and refills quickly."
+      ],
+      "changes": [
+        "+ cache D on the ring",
+        "~ Keys in B's old slice now belong to D"
+      ],
+      "metrics": {
+        "nodes": 4,
+        "moved": "25% of keys",
+        "maxShare": 36,
+        "hitRate": 70
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.55
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "gave keys to D",
+                "tone": "violet"
+              }
+            ]
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ]
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 20,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 150,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 330,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 240,
+                "color": "purple",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring",
+            "moved": [
+              247,
+              262,
+              277,
+              292,
+              307,
+              322
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Adding cache D",
+            "icon": "check",
+            "lines": [
+              "D lands in the middle of B's stretch",
+              "only keys in that slice change owner (circled)",
+              "= 6 of 24 keys moved; A and C untouched",
+              "# on average a new server takes ~1/N of the keys"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.65
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "c4",
+            "kind": "redis",
+            "label": "cache D"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c4"
+          },
+          {
+            "from": "c4",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lumpy",
+      "chapter": "problem",
+      "title": "Random points make lumpy shares",
+      "body": [
+        "With one point per server, stretch sizes are left to chance. Here cache A owns 36% of the ring and cache C only 14% — A runs hot while C idles.",
+        "Failures are lumpy too: when a server dies, its whole stretch lands on a single neighbour, which may then tip over as well."
+      ],
+      "changes": [
+        "~ cache A overloaded",
+        "~ cache C underused"
+      ],
+      "metrics": {
+        "nodes": 4,
+        "moved": "—",
+        "maxShare": 36,
+        "hitRate": 92
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0.35,
+            "cpu": 0.78,
+            "tags": [
+              {
+                "text": "36% of keys",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": []
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "14% of keys",
+                "tone": "gray"
+              }
+            ]
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": []
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 20,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 150,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 330,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 240,
+                "color": "purple",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring",
+            "moved": []
+          },
+          "card": {
+            "type": "panel",
+            "title": "Share of the ring",
+            "icon": "gauge",
+            "lines": [
+              "# one random point per server → lumpy stretches"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "cache A",
+                "note": "36%",
+                "to": 0.36,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "cache B",
+                "note": "25%",
+                "to": 0.25,
+                "tone": "green"
+              },
+              {
+                "label": "cache D",
+                "note": "25%",
+                "to": 0.25,
+                "tone": "green"
+              },
+              {
+                "label": "cache C",
+                "note": "14%",
+                "to": 0.14,
+                "tone": "gray"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "pick": "weights",
+            "weights": [
+              36,
+              25,
+              14,
+              25
+            ],
+            "bounce": true,
+            "rate": 2.8
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.25
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "c4",
+            "kind": "redis",
+            "label": "cache D"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c4"
+          },
+          {
+            "from": "c4",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Virtual nodes",
+      "chapter": "technique",
+      "title": "Many small points per server",
+      "body": [
+        "Give each server many points on the ring — <span class=\"term\">virtual nodes</span> — by hashing <code>\"cache-A#1\"</code>, <code>\"cache-A#2\"</code>, and so on. Each server now owns many small stretches scattered around the circle.",
+        "With 100–256 virtual nodes each, shares average out to within a few percent. A more powerful server can simply get more virtual nodes."
+      ],
+      "changes": [
+        "~ Each server placed at several points on the ring"
+      ],
+      "metrics": {
+        "nodes": 4,
+        "moved": "—",
+        "maxShare": 26,
+        "hitRate": 92
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 10,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 55,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 95,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 118,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 160,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 185,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 212,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 250,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 280,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 302,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 325,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 345,
+                "color": "orange",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Share with 128 virtual nodes each",
+            "icon": "gauge",
+            "lines": [
+              "# ring shows 3 per server; real setups use 100–256"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "cache A",
+                "note": "26%",
+                "to": 0.26,
+                "tone": "green"
+              },
+              {
+                "label": "cache B",
+                "note": "25%",
+                "to": 0.25,
+                "tone": "green"
+              },
+              {
+                "label": "cache C",
+                "note": "25%",
+                "to": 0.25,
+                "tone": "green"
+              },
+              {
+                "label": "cache D",
+                "note": "24%",
+                "to": 0.24,
+                "tone": "green"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.20800000000000002
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "c4",
+            "kind": "redis",
+            "label": "cache D"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c4"
+          },
+          {
+            "from": "c4",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "One dies",
+      "chapter": "insight",
+      "title": "Losing a server moves only its keys",
+      "body": [
+        "Cache B crashes. Its points leave the ring and each of its small stretches falls to whichever server comes next — sometimes A, sometimes C, sometimes D.",
+        "Only B's keys move (5 of 24 here), and the extra load is shared by all survivors instead of crushing one neighbour."
+      ],
+      "changes": [
+        "~ cache B down",
+        "~ B's keys spread over A, C and D"
+      ],
+      "metrics": {
+        "nodes": 3,
+        "moved": "21% of keys",
+        "maxShare": 34,
+        "hitRate": 70
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.5
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "+⅓ of B's keys",
+                "tone": "violet"
+              }
+            ]
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": -1,
+            "dead": 1,
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "+⅓ of B's keys",
+                "tone": "violet"
+              }
+            ]
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "+⅓ of B's keys",
+                "tone": "violet"
+              }
+            ]
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 10,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 55,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 118,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 160,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 185,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 212,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 280,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 302,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 345,
+                "color": "orange",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring",
+            "moved": [
+              97,
+              112,
+              262,
+              277,
+              337
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Cache B fails",
+            "icon": "alert",
+            "lines": [
+              "B's points vanish from the ring",
+              "each of its stretches falls to the next server along",
+              "= 5 of 24 keys moved — only B's",
+              "= spread over A, C and D, not dumped on one neighbour"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ],
+            "style": "off"
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "off"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.65
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "c4",
+            "kind": "redis",
+            "label": "cache D"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c4"
+          },
+          {
+            "from": "c4",
+            "to": "origin"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Uses",
+      "chapter": "tradeoff",
+      "title": "Where the ring shows up",
+      "body": [
+        "Distributed databases use the same ring to place data: a key lives on its owner and is replicated to the next few <em>distinct</em> servers along the ring, so a failure already has copies nearby.",
+        "The trade-offs: every client must share the same server list and hash function, and a single very hot key still lands on one server — the ring balances keys, not traffic per key."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Many systems use fixed hash partitions plus a lookup map instead (as in the previous lesson). Both aim at the same goal: grow without moving everything."
+      },
+      "changes": [
+        "+ Replicas on the next servers along the ring"
+      ],
+      "metrics": {
+        "nodes": 4,
+        "moved": "—",
+        "maxShare": 26,
+        "hitRate": 92
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "primary",
+                "tone": "violet"
+              }
+            ]
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "replica",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ]
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "replica",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ]
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 10,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 55,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 95,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 118,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 160,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 185,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 212,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 250,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 280,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 302,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 325,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 345,
+                "color": "orange",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Beyond caches",
+            "icon": "layers",
+            "lines": [
+              "replicas: keep a key on its owner plus the next",
+              "2 distinct servers along the ring",
+              "used by distributed key-value and wide-column stores,",
+              "client-side cache sharding, and some load balancers",
+              "# weight a bigger server by giving it more virtual nodes"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "r13": {
+            "from": "c1",
+            "to": "c3",
+            "pts": [
+              "c1",
+              [
+                -6,
+                24
+              ],
+              [
+                12,
+                6
+              ],
+              "c3"
+            ],
+            "style": "dashed",
+            "label": "copy"
+          },
+          "r14": {
+            "from": "c1",
+            "to": "c4",
+            "pts": [
+              "c1",
+              [
+                -6,
+                24
+              ],
+              [
+                21,
+                -3
+              ],
+              "c4"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.20800000000000002
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "r13"
+                ]
+              },
+              {
+                "path": [
+                  "r14"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Consistent hashing in one breath",
+      "body": [
+        "<ul class=\"takeaways\"><li><code>hash % N</code> is simple but moves almost every key when N changes.</li><li>On a <b>hash ring</b>, servers and keys share one circle; a key belongs to the stretch it lands in.</li><li>Adding or removing a server moves only <b>~1/N</b> of the keys.</li><li><b>Virtual nodes</b> balance shares and spread a failed server's load across all survivors.</li></ul>"
+      ],
+      "metrics": {
+        "nodes": 4,
+        "moved": "—",
+        "maxShare": 26,
+        "hitRate": 92
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -33.2,
+            "x1": -26.8,
+            "y0": -17.2,
+            "y1": -10.8,
+            "count": 8,
+            "label": "Map viewers"
+          },
+          "api": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Tile",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "origin": {
+            "type": "db",
+            "x": 11.5,
+            "y": 14.5,
+            "label": "tile renderer",
+            "tags": [
+              {
+                "text": "slow: 120 ms",
+                "tone": "paper",
+                "icon": "hourglass"
+              }
+            ],
+            "cpu": 0.3
+          },
+          "c1": {
+            "type": "block",
+            "x": -11,
+            "y": 19,
+            "s": 3.8,
+            "h": 30,
+            "color": "blue",
+            "glyph": "zap",
+            "label": [
+              "cache A"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c2": {
+            "type": "block",
+            "x": -2,
+            "y": 10,
+            "s": 3.8,
+            "h": 30,
+            "color": "green",
+            "glyph": "zap",
+            "label": [
+              "cache B"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c3": {
+            "type": "block",
+            "x": 7,
+            "y": 1,
+            "s": 3.8,
+            "h": 30,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "cache C"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "c4": {
+            "type": "block",
+            "x": 16,
+            "y": -8,
+            "s": 3.8,
+            "h": 30,
+            "color": "purple",
+            "glyph": "zap",
+            "label": [
+              "cache D"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "ring": {
+            "type": "ring",
+            "x": 0,
+            "y": -26,
+            "r": 12,
+            "nodes": [
+              {
+                "a": 10,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 55,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 95,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 118,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 160,
+                "color": "orange",
+                "mark": true
+              },
+              {
+                "a": 185,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 212,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 250,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 280,
+                "color": "blue",
+                "mark": true
+              },
+              {
+                "a": 302,
+                "color": "purple",
+                "mark": true
+              },
+              {
+                "a": 325,
+                "color": "green",
+                "mark": true
+              },
+              {
+                "a": 345,
+                "color": "orange",
+                "mark": true
+              }
+            ],
+            "keys": [
+              7,
+              22,
+              37,
+              52,
+              67,
+              82,
+              97,
+              112,
+              127,
+              142,
+              157,
+              172,
+              187,
+              202,
+              217,
+              232,
+              247,
+              262,
+              277,
+              292,
+              307,
+              322,
+              337,
+              352
+            ],
+            "label": "hash ring"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Consistent hashing",
+            "icon": "listChecks",
+            "lines": [
+              "! hash % N: changing N moves almost every key",
+              "ring: a new server takes only its slice, ~1/N",
+              "virtual nodes even out shares and failures",
+              "= any client computes the owner — no central lookup"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "GET tile"
+          },
+          "ac1": {
+            "from": "api",
+            "to": "c1",
+            "pts": [
+              "api",
+              "c1"
+            ]
+          },
+          "ac2": {
+            "from": "api",
+            "to": "c2",
+            "pts": [
+              "api",
+              "c2"
+            ]
+          },
+          "ac3": {
+            "from": "api",
+            "to": "c3",
+            "pts": [
+              "api",
+              "c3"
+            ]
+          },
+          "ac4": {
+            "from": "api",
+            "to": "c4",
+            "pts": [
+              "api",
+              "c4"
+            ]
+          },
+          "mc1": {
+            "from": "c1",
+            "to": "origin",
+            "pts": [
+              "c1",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc2": {
+            "from": "c2",
+            "to": "origin",
+            "pts": [
+              "c2",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc3": {
+            "from": "c3",
+            "to": "origin",
+            "pts": [
+              "c3",
+              "origin"
+            ],
+            "style": "dashed"
+          },
+          "mc4": {
+            "from": "c4",
+            "to": "origin",
+            "pts": [
+              "c4",
+              "origin"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              [
+                "ac1",
+                "ac2",
+                "ac3",
+                "ac4"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "ac1",
+                  "mc1"
+                ]
+              },
+              {
+                "path": [
+                  "ac2",
+                  "mc2"
+                ]
+              },
+              {
+                "path": [
+                  "ac3",
+                  "mc3"
+                ]
+              },
+              {
+                "path": [
+                  "ac4",
+                  "mc4"
+                ]
+              }
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.20800000000000002
+          }
+        ]
+      },
+      "lab": {
+        "users": 3000000,
+        "rps": 60000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Map viewers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Tile API"
+          },
+          {
+            "id": "c1",
+            "kind": "redis",
+            "label": "cache A"
+          },
+          {
+            "id": "c2",
+            "kind": "redis",
+            "label": "cache B"
+          },
+          {
+            "id": "c3",
+            "kind": "redis",
+            "label": "cache C"
+          },
+          {
+            "id": "c4",
+            "kind": "redis",
+            "label": "cache D"
+          },
+          {
+            "id": "origin",
+            "kind": "postgres",
+            "label": "Tile renderer"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "c1"
+          },
+          {
+            "from": "c1",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c2"
+          },
+          {
+            "from": "c2",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c3"
+          },
+          {
+            "from": "c3",
+            "to": "origin"
+          },
+          {
+            "from": "api",
+            "to": "c4"
+          },
+          {
+            "from": "c4",
+            "to": "origin"
+          }
+        ]
+      }
+    }
+  ]
+}

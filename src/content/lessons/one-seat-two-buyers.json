@@ -739,7 +739,7 @@
             "form": "phone",
             "tags": [
               {
-                "text": "aborted → retry → taken",
+                "text": "retried → gone",
                 "tone": "amber",
                 "icon": "refresh"
               }
@@ -954,8 +954,8 @@
           },
           "wait": {
             "type": "queue",
-            "x": 3.6,
-            "y": 4,
+            "x": 2,
+            "y": 3,
             "n": 1,
             "gap": 1.1,
             "dir": [
@@ -1285,8 +1285,8 @@
           },
           "wait": {
             "type": "queue",
-            "x": 3.6,
-            "y": 4,
+            "x": 2,
+            "y": 3,
             "n": 6,
             "gap": 1.1,
             "dir": [
@@ -1470,8 +1470,8 @@
           },
           "wait": {
             "type": "queue",
-            "x": 3.6,
-            "y": 4,
+            "x": 2,
+            "y": 3,
             "n": 0,
             "gap": 1.1,
             "dir": [

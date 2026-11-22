@@ -1,0 +1,2568 @@
+{
+  "id": "copies-everywhere",
+  "title": "Copies Everywhere",
+  "summary": "Quillbook's single database can't keep up with reads, and one dead disk would lose everything. Add followers, then deal with what copies bring: lag, stale reads, failover and two leaders.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "reads",
+    "lag",
+    "writes",
+    "canLose"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "write",
+    [
+      "mine",
+      "Mia's request"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Scale reads with a leader and followers that replay its log",
+      "step": 1
+    },
+    {
+      "text": "Explain replication lag and fix stale reads with read-your-writes",
+      "step": 2
+    },
+    {
+      "text": "Choose between synchronous and asynchronous replication",
+      "step": 4
+    },
+    {
+      "text": "Walk through a failover and prevent split brain with fencing",
+      "step": 6
+    }
+  ],
+  "steps": [
+    {
+      "short": "One copy",
+      "chapter": "setup",
+      "title": "One database, two problems",
+      "body": [
+        "<b>Quillbook</b> is a shared-notes app. At peak it needs <b>30,000 reads a second</b> but only 1,500 writes — people open and scroll notes far more than they type.",
+        "Everything lives on one database, <code>db-a</code>. It tops out around 10,000 queries a second, and it is the <em>only copy</em> of every note: if its disk dies, so does Quillbook."
+      ],
+      "metrics": {
+        "reads": "10k of 30k q/s",
+        "lag": "—",
+        "writes": "ok",
+        "canLose": "everything"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "only copy",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.96,
+            "heat": 1
+          },
+          "card": {
+            "type": "panel",
+            "title": "db-a, peak hour",
+            "icon": "database",
+            "lines": [
+              "# reads outnumber writes 20 to 1"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Reads wanted",
+                "note": "30,000 q/s",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "One node serves",
+                "note": "~10,000 q/s",
+                "to": 0.33,
+                "tone": "amber"
+              },
+              {
+                "label": "Writes",
+                "note": "1,500 q/s",
+                "to": 0.05,
+                "tone": "violet"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "reads + writes"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w"
+            ],
+            "pattern": [
+              "req",
+              "req",
+              "slow",
+              "req",
+              "write"
+            ],
+            "rate": 2.6,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "only copy",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Followers",
+      "chapter": "solution",
+      "title": "A leader and two followers",
+      "body": [
+        "<span class=\"term\">Replication</span> keeps full copies of the data on several machines. One is the <span class=\"term\">leader</span>: all writes go there. It records each change in its log — the same write-ahead log it already keeps for crash safety.",
+        "<span class=\"term\">Followers</span> stream that log and replay it in the same order, so they converge on the same data. The API sends reads to the followers: three nodes now share the read load, and losing one disk no longer loses the notes."
+      ],
+      "changes": [
+        "+ db-b and db-c follow db-a's log",
+        "~ Reads go to followers, writes to the leader"
+      ],
+      "metrics": {
+        "reads": "30k q/s",
+        "lag": "0.1 s",
+        "writes": "ok",
+        "canLose": "~0.1 s of writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Replication = ship the log",
+            "icon": "replay",
+            "lines": [
+              "1. every write goes to the leader",
+              "2. the leader appends it to its log",
+              "3. followers stream the log and replay it in order",
+              "= any copy can answer reads"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "writes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep2": {
+            "from": "db1",
+            "to": "db2",
+            "pts": [
+              "db1",
+              "db2"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "rep3": {
+            "from": "db1",
+            "to": "db3",
+            "pts": [
+              "db1",
+              [
+                -7,
+                23
+              ],
+              [
+                23,
+                -7
+              ],
+              "db3"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w"
+            ],
+            "kind": "write",
+            "rate": 0.7,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "r2",
+                "r3"
+              ]
+            ],
+            "rate": 2.2,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rep2"
+                ]
+              },
+              {
+                "path": [
+                  "rep3"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "leader"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "follower"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db1",
+            "to": "db2"
+          },
+          {
+            "from": "db1",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lag",
+      "chapter": "problem",
+      "title": "Followers live slightly in the past",
+      "body": [
+        "By default the leader confirms a write <em>before</em> followers have it — <span class=\"term\">asynchronous replication</span>. Usually they're a fraction of a second behind. During a bulk import, <code>db-c</code> falls <b>6 seconds</b> behind: that's <span class=\"term\">replication lag</span>.",
+        "Mia saves a note and reloads. Her save went to the leader; the reload is served by <code>db-c</code>, which hasn't replayed it yet. Her edit appears to have vanished."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Lag is normally invisible, then spikes exactly when the system is busiest. Monitor it and alert on it."
+      },
+      "changes": [
+        "~ db-c 6 s behind the leader",
+        "+ Mia saves, then reloads from db-c"
+      ],
+      "metrics": {
+        "reads": "30k q/s",
+        "lag": "6 s",
+        "writes": "ok",
+        "canLose": "~6 s of writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "6 s behind",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.8,
+            "heat": 0.4
+          },
+          "mia": {
+            "type": "device",
+            "x": 3,
+            "y": -29,
+            "form": "phone",
+            "label": "Mia",
+            "tags": [
+              {
+                "text": "“my edit vanished!”",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Mia's 2 seconds",
+            "icon": "clock",
+            "lines": [
+              "09:00:00  save note → leader ✓",
+              "09:00:01  reload → db-c",
+              "! db-c is still replaying 08:59:55",
+              "! Mia sees her old text"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "writes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep2": {
+            "from": "db1",
+            "to": "db2",
+            "pts": [
+              "db1",
+              "db2"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "rep3": {
+            "from": "db1",
+            "to": "db3",
+            "pts": [
+              "db1",
+              [
+                -7,
+                23
+              ],
+              [
+                23,
+                -7
+              ],
+              "db3"
+            ],
+            "label": "6 s behind",
+            "style": "dashed",
+            "labelTone": "amber"
+          },
+          "m1": {
+            "from": "mia",
+            "to": "app",
+            "pts": [
+              "mia",
+              "app"
+            ],
+            "label": "save · reload"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w"
+            ],
+            "kind": "write",
+            "rate": 0.7,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "r2",
+                "r3"
+              ]
+            ],
+            "rate": 2.2,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rep2"
+                ]
+              },
+              {
+                "path": [
+                  "rep3"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.7
+          },
+          {
+            "route": [
+              "m1",
+              "w"
+            ],
+            "kind": "mine",
+            "rate": 0.5,
+            "bounce": true
+          },
+          {
+            "route": [
+              "m1",
+              "r3"
+            ],
+            "kind": "mine",
+            "rate": 0.5,
+            "bounce": true,
+            "hold": 0.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "leader"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "follower"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db1",
+            "to": "db2"
+          },
+          {
+            "from": "db1",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Own writes",
+      "chapter": "solution",
+      "title": "Read-your-writes",
+      "body": [
+        "Most readers don't mind a note being a few seconds old. The <em>author</em> does. <span class=\"term\">Read-your-writes consistency</span> guarantees that you always see your own changes.",
+        "A simple way: for a short window after someone writes, send their reads to the leader. A more precise way: remember the log position of their last write and only read from a follower that has replayed past it. Everyone else keeps hitting the followers."
+      ],
+      "changes": [
+        "~ Mia's reads go to the leader for ~10 s after she writes"
+      ],
+      "metrics": {
+        "reads": "30k q/s",
+        "lag": "6 s",
+        "writes": "ok",
+        "canLose": "~6 s of writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "6 s behind",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.8,
+            "heat": 0.4
+          },
+          "mia": {
+            "type": "device",
+            "x": 3,
+            "y": -29,
+            "form": "phone",
+            "label": "Mia",
+            "tags": [
+              {
+                "text": "sees her edit",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Read-your-writes",
+            "icon": "userCheck",
+            "lines": [
+              "after a write, remember its log position",
+              "send that user's reads to a copy that has it —",
+              "or to the leader for the next ~10 s",
+              "= everyone else keeps using followers"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "writes + Mia's reads"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep2": {
+            "from": "db1",
+            "to": "db2",
+            "pts": [
+              "db1",
+              "db2"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "rep3": {
+            "from": "db1",
+            "to": "db3",
+            "pts": [
+              "db1",
+              [
+                -7,
+                23
+              ],
+              [
+                23,
+                -7
+              ],
+              "db3"
+            ],
+            "label": "6 s behind",
+            "style": "dashed",
+            "labelTone": "amber"
+          },
+          "m1": {
+            "from": "mia",
+            "to": "app",
+            "pts": [
+              "mia",
+              "app"
+            ],
+            "label": "save · reload"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w"
+            ],
+            "kind": "write",
+            "rate": 0.7,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "r2",
+                "r3"
+              ]
+            ],
+            "rate": 2.2,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rep2"
+                ]
+              },
+              {
+                "path": [
+                  "rep3"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.7
+          },
+          {
+            "route": [
+              "m1",
+              "w"
+            ],
+            "kind": "mine",
+            "rate": 1,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "leader"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "follower"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db1",
+            "to": "db2"
+          },
+          {
+            "from": "db1",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sync?",
+      "chapter": "tradeoff",
+      "title": "Synchronous vs asynchronous",
+      "body": [
+        "If the leader dies, writes it confirmed but hadn't shipped yet are gone. <span class=\"term\">Synchronous replication</span> closes that gap: the leader waits for a follower to confirm before telling the client “OK”.",
+        "The price is latency on every write, and availability: if the sync follower stalls, writes stall too. A common middle ground is <em>semi-synchronous</em> — one follower in sync (<code>db-b</code>), the rest async."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Making every follower synchronous means the slowest one sets your write latency — and any one failing blocks all writes."
+      },
+      "changes": [
+        "~ db-b replicates synchronously",
+        "~ db-c stays asynchronous"
+      ],
+      "metrics": {
+        "reads": "30k q/s",
+        "lag": "0 s (db-b)",
+        "writes": "ok",
+        "canLose": "0 acked writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "sync",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "async",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Who must confirm a write?",
+            "icon": "lock",
+            "lines": [
+              "async: leader says OK at once",
+              "! a crash can lose the last moments of writes",
+              "sync: leader waits for a follower's ack",
+              "= acked writes exist on two machines",
+              "# semi-sync: one sync follower, the rest async"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "writes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep2": {
+            "from": "db1",
+            "to": "db2",
+            "pts": [
+              "db1",
+              "db2"
+            ],
+            "label": "ack before OK",
+            "style": "solid"
+          },
+          "rep3": {
+            "from": "db1",
+            "to": "db3",
+            "pts": [
+              "db1",
+              [
+                -7,
+                23
+              ],
+              [
+                23,
+                -7
+              ],
+              "db3"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w",
+              "rep2"
+            ],
+            "kind": "write",
+            "rate": 0.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "r2",
+                "r3"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "rep3"
+            ],
+            "kind": "write",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "leader"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "follower"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db1",
+            "to": "db2"
+          },
+          {
+            "from": "db1",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Leader down",
+      "chapter": "problem",
+      "title": "The leader dies",
+      "body": [
+        "At 03:12 <code>db-a</code> stops responding. Reads carry on — the followers have the data — but every write fails, because only the leader may accept writes.",
+        "Someone (or something) has to decide that <code>db-a</code> is really gone and not just slow, and pick a replacement."
+      ],
+      "changes": [
+        "~ db-a down",
+        "~ Replication streams cut",
+        "~ Writes failing"
+      ],
+      "metrics": {
+        "reads": "20k q/s",
+        "lag": "—",
+        "writes": "failing",
+        "canLose": "0 acked writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": -1,
+            "heat": 0,
+            "opacity": 0.55
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "sync",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "async",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ],
+            "cpu": 0.35
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "writes ✕",
+            "fail": 1
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep2": {
+            "from": "db1",
+            "to": "db2",
+            "pts": [
+              "db1",
+              "db2"
+            ],
+            "style": "cut"
+          },
+          "rep3": {
+            "from": "db1",
+            "to": "db3",
+            "pts": [
+              "db1",
+              [
+                -7,
+                23
+              ],
+              [
+                23,
+                -7
+              ],
+              "db3"
+            ],
+            "style": "cut"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w"
+            ],
+            "kind": "write",
+            "rate": 0.9
+          },
+          {
+            "route": [
+              "e1",
+              [
+                "r2",
+                "r3"
+              ]
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "leader",
+            "status": "crit"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "follower"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db1",
+            "to": "db2"
+          },
+          {
+            "from": "db1",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Failover",
+      "chapter": "solution",
+      "title": "Promote a follower",
+      "body": [
+        "<span class=\"term\">Failover</span>: after missing heartbeats for a timeout (here 10 s), the cluster promotes the most up-to-date follower. <code>db-b</code> was synchronous, so it has every confirmed write.",
+        "The API and <code>db-c</code> are pointed at the new leader. Writes resume after about 30 seconds. The timeout is a trade-off: too short and a slow network triggers needless failovers; too long and writes stay down."
+      ],
+      "changes": [
+        "~ db-b promoted to leader",
+        "~ db-c follows db-b",
+        "- db-a out of rotation"
+      ],
+      "metrics": {
+        "reads": "20k q/s",
+        "lag": "0.1 s",
+        "writes": "ok",
+        "canLose": "~0.1 s of writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "DOWN",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": -1,
+            "heat": 0,
+            "opacity": 0.35
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "promoted",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Failover in 3 moves",
+            "icon": "refresh",
+            "lines": [
+              "1. detect: no heartbeat from db-a for 10 s",
+              "2. promote the most up-to-date follower (db-b)",
+              "3. point the API and db-c at the new leader",
+              "= writes back after ~30 s"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads + writes"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep23": {
+            "from": "db2",
+            "to": "db3",
+            "pts": [
+              "db2",
+              "db3"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "r2"
+            ],
+            "pattern": [
+              "write",
+              "req",
+              "req"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "r3"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "rep23"
+            ],
+            "kind": "write",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "leader"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db2",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Two leaders",
+      "chapter": "problem",
+      "title": "Split brain",
+      "body": [
+        "<code>db-a</code> wasn't dead — a network switch had cut it off. It comes back still believing it's the leader, and one API node with stale config keeps sending it writes.",
+        "Now two machines accept writes for the same notes and their histories diverge: <span class=\"term\">split brain</span>. Merging them afterwards is painful, and some edits will be lost either way."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Failover is the riskiest moment in a replicated system. Most data-loss stories start with two nodes both thinking they lead."
+      },
+      "changes": [
+        "~ db-a back, still acting as leader",
+        "+ Stale API path writes to db-a"
+      ],
+      "metrics": {
+        "reads": "20k q/s",
+        "lag": "—",
+        "writes": "diverging",
+        "canLose": "edits on both sides"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "still “leader”",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "cpu": 0.35,
+            "heat": 0,
+            "opacity": 1
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Two leaders",
+            "icon": "alert",
+            "lines": [
+              "db-a was only cut off — now it's back",
+              "! it still accepts writes from a stale API node",
+              "! db-a and db-b now hold different histories",
+              "# async writes db-a never shipped are also lost"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads + writes"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep23": {
+            "from": "db2",
+            "to": "db3",
+            "pts": [
+              "db2",
+              "db3"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "stale config",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "w"
+            ],
+            "kind": "write",
+            "rate": 0.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "r2"
+            ],
+            "pattern": [
+              "write",
+              "req"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "r3"
+            ],
+            "rate": 1.2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "rep23"
+            ],
+            "kind": "write",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "leader",
+            "status": "warn"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "follower"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db1"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db1",
+            "to": "db2"
+          },
+          {
+            "from": "db1",
+            "to": "db3"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fencing",
+      "chapter": "solution",
+      "title": "Fence off the old leader",
+      "body": [
+        "Every promotion bumps a <span class=\"term\">term</span> (or epoch) number: <code>db-b</code> leads term 8, <code>db-a</code> led term 7. Writes and replication messages carry the term, and nodes reject anything from an older term.",
+        "So <code>db-a</code>'s writes bounce, it learns a newer leader exists, discards what it never replicated and rejoins as a follower of <code>db-b</code>."
+      ],
+      "changes": [
+        "+ Term numbers on writes",
+        "~ db-a rejoins as a follower",
+        "- Stale write path refused"
+      ],
+      "metrics": {
+        "reads": "30k q/s",
+        "lag": "0.1 s",
+        "writes": "ok",
+        "canLose": "~0.1 s of writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "rejoined",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3,
+            "heat": 0,
+            "opacity": 1
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 8",
+                "tone": "violet",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Fencing with a term number",
+            "icon": "shield",
+            "lines": [
+              "each promotion bumps the term: 7 → 8",
+              "every write carries the term it was sent under",
+              "= replicas reject writes from an older term",
+              "old leader steps down and follows db-b"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads + writes"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep23": {
+            "from": "db2",
+            "to": "db3",
+            "pts": [
+              "db2",
+              "db3"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "rep21": {
+            "from": "db2",
+            "to": "db1",
+            "pts": [
+              "db2",
+              [
+                8,
+                8
+              ],
+              [
+                -7,
+                23
+              ],
+              "db1"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "term 7 ✕",
+            "style": "cut",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "r2"
+            ],
+            "pattern": [
+              "write",
+              "req",
+              "req"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "r3"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rep23"
+                ]
+              },
+              {
+                "path": [
+                  "rep21"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.7
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 30000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Users"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "Notes API"
+          },
+          {
+            "id": "db2",
+            "kind": "postgres",
+            "label": "db-b",
+            "sub": "leader"
+          },
+          {
+            "id": "db3",
+            "kind": "postgres",
+            "label": "db-c",
+            "sub": "follower"
+          },
+          {
+            "id": "db1",
+            "kind": "postgres",
+            "label": "db-a",
+            "sub": "follower"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "db2"
+          },
+          {
+            "from": "app",
+            "to": "db3"
+          },
+          {
+            "from": "db2",
+            "to": "db3"
+          },
+          {
+            "from": "db2",
+            "to": "db1"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Copies are cheap; keeping them honest isn't",
+      "body": [
+        "<ul class=\"takeaways\"><li>A <b>leader</b> takes writes; <b>followers</b> replay its log and serve reads.</li><li><b>Async</b> replication is fast but followers lag; <b>sync</b> guarantees acked writes survive, at a latency cost.</li><li>Use <b>read-your-writes</b> routing so users always see their own changes.</li><li><b>Failover</b> promotes a follower; <b>fencing</b> with term numbers stops the old leader from causing split brain.</li></ul>"
+      ],
+      "metrics": {
+        "reads": "30k q/s",
+        "lag": "0.1 s",
+        "writes": "ok",
+        "canLose": "~0.1 s of writes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -27.2,
+            "y1": -20.8,
+            "count": 10,
+            "label": "Quillbook users"
+          },
+          "app": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Notes",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "db1": {
+            "type": "db",
+            "x": -15,
+            "y": 15,
+            "label": "db-a",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              },
+              {
+                "text": "rejoined",
+                "tone": "green",
+                "icon": "check"
+              }
+            ],
+            "cpu": 0.3,
+            "heat": 0,
+            "opacity": 1
+          },
+          "db2": {
+            "type": "db",
+            "x": 0,
+            "y": 0,
+            "label": "db-b",
+            "tags": [
+              {
+                "text": "leader",
+                "tone": "violet",
+                "icon": "flag"
+              },
+              {
+                "text": "term 8",
+                "tone": "violet",
+                "icon": "hash"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "db3": {
+            "type": "db",
+            "x": 15,
+            "y": -15,
+            "label": "db-c",
+            "tags": [
+              {
+                "text": "follower",
+                "tone": "paper",
+                "icon": "replay"
+              }
+            ],
+            "cpu": 0.35
+          },
+          "card": {
+            "type": "panel",
+            "title": "Replication checklist",
+            "icon": "listChecks",
+            "lines": [
+              "followers add read capacity and spare copies",
+              "async is fast but lags; sync is safe but slower",
+              "route a user's reads after their writes",
+              "rehearse failover; fence the old leader"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "open · edit notes"
+          },
+          "r2": {
+            "from": "app",
+            "to": "db2",
+            "pts": [
+              "app",
+              "db2"
+            ],
+            "label": "reads + writes"
+          },
+          "r3": {
+            "from": "app",
+            "to": "db3",
+            "pts": [
+              "app",
+              "db3"
+            ],
+            "label": "reads"
+          },
+          "rep23": {
+            "from": "db2",
+            "to": "db3",
+            "pts": [
+              "db2",
+              "db3"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "rep21": {
+            "from": "db2",
+            "to": "db1",
+            "pts": [
+              "db2",
+              [
+                8,
+                8
+              ],
+              [
+                -7,
+                23
+              ],
+              "db1"
+            ],
+            "label": "log stream",
+            "style": "dashed"
+          },
+          "w": {
+            "from": "app",
+            "to": "db1",
+            "pts": [
+              "app",
+              "db1"
+            ],
+            "label": "term 7 ✕",
+            "style": "cut",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "r2"
+            ],
+            "pattern": [
+              "write",
+              "req",
+              "req"
+            ],
+            "rate": 1.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "r3"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rep23"
+                ]
+              },
+              {
+                "path": [
+                  "rep21"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "write",
+            "rate": 0.7
+          }
+        ]
+      }
+    }
+  ]
+}

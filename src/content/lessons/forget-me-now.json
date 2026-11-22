@@ -1,0 +1,2109 @@
+{
+  "id": "forget-me-now",
+  "title": "Forget Me Now",
+  "summary": "Why servers that remember users can't scale out — and how to move session state somewhere every server can reach.",
+  "minutes": 9,
+  "level": "beginner",
+  "metrics": [
+    "errors",
+    "p95",
+    "survive",
+    "scale"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "mine",
+      "Priya's request"
+    ],
+    [
+      "write",
+      "replication"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why in-memory sessions break with two servers",
+      "step": 1
+    },
+    {
+      "text": "Weigh sticky sessions",
+      "step": 3
+    },
+    {
+      "text": "Make servers stateless with a shared store or tokens",
+      "step": 5
+    },
+    {
+      "text": "Protect the state you moved",
+      "step": 6
+    }
+  ],
+  "steps": [
+    {
+      "short": "Remembered",
+      "chapter": "setup",
+      "title": "A server that remembers you",
+      "body": [
+        "Cartwheel, a small homeware shop, runs on one app server. When Priya logs in and adds two mugs to her cart, the server keeps that in a <b>session</b> in its own memory, keyed by a cookie in her browser.",
+        "It works perfectly — every request she makes lands on the one machine that remembers her."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A <span class=\"term\">session</span> is whatever the server must remember between your requests: who you are, your cart, the step you're on."
+      },
+      "metrics": {
+        "errors": 0,
+        "p95": 140,
+        "survive": "no",
+        "scale": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 8,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "dim": 0.6
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "b0"
+            ],
+            "bounce": true,
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "p",
+              "b0"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App server",
+            "sub": "sessions in memory"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Second server",
+      "chapter": "problem",
+      "title": "Add a server, lose your cart",
+      "body": [
+        "Traffic grows and Cartwheel adds a second server behind the balancer, which uses round robin. Priya's next click lands on server 2 — which has never heard of her. She's logged out and her cart is empty.",
+        "It's not just Priya: every shopper's session lives on whichever server they happened to start on, so about half of all requests now go to a server that doesn't know them."
+      ],
+      "changes": [
+        "+ App server 2",
+        "~ Half of requests reach a server without the session"
+      ],
+      "metrics": {
+        "errors": 50,
+        "p95": 140,
+        "survive": "no",
+        "scale": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "logged out?!",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "round robin",
+                "tone": "gray",
+                "icon": "replay"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "who is Priya?",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both",
+            "fail": 0.5
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both",
+            "fail": 0.5
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "p",
+              [
+                "b0",
+                "b1"
+              ]
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App servers ×2",
+            "sub": "sessions in memory",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sticky",
+      "chapter": "technique",
+      "title": "Sticky sessions: always the same server",
+      "body": [
+        "A quick fix is <span class=\"term\">sticky sessions</span> (session affinity): the balancer sets a cookie recording which server a shopper first used, and keeps sending them there. Priya always reaches server 1, so her cart is always there.",
+        "Errors vanish. But stickiness fights the balancer: a server with a few heavy shoppers can't hand them off, and a newly added server only gets <i>new</i> visitors, so it fills up slowly."
+      ],
+      "changes": [
+        "~ Balancer pins each shopper to one server",
+        "~ Errors 50% → 0%"
+      ],
+      "metrics": {
+        "errors": 0,
+        "p95": 150,
+        "survive": "no",
+        "scale": "limited"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "sticky cookie",
+                "tone": "amber",
+                "icon": "key"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.6,
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.35
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              [
+                "b0",
+                "b1"
+              ]
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "p",
+              "b0"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App servers ×2",
+            "sub": "sessions in memory",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Server dies",
+      "chapter": "problem",
+      "title": "Sticky to a server that's gone",
+      "body": [
+        "Then server 1 crashes during a sale. The balancer moves its shoppers to server 2 — but their sessions died with server 1's memory. Priya is logged out mid-checkout and her cart is empty again, along with the carts of everyone pinned to that machine.",
+        "Deploys hurt in the same way: restarting a server to release new code wipes every session it was holding."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Anything kept only in one server's memory is lost when that server goes away — by crash, deploy or autoscaler."
+      },
+      "changes": [
+        "~ Server 1 DOWN",
+        "- Every session it held"
+      ],
+      "metrics": {
+        "errors": 45,
+        "p95": 220,
+        "survive": "no",
+        "scale": "limited"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "cart empty",
+                "tone": "red",
+                "icon": "cart"
+              }
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "sticky cookie",
+                "tone": "amber",
+                "icon": "key"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": -1,
+            "dead": 1,
+            "heat": 0,
+            "tags": [
+              {
+                "text": "sessions lost",
+                "tone": "red",
+                "icon": "skull"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.8,
+            "heat": 0.5
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both",
+            "style": "cut"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "b1"
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "p",
+              "b1"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App servers ×2",
+            "sub": "sessions in memory",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shared store",
+      "chapter": "solution",
+      "title": "Move the memory out of the server",
+      "body": [
+        "The real fix: keep sessions in a <span class=\"term\">shared session store</span> — a fast in-memory database such as Redis that every server can reach. The cookie now holds only a session ID; any server can look it up in about a millisecond.",
+        "The app servers become <span class=\"term\">stateless</span>: they keep nothing between requests. Any server can handle any request, so the balancer is free to use round robin again."
+      ],
+      "changes": [
+        "+ Shared session store (Redis)",
+        "~ Servers keep no session state",
+        "- Sticky cookie"
+      ],
+      "metrics": {
+        "errors": 0,
+        "p95": 145,
+        "survive": "yes",
+        "scale": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "tags": [
+              {
+                "text": "round robin",
+                "tone": "gray",
+                "icon": "replay"
+              }
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.4
+          },
+          "store": {
+            "type": "block",
+            "x": -6,
+            "y": 15,
+            "s": 4,
+            "h": 36,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Session",
+              "store"
+            ],
+            "sub": "Redis",
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "r0": {
+            "from": "s0",
+            "to": "store",
+            "pts": [
+              "s0",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r1": {
+            "from": "s1",
+            "to": "store",
+            "pts": [
+              "s1",
+              "store"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "p",
+                  "b0",
+                  "r0"
+                ]
+              },
+              {
+                "path": [
+                  "p",
+                  "b1",
+                  "r1"
+                ]
+              }
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App servers ×2",
+            "sub": "stateless"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "redis"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Tokens",
+      "chapter": "technique",
+      "title": "Or let the client carry it",
+      "body": [
+        "Another option is a <span class=\"term\">signed token</span>, such as a JWT. At login the server signs a small document — “user = Priya, expires 18:00” — and the browser sends it with each request. Any server can verify the signature with a shared key, with no lookup at all.",
+        "Tokens suit identity (who you are), less so big or changing data like a cart. And a signed token can't easily be withdrawn: if Priya logs out or is banned, it stays valid until it expires."
+      ],
+      "changes": [
+        "+ Signed token for identity",
+        "~ Cart still lives in the store"
+      ],
+      "metrics": {
+        "errors": 0,
+        "p95": 140,
+        "survive": "yes",
+        "scale": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "token: priya · exp 18:00",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "verify signature",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "verify signature",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "store": {
+            "type": "block",
+            "x": -6,
+            "y": 15,
+            "s": 4,
+            "h": 36,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Session",
+              "store"
+            ],
+            "sub": "Redis",
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Session store vs signed token",
+            "icon": "key",
+            "lines": [
+              "store · server looks up a session ID",
+              "store · easy to revoke, holds big data",
+              "token · client carries signed claims",
+              "token · no lookup, but hard to revoke",
+              "# common: token for identity, store for cart"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "r0": {
+            "from": "s0",
+            "to": "store",
+            "pts": [
+              "s0",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r1": {
+            "from": "s1",
+            "to": "store",
+            "pts": [
+              "s1",
+              "store"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "p",
+              [
+                "b0",
+                "b1"
+              ]
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "short": "Store matters",
+      "chapter": "tradeoff",
+      "title": "The state didn't vanish — it moved",
+      "body": [
+        "Stateless servers are easy to replace because the state lives somewhere else. That somewhere is now critical: if the session store goes down, every shopper is logged out at once.",
+        "So the store gets the care a database gets — a replica ready to take over, monitoring, and enough memory to hold every active session with room to spare."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "“Stateless” describes the app servers, not the system. Good design puts the state in a few places built to protect it."
+      },
+      "changes": [
+        "+ Session store replica"
+      ],
+      "metrics": {
+        "errors": 0,
+        "p95": 145,
+        "survive": "yes",
+        "scale": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 12,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.4
+          },
+          "store": {
+            "type": "block",
+            "x": -6,
+            "y": 15,
+            "s": 4,
+            "h": 36,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Session",
+              "store"
+            ],
+            "sub": "Redis",
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          },
+          "replica": {
+            "type": "block",
+            "x": 2,
+            "y": 19,
+            "s": 3.2,
+            "h": 28,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Store",
+              "replica"
+            ],
+            "dim": 0.15
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "r0": {
+            "from": "s0",
+            "to": "store",
+            "pts": [
+              "s0",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r1": {
+            "from": "s1",
+            "to": "store",
+            "pts": [
+              "s1",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "rep": {
+            "from": "store",
+            "to": "replica",
+            "pts": [
+              "store",
+              "replica"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "p",
+                  "b0",
+                  "r0"
+                ]
+              },
+              {
+                "path": [
+                  "p",
+                  "b1",
+                  "r1"
+                ]
+              }
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App servers ×2",
+            "sub": "stateless"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "redis"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Autoscale",
+      "chapter": "solution",
+      "title": "Servers come and go freely",
+      "body": [
+        "Payoff: on Black Friday the autoscaler adds a third server. It's useful the instant it boots — Priya's very next request can land there and her cart is still there.",
+        "In the evening the autoscaler removes it again, and nobody is logged out. Deploys work the same way: replace servers one by one without anyone noticing."
+      ],
+      "changes": [
+        "+ App server 3 (autoscaled)",
+        "~ Priya's request served by the new server"
+      ],
+      "metrics": {
+        "errors": 0,
+        "p95": 140,
+        "survive": "yes",
+        "scale": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.4
+          },
+          "s2": {
+            "type": "block",
+            "x": 14,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 3"
+            ],
+            "cpu": 0.4,
+            "tags": [
+              {
+                "text": "new · ready instantly",
+                "tone": "green",
+                "icon": "rocket"
+              }
+            ]
+          },
+          "store": {
+            "type": "block",
+            "x": -6,
+            "y": 15,
+            "s": 4,
+            "h": 36,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Session",
+              "store"
+            ],
+            "sub": "Redis",
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          },
+          "replica": {
+            "type": "block",
+            "x": 2,
+            "y": 19,
+            "s": 3.2,
+            "h": 28,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Store",
+              "replica"
+            ],
+            "dim": 0.15
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "r0": {
+            "from": "s0",
+            "to": "store",
+            "pts": [
+              "s0",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r1": {
+            "from": "s1",
+            "to": "store",
+            "pts": [
+              "s1",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r2": {
+            "from": "s2",
+            "to": "store",
+            "pts": [
+              "s2",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "rep": {
+            "from": "store",
+            "to": "replica",
+            "pts": [
+              "store",
+              "replica"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b2"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "p",
+                  "b2",
+                  "r2"
+                ]
+              },
+              {
+                "path": [
+                  "p",
+                  "b0",
+                  "r0"
+                ]
+              },
+              {
+                "path": [
+                  "p",
+                  "b1",
+                  "r1"
+                ]
+              }
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          },
+          {
+            "route": [
+              "rep"
+            ],
+            "kind": "write",
+            "rate": 0.8
+          }
+        ]
+      },
+      "lab": {
+        "users": 40000,
+        "rps": 800,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Shoppers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load balancer"
+          },
+          {
+            "id": "app",
+            "kind": "api_server",
+            "label": "App servers ×3",
+            "sub": "stateless"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Session store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "app"
+          },
+          {
+            "from": "app",
+            "to": "redis"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Forget me now",
+      "body": [
+        "<ul class=\"takeaways\"><li>Sessions kept in one server's memory break as soon as there are two servers.</li><li>Sticky sessions hide the problem, but unbalance load and lose sessions when a server dies.</li><li>Stateless servers keep sessions in a shared store, or in signed tokens the client carries.</li><li>The shared store becomes critical — replicate and monitor it.</li><li>Stateless servers can be added, removed and redeployed at will.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next: keeping popular answers close at hand — caching."
+      },
+      "metrics": {
+        "errors": 0,
+        "p95": 140,
+        "survive": "yes",
+        "scale": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 18,
+            "label": "Shoppers"
+          },
+          "priya": {
+            "type": "device",
+            "x": -14,
+            "y": -4,
+            "label": "Priya",
+            "form": "phone"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -9,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ]
+          },
+          "s0": {
+            "type": "block",
+            "x": -6,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 1"
+            ],
+            "cpu": 0.4
+          },
+          "s1": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 2"
+            ],
+            "cpu": 0.4
+          },
+          "s2": {
+            "type": "block",
+            "x": 14,
+            "y": 4,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "App",
+              "server 3"
+            ],
+            "cpu": 0.4
+          },
+          "store": {
+            "type": "block",
+            "x": -6,
+            "y": 15,
+            "s": 4,
+            "h": 36,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Session",
+              "store"
+            ],
+            "sub": "Redis",
+            "tags": [
+              {
+                "text": "Priya's cart · 2 items",
+                "tone": "violet",
+                "icon": "cart"
+              }
+            ]
+          },
+          "replica": {
+            "type": "block",
+            "x": 2,
+            "y": 19,
+            "s": 3.2,
+            "h": 28,
+            "color": "orange",
+            "glyph": "database",
+            "label": [
+              "Store",
+              "replica"
+            ],
+            "dim": 0.15
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "lb",
+            "pts": [
+              "users",
+              "lb"
+            ],
+            "label": "cartwheel.shop",
+            "heads": "both"
+          },
+          "p": {
+            "from": "priya",
+            "to": "lb",
+            "pts": [
+              "priya",
+              "lb"
+            ],
+            "heads": "both"
+          },
+          "b0": {
+            "from": "lb",
+            "to": "s0",
+            "pts": [
+              "lb",
+              "s0"
+            ],
+            "heads": "both"
+          },
+          "b1": {
+            "from": "lb",
+            "to": "s1",
+            "pts": [
+              "lb",
+              "s1"
+            ],
+            "heads": "both"
+          },
+          "b2": {
+            "from": "lb",
+            "to": "s2",
+            "pts": [
+              "lb",
+              "s2"
+            ],
+            "heads": "both"
+          },
+          "r0": {
+            "from": "s0",
+            "to": "store",
+            "pts": [
+              "s0",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r1": {
+            "from": "s1",
+            "to": "store",
+            "pts": [
+              "s1",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "r2": {
+            "from": "s2",
+            "to": "store",
+            "pts": [
+              "s2",
+              "store"
+            ],
+            "heads": "both"
+          },
+          "rep": {
+            "from": "store",
+            "to": "replica",
+            "pts": [
+              "store",
+              "replica"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "b0"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b1"
+                ]
+              },
+              {
+                "path": [
+                  "in",
+                  "b2"
+                ]
+              }
+            ],
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "p",
+                  "b0",
+                  "r0"
+                ]
+              },
+              {
+                "path": [
+                  "p",
+                  "b1",
+                  "r1"
+                ]
+              },
+              {
+                "path": [
+                  "p",
+                  "b2",
+                  "r2"
+                ]
+              }
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.8
+          }
+        ]
+      }
+    }
+  ]
+}

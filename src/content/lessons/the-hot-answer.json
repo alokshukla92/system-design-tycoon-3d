@@ -1,0 +1,1524 @@
+{
+  "id": "the-hot-answer",
+  "title": "The Hot Answer",
+  "summary": "Caching: serve popular answers from memory, keep them fresh enough, and survive the moment they expire.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "hitRate",
+    "p50",
+    "dbLoad",
+    "fresh"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "slow",
+      "database query"
+    ],
+    [
+      "write",
+      "database update"
+    ],
+    [
+      "kill",
+      "delete cache key"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Use cache-aside and read the hit ratio",
+      "step": 1
+    },
+    {
+      "text": "Keep cached data fresh with TTLs and invalidation",
+      "step": 4
+    },
+    {
+      "text": "Understand eviction",
+      "step": 5
+    },
+    {
+      "text": "Prevent a cache stampede",
+      "step": 7
+    }
+  ],
+  "steps": [
+    {
+      "short": "Same question",
+      "chapter": "problem",
+      "title": "Thousands ask the same thing",
+      "body": [
+        "Ridgeline shows hikers live trail conditions. Every page view runs a query joining trails, weather and ranger reports — about 90 ms of database work. On a sunny Saturday morning that's 2,000 requests a second.",
+        "Most of them ask for the same few popular trails, and the answer changes maybe twice a day. The database is 80% busy recomputing the same answer over and over."
+      ],
+      "metrics": {
+        "hitRate": 0,
+        "p50": 95,
+        "dbLoad": 80,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.8,
+            "heat": 0.6
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "in",
+              "d"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hikers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Trail API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Cache-aside",
+      "chapter": "solution",
+      "title": "Look in the cache first",
+      "body": [
+        "Add a <span class=\"term\">cache</span>: a small, fast in-memory store of recent answers. With the <span class=\"term\">cache-aside</span> pattern the app checks the cache first. On a <b>hit</b>, it returns the stored answer in about a millisecond.",
+        "On a <b>miss</b>, it queries the database as before, then writes the result into the cache for next time. Just after a restart the cache is cold: only 35% of requests hit."
+      ],
+      "changes": [
+        "+ Cache (cache-aside)",
+        "~ Misses fill the cache"
+      ],
+      "metrics": {
+        "hitRate": 35,
+        "p50": 70,
+        "dbLoad": 55,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "cold",
+                "tone": "gray",
+                "icon": "clock"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.55
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 35
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 65
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "c"
+            ],
+            "kind": "write",
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hikers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Trail API"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Warm",
+      "chapter": "solution",
+      "title": "A warm cache carries the load",
+      "body": [
+        "Within minutes the popular trails are all cached and the <span class=\"term\">hit ratio</span> settles at 93%. Only 7 requests in 100 reach the database.",
+        "Median latency drops from 95 ms to 16 ms and database CPU from 80% to 14%. Popularity is uneven — a few trails get most views — which is exactly why a small cache can absorb most traffic."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Every point of hit ratio matters: going from 90% to 95% hits halves the load on the database."
+      },
+      "changes": [
+        "~ Hit ratio 35% → 93%",
+        "~ Database CPU 55% → 14%"
+      ],
+      "metrics": {
+        "hitRate": 93,
+        "p50": 16,
+        "dbLoad": 14,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "warm · 93% hits",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.14
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 93
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 7
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hikers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Trail API"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stale",
+      "chapter": "problem",
+      "title": "The cache doesn't know the trail closed",
+      "body": [
+        "Each entry has a <span class=\"term\">TTL</span> (time to live) of one hour, after which it's dropped and re-read. At 10:05 a ranger closes Eagle Ridge after a rockslide. The database is updated — but the cache keeps serving “OPEN” until 10:58.",
+        "For most data a little staleness is fine. For a closed trail it isn't. Shorter TTLs help but cost hit ratio; the real fix is to tell the cache when data changes."
+      ],
+      "changes": [
+        "+ Ranger closes the trail",
+        "~ Cache still serves the old answer"
+      ],
+      "metrics": {
+        "hitRate": 93,
+        "p50": 16,
+        "dbLoad": 14,
+        "fresh": "stale"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "ranger": {
+            "type": "device",
+            "x": 17,
+            "y": -5,
+            "label": "Ranger desk",
+            "tags": [
+              {
+                "text": "CLOSED · rockslide",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "Eagle Ridge: OPEN · 53 min left",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.14,
+            "tags": [
+              {
+                "text": "Eagle Ridge: CLOSED",
+                "tone": "red",
+                "icon": "ban"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          },
+          "rg": {
+            "from": "ranger",
+            "to": "app",
+            "pts": [
+              "ranger",
+              "app"
+            ],
+            "label": "trail update",
+            "heads": "end"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 93
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 7
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "rg",
+              "d"
+            ],
+            "kind": "write",
+            "rate": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "short": "Invalidate",
+      "chapter": "solution",
+      "title": "Write, then delete the key",
+      "body": [
+        "Now every update goes through the app, which writes the database and then <b>deletes</b> the cache entry — <span class=\"term\">invalidation</span>. The next reader misses, reads “CLOSED” from the database, and refills the cache.",
+        "Deleting is safer than writing the new value into the cache: if two updates race, a delete can't leave the wrong one behind. Keep the TTL as a safety net for any update path you forget."
+      ],
+      "changes": [
+        "+ Update deletes the cached key",
+        "~ Hikers see CLOSED within a second"
+      ],
+      "metrics": {
+        "hitRate": 92,
+        "p50": 17,
+        "dbLoad": 15,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "ranger": {
+            "type": "device",
+            "x": 17,
+            "y": -5,
+            "label": "Ranger desk",
+            "tags": [
+              {
+                "text": "CLOSED · rockslide",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "Eagle Ridge: CLOSED",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.15,
+            "tags": [
+              {
+                "text": "Eagle Ridge: CLOSED",
+                "tone": "red",
+                "icon": "ban"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          },
+          "rg": {
+            "from": "ranger",
+            "to": "app",
+            "pts": [
+              "ranger",
+              "app"
+            ],
+            "label": "trail update",
+            "heads": "end"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 92
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 8
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rg",
+                  "d"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "rg",
+                  "c"
+                ],
+                "kind": "kill"
+              }
+            ],
+            "rate": 0.8,
+            "hold": 0.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hikers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Trail API"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Eviction",
+      "chapter": "technique",
+      "title": "When the cache is full",
+      "body": [
+        "The cache has 4 GB; Ridgeline has 60 GB of trail data. When it's full, something must go. Most caches use <span class=\"term\">LRU</span> — evict the least recently used entry — so popular trails stay and forgotten ones leave.",
+        "Because a small slice of trails gets most views, caching just 7% of the data still yields about 90% hits. Doubling the cache would add only a few points."
+      ],
+      "changes": [
+        "~ Cache full: least recently used entries evicted"
+      ],
+      "metrics": {
+        "hitRate": 90,
+        "p50": 18,
+        "dbLoad": 17,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "full · evicting LRU",
+                "tone": "amber",
+                "icon": "layers"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.17
+          },
+          "card": {
+            "type": "panel",
+            "title": "Hit ratio vs cache size",
+            "icon": "chart",
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "1 GB",
+                "note": "71% hits",
+                "to": 0.71,
+                "tone": "amber"
+              },
+              {
+                "label": "4 GB (now)",
+                "note": "90% hits",
+                "to": 0.9,
+                "tone": "green",
+                "bold": true
+              },
+              {
+                "label": "8 GB",
+                "note": "94% hits",
+                "to": 0.94,
+                "tone": "green"
+              },
+              {
+                "label": "60 GB (all)",
+                "note": "99% hits",
+                "to": 0.99,
+                "tone": "gray"
+              }
+            ],
+            "lines": [
+              "# popular data is small"
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 90
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 10
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stampede",
+      "chapter": "problem",
+      "title": "Everyone misses at once",
+      "body": [
+        "7:00 a.m.: the cached “Summit forecast” — the most popular entry, read 1,500 times a second — expires. In the 300 ms it takes to rebuild, hundreds of requests all miss, and <b>every one</b> runs the same heavy query.",
+        "That's a <span class=\"term\">cache stampede</span> (thundering herd). Database CPU hits 99%, the rebuild itself slows down, more requests miss while waiting, and median latency jumps to 1.4 s."
+      ],
+      "changes": [
+        "~ Hot key expires",
+        "~ Hundreds of identical misses hit the database"
+      ],
+      "metrics": {
+        "hitRate": 41,
+        "p50": 1400,
+        "dbLoad": 99,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 20,
+            "label": "Hikers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.7
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "Summit forecast expired",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.99,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "same query × 400",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 41
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 59
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 4
+          }
+        ]
+      }
+    },
+    {
+      "short": "Calm herd",
+      "chapter": "solution",
+      "title": "One rebuild, everyone waits for it",
+      "body": [
+        "<span class=\"term\">Request coalescing</span>: on a miss, the first request takes a short lock and rebuilds the entry; the others wait briefly for its result, or get the slightly old value meanwhile (<span class=\"term\">stale-while-revalidate</span>). One query instead of hundreds.",
+        "Add <b>jitter</b> to TTLs — say 55–65 minutes instead of exactly 60 — so entries filled together don't all expire together."
+      ],
+      "changes": [
+        "+ Coalesce misses per key",
+        "+ Jittered TTLs",
+        "~ Database CPU 99% → 16%"
+      ],
+      "metrics": {
+        "hitRate": 91,
+        "p50": 17,
+        "dbLoad": 16,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 20,
+            "label": "Hikers"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35,
+            "tags": [
+              {
+                "text": "1 rebuild per key",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "TTL 60 min ± 5",
+                "tone": "green",
+                "icon": "clock"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.16
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 91
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 9
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 4
+          }
+        ]
+      },
+      "lab": {
+        "users": 50000,
+        "rps": 2000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Hikers"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Trail API"
+          },
+          {
+            "id": "redis",
+            "kind": "redis",
+            "label": "Cache"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "redis"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "The hot answer",
+      "body": [
+        "<ul class=\"takeaways\"><li>Cache answers that are read often and change rarely; uneven popularity makes small caches effective.</li><li>Cache-aside: check the cache, on a miss read the database and fill the cache.</li><li>Hit ratio is the number to watch — every miss costs a database trip.</li><li>TTLs bound staleness; delete keys on write for data that must be fresh.</li><li>LRU eviction keeps the popular set; coalescing and jitter stop stampedes.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next: caching again, but this time physically close to the user — CDNs."
+      },
+      "metrics": {
+        "hitRate": 91,
+        "p50": 17,
+        "dbLoad": 16,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -24,
+            "y1": -18,
+            "count": 14,
+            "label": "Hikers"
+          },
+          "ranger": {
+            "type": "device",
+            "x": 17,
+            "y": -5,
+            "label": "Ranger desk"
+          },
+          "app": {
+            "type": "block",
+            "x": 0,
+            "y": -6,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Trail",
+              "API"
+            ],
+            "cpu": 0.35
+          },
+          "cache": {
+            "type": "block",
+            "x": -8,
+            "y": 5,
+            "s": 3.6,
+            "h": 34,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Cache"
+            ],
+            "sub": "Redis · 4 GB",
+            "tags": [
+              {
+                "text": "Eagle Ridge: OPEN",
+                "tone": "green",
+                "icon": "signpost"
+              }
+            ]
+          },
+          "db": {
+            "type": "db",
+            "x": 8,
+            "y": 7,
+            "label": "Postgres",
+            "cpu": 0.16
+          }
+        },
+        "links": {
+          "in": {
+            "from": "users",
+            "to": "app",
+            "pts": [
+              "users",
+              "app"
+            ],
+            "label": "GET /trails/eagle-ridge",
+            "heads": "both"
+          },
+          "c": {
+            "from": "app",
+            "to": "cache",
+            "pts": [
+              "app",
+              "cache"
+            ],
+            "heads": "both"
+          },
+          "d": {
+            "from": "app",
+            "to": "db",
+            "pts": [
+              "app",
+              "db"
+            ],
+            "label": "SQL",
+            "heads": "both"
+          },
+          "rg": {
+            "from": "ranger",
+            "to": "app",
+            "pts": [
+              "ranger",
+              "app"
+            ],
+            "label": "trail update",
+            "heads": "end"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "in",
+                  "c"
+                ],
+                "weight": 91
+              },
+              {
+                "path": [
+                  "in",
+                  "d"
+                ],
+                "kind": "slow",
+                "weight": 9
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "rg",
+                  "d"
+                ],
+                "kind": "write"
+              },
+              {
+                "path": [
+                  "rg",
+                  "c"
+                ],
+                "kind": "kill"
+              }
+            ],
+            "rate": 0.4,
+            "hold": 0.3
+          }
+        ]
+      }
+    }
+  ]
+}

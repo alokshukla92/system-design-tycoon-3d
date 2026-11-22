@@ -1,0 +1,2935 @@
+{
+  "id": "all-or-nothing",
+  "title": "All or Nothing",
+  "summary": "Tripwell sells flight + hotel + car bundles, now split across three services. How do you keep a trip from being half-booked when there's no single database to roll back?",
+  "minutes": 11,
+  "level": "advanced",
+  "metrics": [
+    "allOrNothing",
+    "blocked",
+    "coord",
+    "p95"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "write",
+      "local write / undo"
+    ],
+    "msg",
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "See why splitting data breaks plain transactions",
+      "step": 1
+    },
+    {
+      "text": "Explain two-phase commit and why it blocks",
+      "step": 3
+    },
+    {
+      "text": "Build a saga with compensating actions",
+      "step": 5
+    },
+    {
+      "text": "Publish events reliably with an outbox and idempotent consumers",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "One DB",
+      "chapter": "setup",
+      "title": "Three bookings, one transaction",
+      "body": [
+        "<b>Tripwell</b> sells holiday bundles: a flight, a hotel room and a rental car, booked together. A traveller wants all three or none — a flight to Lisbon with no room is worse than no trip at all.",
+        "While everything lives in one database this is easy: wrap the three inserts in a <span class=\"term\">transaction</span>. If the car insert fails, <code>ROLLBACK</code> undoes the other two, and nobody ever sees a half-booked trip."
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "none",
+        "coord": "one DB transaction",
+        "p95": 180
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "db": {
+            "type": "db",
+            "x": 0,
+            "y": 12,
+            "label": "Tripwell DB",
+            "tags": [
+              {
+                "text": "BEGIN · 3 inserts · COMMIT",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "e2": {
+            "from": "trip",
+            "to": "db",
+            "pts": [
+              "trip",
+              "db"
+            ],
+            "label": "one transaction"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "Tripwell DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Half-booked",
+      "chapter": "problem",
+      "title": "No BEGIN across services",
+      "body": [
+        "Tripwell has since split into Flights, Hotels and Cars services, each with its own database — and there's no <code>BEGIN</code> that spans three databases owned by three teams.",
+        "The trip service books the seat (committed, card charged), then asks Hotels for a room — sold out. The seat stays sold. Without coordination, every partial failure leaves a traveller paying for a fragment of a trip."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Each local commit is permanent the moment it happens. A later failure can't reach back and undo it for you."
+      },
+      "changes": [
+        "+ Flights, Hotels and Cars own separate databases",
+        "~ Hotel booking fails after the seat is committed"
+      ],
+      "metrics": {
+        "allOrNothing": "no",
+        "blocked": "—",
+        "coord": "none",
+        "p95": 240
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB",
+            "tags": [
+              {
+                "text": "seat paid · no hotel",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ]
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "sold out",
+                "tone": "red",
+                "icon": "ban"
+              }
+            ]
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB"
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "label": "book seat"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "label": "book room",
+            "fail": 1,
+            "labelTone": "red"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "t_car": {
+            "from": "trip",
+            "to": "car",
+            "pts": [
+              "trip",
+              "car"
+            ]
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "t_fl",
+              "d_fl"
+            ],
+            "rate": 1.4,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e1",
+              "t_ho"
+            ],
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "trip",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "2PC",
+      "chapter": "technique",
+      "title": "Two-phase commit",
+      "body": [
+        "The textbook answer is <span class=\"term\">two-phase commit</span> (2PC). A coordinator first asks every participant to <b>prepare</b>: do the work, lock the rows, write it durably, and vote yes or no — but don't commit yet.",
+        "Only if all three vote yes does the coordinator send <b>commit</b>; any no means everyone aborts. The outcome is truly atomic. The price: every participant holds its locks from prepare until it hears the final decision."
+      ],
+      "changes": [
+        "+ Trip service becomes a 2PC coordinator",
+        "~ Each database prepares and holds locks",
+        "~ All three vote yes"
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "3 rows",
+        "coord": "2PC",
+        "p95": 410
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Coordinator"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "phase 1: votes 3/3 yes",
+                "tone": "green",
+                "icon": "listChecks"
+              }
+            ]
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB",
+            "tags": [
+              {
+                "text": "prepared · locked",
+                "tone": "amber",
+                "icon": "lock"
+              }
+            ]
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "prepared · locked",
+                "tone": "amber",
+                "icon": "lock"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB",
+            "tags": [
+              {
+                "text": "prepared · locked",
+                "tone": "amber",
+                "icon": "lock"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "label": "prepare?"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "label": "prepare? → yes"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "t_car": {
+            "from": "trip",
+            "to": "car",
+            "pts": [
+              "trip",
+              "car"
+            ],
+            "label": "prepare?"
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "t_fl",
+                  "d_fl"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "t_ho",
+                  "d_ho"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "t_car",
+                  "d_car"
+                ]
+              }
+            ],
+            "rate": 2,
+            "bounce": true,
+            "pattern": [
+              "ping",
+              "req"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "trip",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stuck",
+      "chapter": "problem",
+      "title": "The coordinator vanishes",
+      "body": [
+        "Halfway through, after all three have voted yes, the coordinator's machine dies. Each participant has promised to commit if told to — so it can't abort on its own, and it doesn't know the decision, so it can't commit either.",
+        "The prepared rows stay locked until the coordinator comes back. Other travellers trying to book the same rooms and cars wait behind those locks. 2PC is <b>blocking</b>: one slow or dead node stalls everyone else."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "That's why 2PC is rare between independently owned services. It lives on mainly inside a single database product or tightly run cluster."
+      },
+      "changes": [
+        "~ Coordinator crashes between prepare and commit",
+        "~ Prepared rows locked indefinitely",
+        "+ Other bookings queue behind the locks"
+      ],
+      "metrics": {
+        "allOrNothing": "stuck",
+        "blocked": "3 rows, ∞",
+        "coord": "2PC · down",
+        "p95": null
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Coordinator"
+            ],
+            "h": 34,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "crashed before COMMIT",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "dead": 1,
+            "heat": 0
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB",
+            "tags": [
+              {
+                "text": "prepared · waiting",
+                "tone": "red",
+                "icon": "lock"
+              }
+            ]
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "prepared · waiting",
+                "tone": "red",
+                "icon": "lock"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB",
+            "tags": [
+              {
+                "text": "prepared · waiting",
+                "tone": "red",
+                "icon": "lock"
+              }
+            ]
+          },
+          "other": {
+            "type": "crowd",
+            "x0": 18,
+            "x1": 24,
+            "y0": -14,
+            "y1": -9,
+            "count": 6,
+            "label": "Other bookings"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "style": "dashed"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "style": "dashed"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "t_car": {
+            "from": "trip",
+            "to": "car",
+            "pts": [
+              "trip",
+              "car"
+            ],
+            "style": "dashed"
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          },
+          "o1": {
+            "from": "other",
+            "to": "carDb",
+            "pts": [
+              "other",
+              "carDb"
+            ],
+            "label": "same cars?",
+            "labelTone": "red",
+            "fail": 1
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1"
+            ],
+            "rate": 1.2,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "o1"
+            ],
+            "rate": 1,
+            "kind": "slow"
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service",
+            "status": "crit"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "trip",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Saga",
+      "chapter": "solution",
+      "title": "A saga of local steps",
+      "body": [
+        "A <span class=\"term\">saga</span> gives up on one big atomic commit. The trip becomes a sequence of <b>local transactions</b> — book seat, book room, rent car — each committing immediately in its own service, so no lock is held across services.",
+        "Here an <span class=\"term\">orchestrator</span> drives the steps and records progress in a saga log, so if it restarts it knows exactly where it was. Each step comes paired with an undo."
+      ],
+      "changes": [
+        "~ Trip service becomes a saga orchestrator",
+        "+ Saga log records each completed step",
+        "- Cross-service locks"
+      ],
+      "metrics": {
+        "allOrNothing": "eventually",
+        "blocked": "none",
+        "coord": "saga · orchestrated",
+        "p95": 260
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Orchestrator"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "saga log: step 2 of 3",
+                "tone": "violet",
+                "icon": "listOrdered"
+              }
+            ]
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB",
+            "tags": [
+              {
+                "text": "local COMMIT",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "local COMMIT",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB",
+            "tags": [
+              {
+                "text": "local COMMIT",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "label": "1 · book seat"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "label": "2 · book room"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "t_car": {
+            "from": "trip",
+            "to": "car",
+            "pts": [
+              "trip",
+              "car"
+            ],
+            "label": "3 · rent car"
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "e1",
+                  "t_fl",
+                  "d_fl"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "t_ho",
+                  "d_ho"
+                ]
+              },
+              {
+                "path": [
+                  "e1",
+                  "t_car",
+                  "d_car"
+                ]
+              }
+            ],
+            "rate": 1.6,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "trip",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Compensate",
+      "chapter": "solution",
+      "title": "Undo by doing something new",
+      "body": [
+        "When step 3 fails — no cars left — the orchestrator runs <span class=\"term\">compensating actions</span> in reverse order: cancel the room, then refund the seat. A compensation isn't a rollback; it's a new, forward action that semantically undoes an earlier one.",
+        "Briefly, the world saw a seat that later vanished — so show it as <i>pending</i> until the saga ends, and make every compensation safe to retry."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Order steps so the one most likely to fail — or hardest to undo, like charging a card — runs last."
+      },
+      "changes": [
+        "~ Car rental fails",
+        "+ Cancel room, then refund seat",
+        "~ Trip ends with nothing booked"
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "none",
+        "coord": "saga · orchestrated",
+        "p95": 270
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Orchestrator"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "compensating 2 → 1",
+                "tone": "violet",
+                "icon": "undo"
+              }
+            ]
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB",
+            "tags": [
+              {
+                "text": "seat released",
+                "tone": "violet",
+                "icon": "undo"
+              }
+            ]
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "room released",
+                "tone": "violet",
+                "icon": "undo"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "label": "refund seat"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "label": "cancel room"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "t_car": {
+            "from": "trip",
+            "to": "car",
+            "pts": [
+              "trip",
+              "car"
+            ],
+            "label": "rent car → none left",
+            "fail": 1,
+            "labelTone": "red"
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "t_car"
+            ],
+            "rate": 1.2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "t_ho",
+                  "d_ho"
+                ]
+              },
+              {
+                "path": [
+                  "t_fl",
+                  "d_fl"
+                ]
+              }
+            ],
+            "rate": 1.4,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "trip",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Choreography",
+      "chapter": "tradeoff",
+      "title": "Orchestration or choreography",
+      "body": [
+        "The alternative is <span class=\"term\">choreography</span>: no conductor. Flights books a seat and emits <code>SeatBooked</code>; Hotels hears it, books a room and emits <code>RoomBooked</code>; Cars reacts in turn. Failures travel back the same way as events.",
+        "Choreography keeps services loosely coupled and has no central point of failure, but the flow lives nowhere — it's spread across event handlers. Orchestration puts the whole flow in one readable place. Many teams start choreographed and switch once a saga has more than three or four steps."
+      ],
+      "changes": [
+        "- Central orchestrator",
+        "+ Each service reacts to the previous step's event"
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "none",
+        "coord": "saga · choreographed",
+        "p95": 250
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "no central brain",
+                "tone": "gray",
+                "icon": "waypoints"
+              }
+            ]
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB"
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB"
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "label": "TripRequested"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          },
+          "f2h": {
+            "from": "fl",
+            "to": "ho",
+            "pts": [
+              "fl",
+              "ho"
+            ],
+            "label": "SeatBooked"
+          },
+          "h2c": {
+            "from": "ho",
+            "to": "car",
+            "pts": [
+              "ho",
+              "car"
+            ],
+            "label": "RoomBooked"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "t_fl",
+              "f2h",
+              "h2c"
+            ],
+            "rate": 1.2,
+            "kind": "msg"
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "d_fl"
+                ]
+              },
+              {
+                "path": [
+                  "d_ho"
+                ]
+              },
+              {
+                "path": [
+                  "d_car"
+                ]
+              }
+            ],
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "car"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lost event",
+      "chapter": "problem",
+      "title": "Committed, then silent",
+      "body": [
+        "Sagas run on messages, and there's a trap in every step: Hotels commits the room, then publishes <code>RoomBooked</code>. That's a <span class=\"term\">dual write</span> — two systems, no shared transaction.",
+        "If Hotels crashes between the two, the room is booked but the event is never sent. Cars never hears about the trip and the saga stalls forever. Publishing first is no better: then you can announce a booking that never committed."
+      ],
+      "changes": [
+        "~ Hotels crashes after COMMIT, before publishing",
+        "~ Cars never receives RoomBooked"
+      ],
+      "metrics": {
+        "allOrNothing": "no",
+        "blocked": "none",
+        "coord": "saga · choreographed",
+        "p95": 250
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "no central brain",
+                "tone": "gray",
+                "icon": "waypoints"
+              }
+            ]
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB"
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "crashed after COMMIT",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0.6
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "room booked",
+                "tone": "amber",
+                "icon": "check"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "never heard",
+                "tone": "gray",
+                "icon": "eyeOff"
+              }
+            ]
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ],
+            "label": "TripRequested"
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          },
+          "f2h": {
+            "from": "fl",
+            "to": "ho",
+            "pts": [
+              "fl",
+              "ho"
+            ],
+            "label": "SeatBooked"
+          },
+          "h2c": {
+            "from": "ho",
+            "to": "car",
+            "pts": [
+              "ho",
+              "car"
+            ],
+            "label": "RoomBooked",
+            "style": "cut",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "t_fl",
+              "f2h"
+            ],
+            "rate": 1.2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "d_ho"
+            ],
+            "rate": 1,
+            "kind": "write"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Outbox",
+      "chapter": "solution",
+      "title": "The transactional outbox",
+      "body": [
+        "The <span class=\"term\">outbox pattern</span> turns two writes into one. In the <b>same</b> local transaction, Hotels inserts the booking and a row into an <code>outbox</code> table describing the event. Either both are committed or neither is.",
+        "A separate relay reads new outbox rows (by polling, or by tailing the database's change log) and publishes them to the event log, marking each as sent. If the relay crashes, it simply resumes — so every committed booking is announced <b>at least once</b>."
+      ],
+      "changes": [
+        "+ Outbox table written in the booking transaction",
+        "+ Outbox relay publishes to the event log"
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "none",
+        "coord": "saga + outbox",
+        "p95": 255
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -16,
+            "x1": -8,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "ho": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "booking + outbox row, one tx",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "relay": {
+            "type": "block",
+            "x": 1,
+            "y": 15,
+            "s": 3,
+            "color": "slab",
+            "glyph": "send",
+            "label": [
+              "Outbox",
+              "Relay"
+            ],
+            "h": 26
+          },
+          "bus": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "RoomBooked",
+                "tone": "violet",
+                "icon": "mail"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 13,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 13,
+            "y": 15,
+            "label": "Cars DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "label": "book room"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ],
+            "label": "INSERT ×2"
+          },
+          "r1": {
+            "from": "hoDb",
+            "to": "relay",
+            "pts": [
+              "hoDb",
+              "relay"
+            ],
+            "label": "poll"
+          },
+          "r2": {
+            "from": "relay",
+            "to": "bus",
+            "pts": [
+              "relay",
+              "bus"
+            ],
+            "label": "publish"
+          },
+          "r3": {
+            "from": "bus",
+            "to": "car",
+            "pts": [
+              "bus",
+              "car"
+            ],
+            "label": "RoomBooked"
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "t_ho",
+              "d_ho"
+            ],
+            "rate": 1.2,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "r1",
+              "r2",
+              "r3",
+              "d_car"
+            ],
+            "rate": 1.2,
+            "kind": "msg"
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB",
+            "sub": "bookings + outbox"
+          },
+          {
+            "id": "relay",
+            "kind": "worker",
+            "label": "Outbox Relay"
+          },
+          {
+            "id": "bus",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "hoDb",
+            "to": "relay"
+          },
+          {
+            "from": "relay",
+            "to": "bus"
+          },
+          {
+            "from": "bus",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Idempotent",
+      "chapter": "technique",
+      "title": "At least once means maybe twice",
+      "body": [
+        "\"At least once\" has a catch: a relay that crashes after publishing but before marking the row sent publishes it again. Retries and redeliveries make duplicates too.",
+        "So every consumer must be <span class=\"term\">idempotent</span>: each message carries a unique key, and Cars stores processed keys in the same transaction as its work. A known key returns the earlier result — no second car."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Public APIs do the same with an Idempotency-Key header, so a retried payment is charged once."
+      },
+      "changes": [
+        "+ Every event carries an idempotency key",
+        "+ Cars stores processed keys with its writes",
+        "~ Duplicate RoomBooked ignored"
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "none",
+        "coord": "saga + outbox + keys",
+        "p95": 255
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -16,
+            "x1": -8,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": -12,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "ho": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Hotels DB",
+            "tags": [
+              {
+                "text": "booking + outbox row, one tx",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "relay": {
+            "type": "block",
+            "x": 1,
+            "y": 15,
+            "s": 3,
+            "color": "slab",
+            "glyph": "send",
+            "label": [
+              "Outbox",
+              "Relay"
+            ],
+            "h": 26
+          },
+          "bus": {
+            "type": "block",
+            "x": 1,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "RoomBooked",
+                "tone": "violet",
+                "icon": "mail"
+              }
+            ]
+          },
+          "car": {
+            "type": "block",
+            "x": 13,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "key ho-5521 seen → skip",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "carDb": {
+            "type": "db",
+            "x": 13,
+            "y": 15,
+            "label": "Cars DB",
+            "tags": [
+              {
+                "text": "processed_keys",
+                "tone": "paper",
+                "icon": "hash"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ],
+            "label": "book room"
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ],
+            "label": "INSERT ×2"
+          },
+          "r1": {
+            "from": "hoDb",
+            "to": "relay",
+            "pts": [
+              "hoDb",
+              "relay"
+            ],
+            "label": "poll"
+          },
+          "r2": {
+            "from": "relay",
+            "to": "bus",
+            "pts": [
+              "relay",
+              "bus"
+            ],
+            "label": "publish"
+          },
+          "r3": {
+            "from": "bus",
+            "to": "car",
+            "pts": [
+              "bus",
+              "car"
+            ],
+            "label": "RoomBooked ×2"
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "r1",
+              "r2",
+              "r3",
+              "d_car"
+            ],
+            "rate": 2.2,
+            "kind": "msg",
+            "pattern": [
+              "msg",
+              "msg",
+              "req"
+            ]
+          }
+        ]
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB",
+            "sub": "bookings + outbox"
+          },
+          {
+            "id": "relay",
+            "kind": "worker",
+            "label": "Outbox Relay"
+          },
+          {
+            "id": "bus",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "hoDb",
+            "to": "relay"
+          },
+          {
+            "from": "relay",
+            "to": "bus"
+          },
+          {
+            "from": "bus",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "All or nothing: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Separate databases</b> → no shared transaction; partial failure is the default</li><li><b>2PC</b> → atomic, but locks wait on the coordinator and block on failure</li><li><b>Saga</b> → local commits plus compensating actions, all-or-nothing eventually</li><li><b>Orchestration vs choreography</b> → one readable flow vs loosely coupled events</li><li><b>Outbox + idempotency</b> → no lost events, and duplicates are harmless</li></ul>"
+      ],
+      "metrics": {
+        "allOrNothing": "yes",
+        "blocked": "none",
+        "coord": "saga + outbox + keys",
+        "p95": 255
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -4,
+            "x1": 4,
+            "y0": -27,
+            "y1": -21,
+            "count": 9,
+            "label": "Travellers"
+          },
+          "trip": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "workflow",
+            "label": [
+              "Trip",
+              "Orchestrator"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "fl": {
+            "type": "block",
+            "x": -12,
+            "y": 3,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "plane",
+            "label": [
+              "Flights"
+            ],
+            "cpu": 0.3
+          },
+          "flDb": {
+            "type": "db",
+            "x": -12,
+            "y": 15,
+            "label": "Flights DB"
+          },
+          "ho": {
+            "type": "block",
+            "x": 0,
+            "y": 3,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "hotel",
+            "label": [
+              "Hotels"
+            ],
+            "cpu": 0.3
+          },
+          "hoDb": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Hotels DB"
+          },
+          "car": {
+            "type": "block",
+            "x": 12,
+            "y": 3,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "car",
+            "label": [
+              "Cars"
+            ],
+            "cpu": 0.3
+          },
+          "carDb": {
+            "type": "db",
+            "x": 12,
+            "y": 15,
+            "label": "Cars DB"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "trip",
+            "pts": [
+              "users",
+              "trip"
+            ],
+            "label": "POST /trip"
+          },
+          "t_fl": {
+            "from": "trip",
+            "to": "fl",
+            "pts": [
+              "trip",
+              "fl"
+            ]
+          },
+          "d_fl": {
+            "from": "fl",
+            "to": "flDb",
+            "pts": [
+              "fl",
+              "flDb"
+            ]
+          },
+          "t_ho": {
+            "from": "trip",
+            "to": "ho",
+            "pts": [
+              "trip",
+              "ho"
+            ]
+          },
+          "d_ho": {
+            "from": "ho",
+            "to": "hoDb",
+            "pts": [
+              "ho",
+              "hoDb"
+            ]
+          },
+          "t_car": {
+            "from": "trip",
+            "to": "car",
+            "pts": [
+              "trip",
+              "car"
+            ]
+          },
+          "d_car": {
+            "from": "car",
+            "to": "carDb",
+            "pts": [
+              "car",
+              "carDb"
+            ]
+          }
+        },
+        "flows": []
+      },
+      "lab": {
+        "users": 120000,
+        "rps": 400,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Travellers"
+          },
+          {
+            "id": "trip",
+            "kind": "api_server",
+            "label": "Trip Service"
+          },
+          {
+            "id": "fl",
+            "kind": "api_server",
+            "label": "Flights"
+          },
+          {
+            "id": "flDb",
+            "kind": "postgres",
+            "label": "Flights DB"
+          },
+          {
+            "id": "ho",
+            "kind": "api_server",
+            "label": "Hotels"
+          },
+          {
+            "id": "hoDb",
+            "kind": "postgres",
+            "label": "Hotels DB"
+          },
+          {
+            "id": "car",
+            "kind": "api_server",
+            "label": "Cars"
+          },
+          {
+            "id": "carDb",
+            "kind": "postgres",
+            "label": "Cars DB"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "trip"
+          },
+          {
+            "from": "trip",
+            "to": "fl"
+          },
+          {
+            "from": "fl",
+            "to": "flDb"
+          },
+          {
+            "from": "trip",
+            "to": "ho"
+          },
+          {
+            "from": "ho",
+            "to": "hoDb"
+          },
+          {
+            "from": "trip",
+            "to": "car"
+          },
+          {
+            "from": "car",
+            "to": "carDb"
+          }
+        ]
+      }
+    }
+  ]
+}

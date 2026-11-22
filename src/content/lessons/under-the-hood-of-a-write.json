@@ -1,0 +1,2329 @@
+{
+  "id": "under-the-hood-of-a-write",
+  "title": "Under the Hood of a Write",
+  "summary": "Pulsewise fitness bands stream 40,000 heart-rate samples a second. Follow one write into the storage engine: the write-ahead log, B-trees that update in place, and LSM-trees that never do.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "wps",
+    "diskPattern",
+    "lookupCost",
+    "crashSafe"
+  ],
+  "legend": [
+    "write",
+    "req",
+    "res",
+    [
+      "heavy",
+      "flush / merge"
+    ],
+    [
+      "ping",
+      "read probe"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Explain why a write-ahead log makes acknowledged writes survive a crash",
+      "step": 2
+    },
+    {
+      "text": "See how a B-tree updates pages in place, and why that means random I/O",
+      "step": 3
+    },
+    {
+      "text": "Follow an LSM-tree write: memtable, flush, SSTables, compaction",
+      "step": 5
+    },
+    {
+      "text": "Compare read and write amplification of both engines",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "A write",
+      "chapter": "setup",
+      "title": "What happens after INSERT?",
+      "body": [
+        "<b>Pulsewise</b> makes fitness bands. Every band uploads heart-rate samples, and the ingest API stores about <b>40,000 samples a second</b>, each roughly 100 bytes.",
+        "To the API, storing a sample is one <code>INSERT</code> and an “OK”. Inside the database a <span class=\"term\">storage engine</span> decides how those bytes reach the disk — and that choice sets how fast writes go, how fast reads go, and what survives a crash."
+      ],
+      "metrics": {
+        "wps": "40,000 needed",
+        "diskPattern": "?",
+        "lookupCost": "?",
+        "crashSafe": "?"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 8,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "eng": {
+            "type": "ghost",
+            "x": -1,
+            "y": -1,
+            "s": 5,
+            "h": 60,
+            "label": "storage engine"
+          },
+          "disk": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "disk",
+            "tags": [
+              {
+                "text": "SSD",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "heart-rate samples"
+          },
+          "e2": {
+            "from": "api",
+            "to": "eng",
+            "pts": [
+              "api",
+              "eng"
+            ],
+            "label": "INSERT"
+          },
+          "e3": {
+            "from": "eng",
+            "to": "disk",
+            "pts": [
+              "eng",
+              "disk"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 40000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "B-tree store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "RAM only",
+      "chapter": "problem",
+      "title": "Fast — until the power cuts",
+      "body": [
+        "The quickest engine imaginable changes the data in memory, replies “OK”, and copies memory to disk every few seconds. RAM is thousands of times faster than disk, so it flies.",
+        "Then a power cut hits. Everything written since the last copy — samples the API already confirmed — is gone. A database that forgets acknowledged writes isn't <span class=\"term\">durable</span>, and durability is the D in ACID."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "“OK” must mean “safe on disk”. If it only means “in memory”, the client has no idea which data to send again."
+      },
+      "changes": [
+        "+ Buffer pool in RAM",
+        "~ Power cut: buffer pool lost",
+        "~ Disk 8 s behind"
+      ],
+      "metrics": {
+        "wps": "40,000",
+        "diskPattern": "none",
+        "lookupCost": "1 (RAM)",
+        "crashSafe": "no"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 8,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Buffer pool"
+            ],
+            "sub": "RAM",
+            "dead": 1,
+            "heat": 0,
+            "cpu": -1,
+            "tags": [
+              {
+                "text": "power cut",
+                "tone": "red",
+                "icon": "power"
+              }
+            ]
+          },
+          "disk": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "disk",
+            "tags": [
+              {
+                "text": "8 s behind",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "What the crash took",
+            "icon": "alert",
+            "lines": [
+              "14:02:00  last flush to disk",
+              "14:02:08  power cut",
+              "! 8 s × 40,000 samples = 320,000 acked writes gone",
+              "# they were only ever in RAM"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "heart-rate samples"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "write + ack",
+            "fail": 0.6
+          },
+          "e3": {
+            "from": "mem",
+            "to": "disk",
+            "pts": [
+              "mem",
+              "disk"
+            ],
+            "label": "flush later",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Log first",
+      "chapter": "solution",
+      "title": "Write-ahead log: append, then ack",
+      "body": [
+        "Before touching any data page, the engine appends a short record describing the change to the end of a <span class=\"term\">write-ahead log</span> (WAL) and forces it to disk with <code>fsync</code>. Only then does it update the page in memory and reply.",
+        "Appending to the end of one file is the cheapest thing a disk can do. Pages are written back later in bulk (a <span class=\"term\">checkpoint</span>); after a crash, the engine replays the log from the last checkpoint and nothing acknowledged is lost."
+      ],
+      "changes": [
+        "+ WAL (append-only, fsync before ack)",
+        "~ Buffer pool back, flushed at checkpoints"
+      ],
+      "metrics": {
+        "wps": "40,000",
+        "diskPattern": "WAL: sequential",
+        "lookupCost": "1 (RAM)",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 8,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Buffer pool"
+            ],
+            "sub": "RAM"
+          },
+          "wal": {
+            "type": "block",
+            "x": 6,
+            "y": -8,
+            "s": 4,
+            "h": 22,
+            "color": "slab",
+            "glyph": "scroll",
+            "label": [
+              "WAL"
+            ],
+            "sub": "append-only",
+            "tags": [
+              {
+                "text": "fsync",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "disk": {
+            "type": "db",
+            "x": 8,
+            "y": 8,
+            "label": "data files",
+            "tags": [
+              {
+                "text": "updated later",
+                "tone": "paper",
+                "icon": "clock"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Write-ahead log",
+            "icon": "scroll",
+            "lines": [
+              "1. append the change to the end of the log",
+              "2. fsync — the bytes are on disk",
+              "3. apply to the page in RAM, then ack",
+              "= crash? replay the log since the last checkpoint",
+              "# one fsync can cover thousands of writes (group commit)"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "heart-rate samples"
+          },
+          "e4": {
+            "from": "api",
+            "to": "wal",
+            "pts": [
+              "api",
+              "wal"
+            ],
+            "label": "① append"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "② apply"
+          },
+          "e3": {
+            "from": "mem",
+            "to": "disk",
+            "pts": [
+              "mem",
+              "disk"
+            ],
+            "label": "checkpoint",
+            "style": "dashed"
+          },
+          "r1": {
+            "from": "wal",
+            "to": "mem",
+            "pts": [
+              "wal",
+              "mem"
+            ],
+            "label": "replay on restart",
+            "style": "off"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e4"
+            ],
+            "kind": "write",
+            "rate": 2.2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.2
+          },
+          {
+            "route": [
+              "e3"
+            ],
+            "kind": "heavy",
+            "rate": 0.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 40000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "B-tree store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "B-tree",
+      "chapter": "technique",
+      "title": "B-tree engines update pages in place",
+      "body": [
+        "Most relational databases keep table and index data in <span class=\"term\">B-trees</span> made of fixed-size pages (often 8 KB). Every key has exactly one home page; a write modifies that page in memory and the checkpoint writes the page back to <em>the same spot</em> on disk.",
+        "Reads love this: any key is a root-to-leaf walk of 3–4 pages, most of them cached. Writes pay: samples from different bands land in pages scattered across the disk."
+      ],
+      "changes": [
+        "+ B-tree pages on disk",
+        "~ Checkpoint writes pages back in place"
+      ],
+      "metrics": {
+        "wps": "40,000",
+        "diskPattern": "pages: random",
+        "lookupCost": "3–4 pages",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 8,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Buffer pool"
+            ],
+            "sub": "dirty pages"
+          },
+          "wal": {
+            "type": "block",
+            "x": 6,
+            "y": -8,
+            "s": 4,
+            "h": 22,
+            "color": "slab",
+            "glyph": "scroll",
+            "label": [
+              "WAL"
+            ],
+            "sub": "append-only",
+            "tags": [
+              {
+                "text": "sequential",
+                "tone": "green"
+              }
+            ]
+          },
+          "pg1": {
+            "type": "block",
+            "x": -3,
+            "y": 19,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "17"
+            ]
+          },
+          "pg2": {
+            "type": "block",
+            "x": 8,
+            "y": 22,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "902"
+            ]
+          },
+          "pg3": {
+            "type": "block",
+            "x": 17,
+            "y": 17,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "4,410"
+            ]
+          },
+          "pg4": {
+            "type": "block",
+            "x": 17,
+            "y": 7,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "61,337"
+            ]
+          },
+          "pg5": {
+            "type": "block",
+            "x": 14.5,
+            "y": -2.5,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "88,105"
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "B-tree: update in place",
+            "icon": "layers",
+            "lines": [
+              "each row lives in exactly one 8 KB page",
+              "a write dirties that page in RAM",
+              "checkpoint writes the page back to its own spot",
+              "= reads: root → branch → leaf, 3–4 pages",
+              "! pages are scattered → random disk writes"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "heart-rate samples"
+          },
+          "e4": {
+            "from": "api",
+            "to": "wal",
+            "pts": [
+              "api",
+              "wal"
+            ],
+            "label": "① append"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "② apply"
+          },
+          "p1": {
+            "from": "mem",
+            "to": "pg1",
+            "pts": [
+              "mem",
+              "pg1"
+            ],
+            "style": "dashed"
+          },
+          "p2": {
+            "from": "mem",
+            "to": "pg2",
+            "pts": [
+              "mem",
+              "pg2"
+            ],
+            "style": "dashed"
+          },
+          "p3": {
+            "from": "mem",
+            "to": "pg3",
+            "pts": [
+              "mem",
+              "pg3"
+            ],
+            "style": "dashed"
+          },
+          "p4": {
+            "from": "mem",
+            "to": "pg4",
+            "pts": [
+              "mem",
+              "pg4"
+            ],
+            "style": "dashed"
+          },
+          "p5": {
+            "from": "mem",
+            "to": "pg5",
+            "pts": [
+              "mem",
+              "pg5"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e4"
+            ],
+            "kind": "write",
+            "rate": 2.2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.2
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "p1"
+                ]
+              },
+              {
+                "path": [
+                  "p2"
+                ]
+              },
+              {
+                "path": [
+                  "p3"
+                ]
+              },
+              {
+                "path": [
+                  "p4"
+                ]
+              },
+              {
+                "path": [
+                  "p5"
+                ]
+              }
+            ],
+            "kind": "write",
+            "rate": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 40000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "B-tree store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "I/O wall",
+      "chapter": "problem",
+      "title": "Three times the bands, a random-write wall",
+      "body": [
+        "A holiday sale triples the bands: <b>120,000 samples a second</b>. Each sample touches a different page, so the checkpoint has to rewrite thousands of scattered 8 KB pages to persist a few hundred bytes in each.",
+        "That ratio — bytes the disk writes per byte you asked to store — is <span class=\"term\">write amplification</span>. The disk saturates on random writes, checkpoints fall behind, and the engine tops out near 52,000 samples a second."
+      ],
+      "changes": [
+        "~ Traffic ×3",
+        "~ Pages hot with random writes",
+        "~ API queueing"
+      ],
+      "metrics": {
+        "wps": "52,000 of 120,000",
+        "diskPattern": "pages: random",
+        "lookupCost": "3–4 pages",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 14,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0.35,
+            "cpu": 0.78,
+            "tags": [
+              {
+                "text": "queueing",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Buffer pool"
+            ],
+            "sub": "dirty pages",
+            "heat": 0.35,
+            "cpu": 0.78
+          },
+          "wal": {
+            "type": "block",
+            "x": 6,
+            "y": -8,
+            "s": 4,
+            "h": 22,
+            "color": "slab",
+            "glyph": "scroll",
+            "label": [
+              "WAL"
+            ],
+            "sub": "append-only",
+            "tags": [
+              {
+                "text": "sequential",
+                "tone": "green"
+              }
+            ]
+          },
+          "pg1": {
+            "type": "block",
+            "x": -3,
+            "y": 19,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "17"
+            ],
+            "heat": 0.8
+          },
+          "pg2": {
+            "type": "block",
+            "x": 8,
+            "y": 22,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "902"
+            ],
+            "heat": 0.8,
+            "tags": [
+              {
+                "text": "random I/O",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "pg3": {
+            "type": "block",
+            "x": 17,
+            "y": 17,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "4,410"
+            ],
+            "heat": 0.8
+          },
+          "pg4": {
+            "type": "block",
+            "x": 17,
+            "y": 7,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "61,337"
+            ],
+            "heat": 0.8
+          },
+          "pg5": {
+            "type": "block",
+            "x": 14.5,
+            "y": -2.5,
+            "s": 3,
+            "h": 20,
+            "color": "purple",
+            "glyph": "",
+            "label": [
+              "page",
+              "88,105"
+            ],
+            "heat": 0.8
+          },
+          "card": {
+            "type": "panel",
+            "title": "Disk bytes for one 100-byte sample",
+            "icon": "database",
+            "lines": [
+              "# random keys: neighbours in a page rarely change together"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "The sample",
+                "note": "100 B",
+                "to": 0.02,
+                "tone": "green"
+              },
+              {
+                "label": "WAL record",
+                "note": "~150 B",
+                "to": 0.04,
+                "tone": "green"
+              },
+              {
+                "label": "Page rewrite",
+                "note": "up to 8 KB",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "3× more bands"
+          },
+          "e4": {
+            "from": "api",
+            "to": "wal",
+            "pts": [
+              "api",
+              "wal"
+            ],
+            "label": "① append"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "② apply"
+          },
+          "p1": {
+            "from": "mem",
+            "to": "pg1",
+            "pts": [
+              "mem",
+              "pg1"
+            ],
+            "style": "dashed"
+          },
+          "p2": {
+            "from": "mem",
+            "to": "pg2",
+            "pts": [
+              "mem",
+              "pg2"
+            ],
+            "style": "dashed"
+          },
+          "p3": {
+            "from": "mem",
+            "to": "pg3",
+            "pts": [
+              "mem",
+              "pg3"
+            ],
+            "style": "dashed"
+          },
+          "p4": {
+            "from": "mem",
+            "to": "pg4",
+            "pts": [
+              "mem",
+              "pg4"
+            ],
+            "style": "dashed"
+          },
+          "p5": {
+            "from": "mem",
+            "to": "pg5",
+            "pts": [
+              "mem",
+              "pg5"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e4"
+            ],
+            "kind": "slow",
+            "rate": 2.4,
+            "bounce": true,
+            "hold": 0.6
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.4
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "p1"
+                ]
+              },
+              {
+                "path": [
+                  "p2"
+                ]
+              },
+              {
+                "path": [
+                  "p3"
+                ]
+              },
+              {
+                "path": [
+                  "p4"
+                ]
+              },
+              {
+                "path": [
+                  "p5"
+                ]
+              }
+            ],
+            "kind": "write",
+            "rate": 3.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 40000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "postgres",
+            "label": "B-tree store",
+            "sub": "samples",
+            "status": "crit"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "LSM-tree",
+      "chapter": "solution",
+      "title": "LSM-tree: buffer, sort, write once",
+      "body": [
+        "A <span class=\"term\">log-structured merge-tree</span> never updates data in place. Each write goes to the WAL (for durability) and into a <span class=\"term\">memtable</span>, an in-memory structure kept sorted by key.",
+        "When the memtable reaches ~64 MB it is written out in one go as a sorted, immutable file — an <span class=\"term\">SSTable</span> — and a fresh memtable starts. Every disk write is now a long sequential stream, so the same disk keeps up with all 120,000 samples a second."
+      ],
+      "changes": [
+        "- B-tree pages",
+        "~ Buffer pool → sorted memtable",
+        "+ Immutable SSTables flushed from memtable"
+      ],
+      "metrics": {
+        "wps": "120,000",
+        "diskPattern": "all sequential",
+        "lookupCost": "memtable + files",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 14,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Memtable"
+            ],
+            "sub": "sorted · 64 MB"
+          },
+          "wal": {
+            "type": "block",
+            "x": 6,
+            "y": -8,
+            "s": 4,
+            "h": 22,
+            "color": "slab",
+            "glyph": "scroll",
+            "label": [
+              "WAL"
+            ],
+            "sub": "append-only",
+            "tags": [
+              {
+                "text": "sequential",
+                "tone": "green"
+              }
+            ]
+          },
+          "sst1": {
+            "type": "block",
+            "x": -6.5,
+            "y": 24.5,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 1"
+            ]
+          },
+          "sst2": {
+            "type": "block",
+            "x": 2,
+            "y": 16,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 2"
+            ]
+          },
+          "sst3": {
+            "type": "block",
+            "x": 10.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 3"
+            ],
+            "tags": [
+              {
+                "text": "new",
+                "tone": "green"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "LSM-tree: never overwrite",
+            "icon": "listOrdered",
+            "lines": [
+              "writes go to the log and a sorted in-memory table",
+              "full memtable → written out as one sorted file",
+              "files (SSTables) are immutable once written",
+              "= the disk only ever sees long sequential writes"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "3× more bands"
+          },
+          "e4": {
+            "from": "api",
+            "to": "wal",
+            "pts": [
+              "api",
+              "wal"
+            ],
+            "label": "① append"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "② insert"
+          },
+          "f1": {
+            "from": "mem",
+            "to": "sst1",
+            "pts": [
+              "mem",
+              "sst1"
+            ],
+            "style": "off"
+          },
+          "f2": {
+            "from": "mem",
+            "to": "sst2",
+            "pts": [
+              "mem",
+              "sst2"
+            ],
+            "style": "off"
+          },
+          "f3": {
+            "from": "mem",
+            "to": "sst3",
+            "pts": [
+              "mem",
+              "sst3"
+            ],
+            "label": "flush when full"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e4"
+            ],
+            "kind": "write",
+            "rate": 2.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.6
+          },
+          {
+            "route": [
+              "f3"
+            ],
+            "kind": "heavy",
+            "rate": 0.35
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 120000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "LSM store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "LSM reads",
+      "chapter": "tradeoff",
+      "title": "Reads have more places to look",
+      "body": [
+        "A key may have been written many times, so its newest value could be in the memtable or in any SSTable. A read checks the memtable, then files from newest to oldest, and stops at the first hit.",
+        "To avoid opening every file, each SSTable carries a <span class=\"term\">bloom filter</span> — a tiny bit-array that answers “definitely not here” or “maybe here”. Most files are ruled out in memory, so a typical read touches one or two files."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Bloom filters can say “maybe” wrongly (a false positive costs one wasted read) but never say “no” when the key is there."
+      },
+      "changes": [
+        "~ Read probes memtable, then SSTables",
+        "+ Bloom filter verdict on each file"
+      ],
+      "metrics": {
+        "wps": "120,000",
+        "diskPattern": "all sequential",
+        "lookupCost": "1–2 files",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 14,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Memtable"
+            ],
+            "sub": "sorted · 64 MB"
+          },
+          "wal": {
+            "type": "block",
+            "x": 6,
+            "y": -8,
+            "s": 4,
+            "h": 22,
+            "color": "slab",
+            "glyph": "scroll",
+            "label": [
+              "WAL"
+            ],
+            "sub": "append-only",
+            "tags": [
+              {
+                "text": "sequential",
+                "tone": "green"
+              }
+            ]
+          },
+          "sst1": {
+            "type": "block",
+            "x": -6.5,
+            "y": 24.5,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 1"
+            ],
+            "tags": [
+              {
+                "text": "bloom: no",
+                "tone": "gray",
+                "icon": "filter"
+              }
+            ]
+          },
+          "sst2": {
+            "type": "block",
+            "x": 2,
+            "y": 16,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 2"
+            ],
+            "tags": [
+              {
+                "text": "bloom: maybe",
+                "tone": "green",
+                "icon": "filter"
+              }
+            ]
+          },
+          "sst3": {
+            "type": "block",
+            "x": 10.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 3"
+            ],
+            "tags": [
+              {
+                "text": "bloom: no",
+                "tone": "gray",
+                "icon": "filter"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Where is band 7's newest value?",
+            "icon": "search",
+            "lines": [
+              "1. memtable (newest data)",
+              "2. SSTables, newest → oldest, until found",
+              "# each file keeps a bloom filter: “definitely not here” or “maybe”",
+              "= most files are skipped without touching disk",
+              "! more files → more places to look"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "“last hour for band 7”"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "lookup"
+          },
+          "f1": {
+            "from": "mem",
+            "to": "sst1",
+            "pts": [
+              "mem",
+              "sst1"
+            ],
+            "style": "dashed"
+          },
+          "f2": {
+            "from": "mem",
+            "to": "sst2",
+            "pts": [
+              "mem",
+              "sst2"
+            ],
+            "style": "dashed"
+          },
+          "f3": {
+            "from": "mem",
+            "to": "sst3",
+            "pts": [
+              "mem",
+              "sst3"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "kind": "ping",
+            "rate": 1.2,
+            "bounce": true,
+            "hold": 0.4
+          },
+          {
+            "route": [
+              "f2"
+            ],
+            "kind": "ping",
+            "rate": 1.2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 120000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "LSM store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Compaction",
+      "chapter": "technique",
+      "title": "Compaction tidies up",
+      "body": [
+        "Left alone, SSTables pile up: reads slow down and old versions of overwritten or deleted keys waste disk. In the background, <span class=\"term\">compaction</span> merge-sorts several files into one, keeping only the newest value of each key and dropping deleted ones.",
+        "Merging sorted files is sequential too, but it rewrites the same data again and again as it moves into bigger files. That's the LSM's own write amplification — paid in the background instead of on the write path."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "If compaction can't keep up with writes, files accumulate and read latency creeps up. Leave disk bandwidth headroom for it."
+      },
+      "changes": [
+        "+ Merged SSTable",
+        "~ Old SSTables fade out after compaction"
+      ],
+      "metrics": {
+        "wps": "120,000",
+        "diskPattern": "all sequential",
+        "lookupCost": "1–2 files",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 14,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "mem": {
+            "type": "block",
+            "x": -8,
+            "y": 6,
+            "s": 4,
+            "h": 30,
+            "color": "yellow",
+            "glyph": "zap",
+            "label": [
+              "Memtable"
+            ],
+            "sub": "sorted · 64 MB"
+          },
+          "wal": {
+            "type": "block",
+            "x": 6,
+            "y": -8,
+            "s": 4,
+            "h": 22,
+            "color": "slab",
+            "glyph": "scroll",
+            "label": [
+              "WAL"
+            ],
+            "sub": "append-only",
+            "tags": [
+              {
+                "text": "sequential",
+                "tone": "green"
+              }
+            ]
+          },
+          "sst1": {
+            "type": "block",
+            "x": -6.5,
+            "y": 24.5,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 1"
+            ],
+            "dim": 0.4
+          },
+          "sst2": {
+            "type": "block",
+            "x": 2,
+            "y": 16,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 2"
+            ],
+            "dim": 0.4
+          },
+          "sst3": {
+            "type": "block",
+            "x": 10.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 20,
+            "color": "green",
+            "glyph": "listOrdered",
+            "label": [
+              "SST 3"
+            ],
+            "tags": [],
+            "dim": 0.4
+          },
+          "l1": {
+            "type": "block",
+            "x": 10,
+            "y": 24,
+            "s": 4.6,
+            "h": 26,
+            "color": "green",
+            "glyph": "layers",
+            "label": [
+              "Merged",
+              "SST"
+            ],
+            "tags": [
+              {
+                "text": "−30% size",
+                "tone": "green"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Compaction, in the background",
+            "icon": "merge",
+            "lines": [
+              "merge-sort several files into one",
+              "keep only the newest value of each key",
+              "drop deleted keys (tombstones)",
+              "= fewer files per read, less wasted space",
+              "! the same bytes get rewritten many times"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "3× more bands"
+          },
+          "e4": {
+            "from": "api",
+            "to": "wal",
+            "pts": [
+              "api",
+              "wal"
+            ],
+            "label": "① append"
+          },
+          "e2": {
+            "from": "api",
+            "to": "mem",
+            "pts": [
+              "api",
+              "mem"
+            ],
+            "label": "② insert"
+          },
+          "f1": {
+            "from": "mem",
+            "to": "sst1",
+            "pts": [
+              "mem",
+              "sst1"
+            ],
+            "style": "off"
+          },
+          "f2": {
+            "from": "mem",
+            "to": "sst2",
+            "pts": [
+              "mem",
+              "sst2"
+            ],
+            "style": "off"
+          },
+          "f3": {
+            "from": "mem",
+            "to": "sst3",
+            "pts": [
+              "mem",
+              "sst3"
+            ]
+          },
+          "c1": {
+            "from": "sst1",
+            "to": "l1",
+            "pts": [
+              "sst1",
+              "l1"
+            ],
+            "style": "dashed"
+          },
+          "c2": {
+            "from": "sst2",
+            "to": "l1",
+            "pts": [
+              "sst2",
+              "l1"
+            ],
+            "label": "compaction"
+          },
+          "c3": {
+            "from": "sst3",
+            "to": "l1",
+            "pts": [
+              "sst3",
+              "l1"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e4"
+            ],
+            "kind": "write",
+            "rate": 2.6,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e2"
+            ],
+            "kind": "write",
+            "rate": 2.6
+          },
+          {
+            "routes": [
+              {
+                "path": [
+                  "c1"
+                ]
+              },
+              {
+                "path": [
+                  "c2"
+                ]
+              },
+              {
+                "path": [
+                  "c3"
+                ]
+              }
+            ],
+            "fanout": true,
+            "kind": "heavy",
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 120000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "db",
+            "kind": "cassandra",
+            "label": "LSM store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "db"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Trade-offs",
+      "chapter": "tradeoff",
+      "title": "Read, write and space amplification",
+      "body": [
+        "<table class=\"compare\"><tbody><tr><th></th><th>B-tree</th><th>LSM-tree</th></tr><tr><td>Writes</td><td>in place, random</td><td>appends, sequential</td></tr><tr><td>Reads</td><td>3–4 pages, predictable</td><td>memtable + 1–N files</td></tr><tr><td>Extra disk work</td><td>page rewrites</td><td>compaction</td></tr><tr><td>Wasted space</td><td>half-empty pages</td><td>stale versions until merged</td></tr></tbody></table>",
+        "Pulsewise keeps user profiles (read-heavy, updated rarely) in a B-tree database and the sample stream (write-heavy, read by time range) in an LSM-based store."
+      ],
+      "changes": [
+        "~ Profiles in a B-tree engine",
+        "~ Samples in an LSM engine"
+      ],
+      "metrics": {
+        "wps": "120,000",
+        "diskPattern": "per engine",
+        "lookupCost": "per engine",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 14,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "bt": {
+            "type": "db",
+            "x": -7,
+            "y": 7,
+            "label": "B-tree engine",
+            "tags": [
+              {
+                "text": "read: 3–4 pages",
+                "tone": "green",
+                "icon": "search"
+              },
+              {
+                "text": "write: random",
+                "tone": "amber"
+              }
+            ]
+          },
+          "lsm": {
+            "type": "db",
+            "x": 7,
+            "y": -7,
+            "label": "LSM engine",
+            "tags": [
+              {
+                "text": "write: sequential",
+                "tone": "green",
+                "icon": "activity"
+              },
+              {
+                "text": "read: several files",
+                "tone": "amber"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Amplification (shorter is better)",
+            "icon": "gauge",
+            "lines": [
+              "# B-tree ▸ violet   LSM ▸ blue"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Write amp · B-tree",
+                "note": "page rewrites",
+                "to": 0.85,
+                "tone": "violet"
+              },
+              {
+                "label": "Write amp · LSM",
+                "note": "compaction",
+                "to": 0.4,
+                "tone": "blue"
+              },
+              {
+                "label": "Read amp · B-tree",
+                "note": "3–4 pages",
+                "to": 0.2,
+                "tone": "violet"
+              },
+              {
+                "label": "Read amp · LSM",
+                "note": "1–N files",
+                "to": 0.55,
+                "tone": "blue"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "samples"
+          },
+          "b1": {
+            "from": "api",
+            "to": "bt",
+            "pts": [
+              "api",
+              "bt"
+            ],
+            "label": "profile lookups"
+          },
+          "b2": {
+            "from": "api",
+            "to": "lsm",
+            "pts": [
+              "api",
+              "lsm"
+            ],
+            "label": "sample stream"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "b2"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          },
+          {
+            "route": [
+              "b1"
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      },
+      "lab": {
+        "users": 900000,
+        "rps": 120000,
+        "nodes": [
+          {
+            "id": "bands",
+            "kind": "users",
+            "label": "Bands"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Ingest API"
+          },
+          {
+            "id": "bt",
+            "kind": "postgres",
+            "label": "B-tree store",
+            "sub": "profiles"
+          },
+          {
+            "id": "lsm",
+            "kind": "cassandra",
+            "label": "LSM store",
+            "sub": "samples"
+          }
+        ],
+        "edges": [
+          {
+            "from": "bands",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "bt"
+          },
+          {
+            "from": "api",
+            "to": "lsm"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Every write, step by step",
+      "body": [
+        "<ul class=\"takeaways\"><li>A write is acknowledged only after its <b>WAL</b> record is on disk — that's durability.</li><li><b>B-trees</b> update fixed pages in place: cheap, predictable reads; random writes.</li><li><b>LSM-trees</b> buffer in a sorted memtable and flush immutable SSTables: sequential writes; reads check several files, helped by bloom filters.</li><li><b>Compaction</b> keeps LSM reads fast, at the cost of rewriting data in the background.</li></ul>"
+      ],
+      "metrics": {
+        "wps": "120,000",
+        "diskPattern": "per engine",
+        "lookupCost": "per engine",
+        "crashSafe": "yes"
+      },
+      "scene": {
+        "entities": {
+          "bands": {
+            "type": "crowd",
+            "x0": -17.2,
+            "x1": -10.8,
+            "y0": -25.2,
+            "y1": -18.8,
+            "count": 14,
+            "label": "Pulsewise bands"
+          },
+          "api": {
+            "type": "block",
+            "x": -10,
+            "y": -10,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Ingest",
+              "API"
+            ],
+            "heat": 0,
+            "cpu": 0.3
+          },
+          "bt": {
+            "type": "db",
+            "x": -7,
+            "y": 7,
+            "label": "B-tree engine",
+            "tags": [
+              {
+                "text": "read: 3–4 pages",
+                "tone": "green",
+                "icon": "search"
+              },
+              {
+                "text": "write: random",
+                "tone": "amber"
+              }
+            ]
+          },
+          "lsm": {
+            "type": "db",
+            "x": 7,
+            "y": -7,
+            "label": "LSM engine",
+            "tags": [
+              {
+                "text": "write: sequential",
+                "tone": "green",
+                "icon": "activity"
+              },
+              {
+                "text": "read: several files",
+                "tone": "amber"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Under the hood",
+            "icon": "listChecks",
+            "lines": [
+              "log first, then ack — that's what makes a write durable",
+              "B-tree: update pages in place; fast, predictable reads",
+              "LSM: buffer, flush sorted files, compact; fast writes",
+              "= pick the engine that matches your read/write mix"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "bands",
+            "to": "api",
+            "pts": [
+              "bands",
+              "api"
+            ],
+            "label": "samples"
+          },
+          "b1": {
+            "from": "api",
+            "to": "bt",
+            "pts": [
+              "api",
+              "bt"
+            ],
+            "label": "profile lookups"
+          },
+          "b2": {
+            "from": "api",
+            "to": "lsm",
+            "pts": [
+              "api",
+              "lsm"
+            ],
+            "label": "sample stream"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "b2"
+            ],
+            "kind": "write",
+            "rate": 2.8
+          },
+          {
+            "route": [
+              "b1"
+            ],
+            "bounce": true,
+            "rate": 1
+          }
+        ]
+      }
+    }
+  ]
+}

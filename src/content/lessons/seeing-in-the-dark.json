@@ -124,19 +124,12 @@
             "label": [
               "Templates"
             ],
-            "h": 40,
-            "tags": [
-              {
-                "text": "?",
-                "tone": "gray",
-                "icon": "eyeOff"
-              }
-            ]
+            "h": 40
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "card": {
@@ -375,8 +368,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "card": {
@@ -602,8 +595,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -935,8 +928,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -1276,8 +1269,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -1635,8 +1628,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -1993,8 +1986,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -2349,8 +2342,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -2681,8 +2674,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -3046,8 +3039,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {
@@ -3339,8 +3332,8 @@
           },
           "sdb": {
             "type": "db",
-            "x": -9,
-            "y": 3,
+            "x": -12,
+            "y": 1,
             "label": "subscribers"
           },
           "obs": {

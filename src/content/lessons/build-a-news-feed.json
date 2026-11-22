@@ -1,0 +1,3129 @@
+{
+  "id": "build-a-news-feed",
+  "title": "Build a News Feed",
+  "summary": "Design Murmur's home feed interview style: fan-out on read vs on write, the celebrity problem, a hybrid feed cache, ranking and pagination inside a 200 ms budget.",
+  "minutes": 13,
+  "level": "advanced",
+  "metrics": [
+    "feedMs",
+    "readWork",
+    "fanout",
+    "postDelay"
+  ],
+  "legend": [
+    "req",
+    "res",
+    "write",
+    "msg",
+    "heavy",
+    "slow",
+    [
+      "ping",
+      "ranking call"
+    ],
+    [
+      "empty",
+      "cache miss"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "Size a feed system from a few assumptions",
+      "step": 1
+    },
+    {
+      "text": "Compare fan-out on read with fan-out on write",
+      "step": 5
+    },
+    {
+      "text": "Solve the celebrity problem with a hybrid",
+      "step": 7
+    },
+    {
+      "text": "Fit ranking and pagination into a 200 ms budget",
+      "step": 8
+    },
+    {
+      "text": "Handle cold users, hot posts and deletes",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Requirements",
+      "chapter": "setup",
+      "title": "What a feed has to do",
+      "body": [
+        "The prompt: <i>“Design the home feed for a social app.”</i> <b>Murmur</b> lets people post short updates and scroll a feed of posts from everyone they follow.",
+        "Functional: post, follow, read a ranked, infinitely scrolling feed. Non-functional is where it gets interesting: the feed must open in <b>under 200 ms</b>, new posts should reach followers within seconds, and we can accept a little staleness in exchange for speed."
+      ],
+      "metrics": {
+        "feedMs": null,
+        "readWork": "—",
+        "fanout": null,
+        "postDelay": "—"
+      },
+      "scene": {
+        "entities": {
+          "kai": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Kai posts"
+          },
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -8,
+            "s": 7,
+            "h": 80,
+            "label": "Murmur?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Requirements",
+            "icon": "listChecks",
+            "lines": [
+              "**must**: post short text + photos",
+              "**must**: home feed of people you follow",
+              "**must**: feed opens in **< 200 ms**",
+              "**must**: new posts show up within seconds",
+              "# ranked, paged, infinite scroll",
+              "# a few seconds of staleness is fine"
+            ]
+          }
+        },
+        "links": {
+          "kb": {
+            "from": "kai",
+            "to": "box",
+            "pts": [
+              "kai",
+              "box"
+            ],
+            "label": "post"
+          },
+          "rb": {
+            "from": "readers",
+            "to": "box",
+            "pts": [
+              "readers",
+              "box"
+            ],
+            "label": "open feed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "kb"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "rb"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Estimates",
+      "chapter": "setup",
+      "title": "The numbers that shape it",
+      "body": [
+        "With <b>200 million</b> daily users opening the feed 10 times a day, that's about <b>23,000 feed reads a second</b>. Half of them post once a day: about 1,200 posts a second.",
+        "Reads outnumber writes 20 : 1, but every post has to reach ~200 followers. If we pre-compute feeds, that's ~230,000 small writes a second. Storing the latest 500 post ids per user costs about 4 KB each, roughly <b>800 GB</b> in total: a Redis cluster can hold that."
+      ],
+      "changes": [
+        "+ Panel: back-of-the-envelope numbers",
+        "~ Arrows labelled with rates"
+      ],
+      "metrics": {
+        "feedMs": null,
+        "readWork": "—",
+        "fanout": null,
+        "postDelay": "—"
+      },
+      "scene": {
+        "entities": {
+          "kai": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Kai posts"
+          },
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -8,
+            "s": 7,
+            "h": 80,
+            "label": "Murmur?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Back of the envelope",
+            "icon": "sigma",
+            "lines": [
+              "200 M daily users · follow ~200 each",
+              "10 feed opens/day → **~23,000 feeds/s** (peak ~70k)",
+              "100 M posts/day → **~1,200 posts/s**",
+              "push each post to ~200 followers",
+              "  → **~230,000 feed writes/s**",
+              "= 500 ids × 8 B per user → ~800 GB of feeds"
+            ]
+          }
+        },
+        "links": {
+          "kb": {
+            "from": "kai",
+            "to": "box",
+            "pts": [
+              "kai",
+              "box"
+            ],
+            "label": "1,200 /s"
+          },
+          "rb": {
+            "from": "readers",
+            "to": "box",
+            "pts": [
+              "readers",
+              "box"
+            ],
+            "label": "23,000 /s"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "kb"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "rb"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "API",
+      "chapter": "technique",
+      "title": "Two calls and a cursor",
+      "body": [
+        "Posting is a <code>POST</code> returning the new id. Reading is <code>GET /v1/feed</code>, twenty items at a time.",
+        "Paging uses an opaque <span class=\"term\">cursor</span>, not a page number. With offsets, every new post pushes older ones down, so “page 2” would repeat items the user just saw. A cursor says “continue after <i>this</i> item”."
+      ],
+      "changes": [
+        "+ Panel: post and feed endpoints",
+        "~ Arrows labelled with their endpoints"
+      ],
+      "metrics": {
+        "feedMs": null,
+        "readWork": "—",
+        "fanout": null,
+        "postDelay": "—"
+      },
+      "scene": {
+        "entities": {
+          "kai": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Kai posts"
+          },
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "box": {
+            "type": "ghost",
+            "x": 0,
+            "y": -8,
+            "s": 7,
+            "h": 80,
+            "label": "Murmur?"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The API",
+            "icon": "braces",
+            "lines": [
+              "POST /v1/posts { text, media_ids }",
+              "= 201 { post_id }",
+              "GET /v1/feed?cursor=…&limit=20",
+              "= 200 { items: [...], next_cursor }",
+              "# cursor, not page number: new posts",
+              "# would shift every offset and repeat items"
+            ]
+          }
+        },
+        "links": {
+          "kb": {
+            "from": "kai",
+            "to": "box",
+            "pts": [
+              "kai",
+              "box"
+            ],
+            "label": "POST /v1/posts"
+          },
+          "rb": {
+            "from": "readers",
+            "to": "box",
+            "pts": [
+              "readers",
+              "box"
+            ],
+            "label": "GET /v1/feed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "kb"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "rb"
+            ],
+            "bounce": true,
+            "rate": 2.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "High level",
+      "chapter": "solution",
+      "title": "First sketch: build the feed on read",
+      "body": [
+        "The simplest design: a <b>Post service</b> writes posts, and a <b>Feed service</b> builds each feed when it's opened. It asks the follow graph “who does this reader follow?”, fetches the newest posts from each, merges and sorts.",
+        "This is <span class=\"term\">fan-out on read</span>. Posting is cheap and new posts are visible instantly. But one feed open costs about 200 lookups."
+      ],
+      "changes": [
+        "- Placeholder box",
+        "+ Load balancer, Post and Feed services",
+        "+ Posts DB and Follow graph"
+      ],
+      "metrics": {
+        "feedMs": 350,
+        "readWork": 200,
+        "fanout": 1,
+        "postDelay": "instant"
+      },
+      "scene": {
+        "entities": {
+          "kai": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Kai posts"
+          },
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          }
+        },
+        "links": {
+          "kl": {
+            "from": "kai",
+            "to": "lb",
+            "pts": [
+              "kai",
+              "lb"
+            ],
+            "label": "POST /v1/posts"
+          },
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "label": "who do I follow?"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "latest from each"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "kl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fg"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 1.6,
+            "kind": "heavy"
+          }
+        ]
+      },
+      "lab": {
+        "users": 200000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "post",
+            "kind": "api_server",
+            "label": "Post service"
+          },
+          {
+            "id": "feed",
+            "kind": "api_server",
+            "label": "Feed service"
+          },
+          {
+            "id": "posts",
+            "kind": "cassandra",
+            "label": "Posts DB"
+          },
+          {
+            "id": "graph",
+            "kind": "mysql",
+            "label": "Follow graph"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "post"
+          },
+          {
+            "from": "lb",
+            "to": "feed"
+          },
+          {
+            "from": "post",
+            "to": "posts"
+          },
+          {
+            "from": "feed",
+            "to": "posts"
+          },
+          {
+            "from": "feed",
+            "to": "graph"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Pull at peak",
+      "chapter": "problem",
+      "title": "Deep dive: reads explode",
+      "body": [
+        "At the evening peak, 70,000 feed opens a second × 200 lookups is <b>14 million</b> post reads a second, almost all of them repeating work done seconds earlier for another reader.",
+        "The Posts DB runs hot, merging 200 timelines takes time, and feeds take well over a second to open. We spend the expensive work at the worst moment: while a person is waiting."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Fan-out on read makes the common operation (reading) pay for the rare one (posting)."
+      },
+      "changes": [
+        "~ Feed service merges 200 timelines per request",
+        "~ Posts DB overloaded"
+      ],
+      "metrics": {
+        "feedMs": 1400,
+        "readWork": 200,
+        "fanout": 1,
+        "postDelay": "instant"
+      },
+      "scene": {
+        "entities": {
+          "kai": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Kai posts"
+          },
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.96,
+            "heat": 1,
+            "tags": [
+              {
+                "text": "merge 200 timelines",
+                "tone": "red",
+                "icon": "merge"
+              }
+            ]
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB",
+            "heat": 0.9,
+            "cpu": 0.95,
+            "tags": [
+              {
+                "text": "14 M reads/s",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ]
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          }
+        },
+        "links": {
+          "kl": {
+            "from": "kai",
+            "to": "lb",
+            "pts": [
+              "kai",
+              "lb"
+            ],
+            "label": "POST /v1/posts"
+          },
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "label": "who do I follow?"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "×200 per feed",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "kl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fg"
+            ],
+            "bounce": true,
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 3,
+            "pattern": [
+              "heavy",
+              "slow",
+              "heavy",
+              "slow"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Push",
+      "chapter": "solution",
+      "title": "Fan-out on write",
+      "body": [
+        "Flip it. When Kai posts, the Post service emits a <b>PostCreated</b> event. <b>Fan-out workers</b> look up Kai's followers and prepend the post id to each follower's list in a <b>feed cache</b>.",
+        "Opening a feed is now one list read plus fetching 20 posts by id. The expensive work happens in the background, about two seconds after posting, while nobody is waiting."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Lists are capped at 500 ids: nobody scrolls further, and the cap keeps memory predictable."
+      },
+      "changes": [
+        "+ New-posts topic and fan-out workers",
+        "+ Feed cache (Redis lists)",
+        "- Per-request merge of 200 timelines"
+      ],
+      "metrics": {
+        "feedMs": 120,
+        "readWork": "1 list read",
+        "fanout": 200,
+        "postDelay": "~2 s"
+      },
+      "scene": {
+        "entities": {
+          "kai": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Kai posts"
+          },
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          },
+          "newPosts": {
+            "type": "block",
+            "x": -19,
+            "y": 3,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "New",
+              "posts"
+            ]
+          },
+          "fanout": {
+            "type": "block",
+            "x": -15,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Fan-out",
+              "workers"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "×200 writes",
+                "tone": "green",
+                "icon": "split"
+              }
+            ]
+          },
+          "feedCache": {
+            "type": "block",
+            "x": 10,
+            "y": 14,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Feed",
+              "cache"
+            ],
+            "sub": "500 ids / user"
+          }
+        },
+        "links": {
+          "kl": {
+            "from": "kai",
+            "to": "lb",
+            "pts": [
+              "kai",
+              "lb"
+            ],
+            "label": "POST /v1/posts"
+          },
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "style": "off"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "hydrate 20 posts"
+          },
+          "pq": {
+            "from": "post",
+            "to": "newPosts",
+            "pts": [
+              "post",
+              "newPosts"
+            ],
+            "label": "PostCreated",
+            "style": "dashed"
+          },
+          "qw": {
+            "from": "newPosts",
+            "to": "fanout",
+            "pts": [
+              "newPosts",
+              "fanout"
+            ],
+            "label": "consume"
+          },
+          "wg": {
+            "from": "fanout",
+            "to": "graph",
+            "pts": [
+              "fanout",
+              "graph"
+            ],
+            "label": "followers"
+          },
+          "wc": {
+            "from": "fanout",
+            "to": "feedCache",
+            "pts": [
+              "fanout",
+              "feedCache"
+            ],
+            "label": "prepend id"
+          },
+          "fc": {
+            "from": "feed",
+            "to": "feedCache",
+            "pts": [
+              "feed",
+              "feedCache"
+            ],
+            "label": "read my list"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "kl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "pq",
+              "qw",
+              "wg"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "rate": 0.5
+          },
+          {
+            "route": [
+              "wc"
+            ],
+            "kind": "write",
+            "rate": 1.6
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fc"
+            ],
+            "bounce": true,
+            "rate": 1.8
+          },
+          {
+            "route": [
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 0.9
+          }
+        ]
+      },
+      "lab": {
+        "users": 200000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "post",
+            "kind": "api_server",
+            "label": "Post service"
+          },
+          {
+            "id": "feed",
+            "kind": "api_server",
+            "label": "Feed service"
+          },
+          {
+            "id": "posts",
+            "kind": "cassandra",
+            "label": "Posts DB"
+          },
+          {
+            "id": "graph",
+            "kind": "mysql",
+            "label": "Follow graph"
+          },
+          {
+            "id": "newPosts",
+            "kind": "kafka",
+            "label": "New posts"
+          },
+          {
+            "id": "fanout",
+            "kind": "worker",
+            "label": "Fan-out workers"
+          },
+          {
+            "id": "feedCache",
+            "kind": "redis",
+            "label": "Feed cache"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "post"
+          },
+          {
+            "from": "lb",
+            "to": "feed"
+          },
+          {
+            "from": "post",
+            "to": "posts"
+          },
+          {
+            "from": "feed",
+            "to": "posts"
+          },
+          {
+            "from": "post",
+            "to": "newPosts"
+          },
+          {
+            "from": "newPosts",
+            "to": "fanout"
+          },
+          {
+            "from": "fanout",
+            "to": "graph"
+          },
+          {
+            "from": "fanout",
+            "to": "feedCache"
+          },
+          {
+            "from": "feed",
+            "to": "feedCache"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Celebrities",
+      "chapter": "problem",
+      "title": "Deep dive: the celebrity problem",
+      "body": [
+        "Then <b>Nova</b>, a singer with 50 million followers, posts. One post becomes <b>50 million</b> cache writes. At 25,000 writes a second for her share of the fleet, the last fans see it after about half an hour, and everyone else's posts queue behind hers.",
+        "Most of those writes are wasted, too: many of her followers won't open the app today."
+      ],
+      "changes": [
+        "~ Nova posts to 50 M followers",
+        "~ Fan-out backlog grows to 33 min"
+      ],
+      "metrics": {
+        "feedMs": 160,
+        "readWork": "1 list read",
+        "fanout": "50,000,000",
+        "postDelay": "~33 min"
+      },
+      "scene": {
+        "entities": {
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          },
+          "newPosts": {
+            "type": "block",
+            "x": -19,
+            "y": 3,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "New",
+              "posts"
+            ],
+            "tags": [
+              {
+                "text": "backlog: 33 min",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ],
+            "heat": 0.8
+          },
+          "fanout": {
+            "type": "block",
+            "x": -15,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Fan-out",
+              "workers"
+            ],
+            "cpu": 0.96,
+            "tags": [
+              {
+                "text": "50,000,000 writes",
+                "tone": "red",
+                "icon": "flame"
+              }
+            ],
+            "heat": 1
+          },
+          "feedCache": {
+            "type": "block",
+            "x": 10,
+            "y": 14,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Feed",
+              "cache"
+            ],
+            "sub": "500 ids / user"
+          },
+          "nova": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Nova · 50M fans"
+          },
+          "backlog": {
+            "type": "queue",
+            "x": -22,
+            "y": 5,
+            "n": 6,
+            "dir": [
+              0.35,
+              1
+            ]
+          }
+        },
+        "links": {
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "style": "off"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "hydrate 20 posts"
+          },
+          "pq": {
+            "from": "post",
+            "to": "newPosts",
+            "pts": [
+              "post",
+              "newPosts"
+            ],
+            "label": "PostCreated",
+            "style": "dashed"
+          },
+          "qw": {
+            "from": "newPosts",
+            "to": "fanout",
+            "pts": [
+              "newPosts",
+              "fanout"
+            ],
+            "label": "consume"
+          },
+          "wg": {
+            "from": "fanout",
+            "to": "graph",
+            "pts": [
+              "fanout",
+              "graph"
+            ],
+            "label": "followers"
+          },
+          "wc": {
+            "from": "fanout",
+            "to": "feedCache",
+            "pts": [
+              "fanout",
+              "feedCache"
+            ],
+            "label": "prepend id",
+            "fail": 0.2
+          },
+          "fc": {
+            "from": "feed",
+            "to": "feedCache",
+            "pts": [
+              "feed",
+              "feedCache"
+            ],
+            "label": "read my list"
+          },
+          "nl": {
+            "from": "nova",
+            "to": "lb",
+            "pts": [
+              "nova",
+              "lb"
+            ],
+            "label": "1 post"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "nl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "pq",
+              "qw"
+            ],
+            "kind": "msg",
+            "rate": 1.4
+          },
+          {
+            "route": [
+              "wc"
+            ],
+            "kind": "write",
+            "rate": 4
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fc"
+            ],
+            "bounce": true,
+            "rate": 1.4,
+            "pattern": [
+              "req",
+              "slow"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "short": "Hybrid",
+      "chapter": "solution",
+      "title": "Push for most, pull for a few",
+      "body": [
+        "Use both models. Accounts with more than about <b>100,000 followers</b> skip fan-out. At read time, the Feed service takes the reader's pre-built list and merges in recent posts from the handful of celebrities they follow, which stay hot in cache because millions read them.",
+        "Also skip pushing to followers who haven't opened the app in 30 days. Their feed is rebuilt on return."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Pick the model per account, not per system: push is cheap for small audiences; pull is cheap for huge ones."
+      },
+      "changes": [
+        "~ Post service skips fan-out for big accounts",
+        "~ Feed service merges list + celebrity posts"
+      ],
+      "metrics": {
+        "feedMs": 150,
+        "readWork": "1 + 3 celebs",
+        "fanout": "≤ 100k",
+        "postDelay": "~2 s"
+      },
+      "scene": {
+        "entities": {
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45,
+            "tags": [
+              {
+                "text": "list + 3 celebs",
+                "tone": "green",
+                "icon": "merge"
+              }
+            ],
+            "pills": "below"
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          },
+          "newPosts": {
+            "type": "block",
+            "x": -19,
+            "y": 3,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "New",
+              "posts"
+            ],
+            "tags": [
+              {
+                "text": "> 100k fans: no push",
+                "tone": "violet",
+                "icon": "split"
+              }
+            ]
+          },
+          "fanout": {
+            "type": "block",
+            "x": -15,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Fan-out",
+              "workers"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "normal accounts only",
+                "tone": "green",
+                "icon": "split"
+              }
+            ]
+          },
+          "feedCache": {
+            "type": "block",
+            "x": 10,
+            "y": 14,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Feed",
+              "cache"
+            ],
+            "sub": "500 ids / user"
+          },
+          "nova": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Nova · 50M fans"
+          }
+        },
+        "links": {
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "style": "off"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "celebs' recent posts",
+            "labelTone": "violet"
+          },
+          "pq": {
+            "from": "post",
+            "to": "newPosts",
+            "pts": [
+              "post",
+              "newPosts"
+            ],
+            "label": "PostCreated",
+            "style": "dashed"
+          },
+          "qw": {
+            "from": "newPosts",
+            "to": "fanout",
+            "pts": [
+              "newPosts",
+              "fanout"
+            ],
+            "label": "consume"
+          },
+          "wg": {
+            "from": "fanout",
+            "to": "graph",
+            "pts": [
+              "fanout",
+              "graph"
+            ],
+            "label": "followers"
+          },
+          "wc": {
+            "from": "fanout",
+            "to": "feedCache",
+            "pts": [
+              "fanout",
+              "feedCache"
+            ],
+            "label": "prepend id"
+          },
+          "fc": {
+            "from": "feed",
+            "to": "feedCache",
+            "pts": [
+              "feed",
+              "feedCache"
+            ],
+            "label": "read my list"
+          },
+          "nl": {
+            "from": "nova",
+            "to": "lb",
+            "pts": [
+              "nova",
+              "lb"
+            ],
+            "label": "1 post"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "nl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "pq",
+              "qw",
+              "wg"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "rate": 0.4
+          },
+          {
+            "route": [
+              "wc"
+            ],
+            "kind": "write",
+            "rate": 1.2
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fc"
+            ],
+            "bounce": true,
+            "rate": 1.8
+          },
+          {
+            "route": [
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 1.1
+          }
+        ]
+      },
+      "lab": {
+        "users": 200000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "post",
+            "kind": "api_server",
+            "label": "Post service"
+          },
+          {
+            "id": "feed",
+            "kind": "api_server",
+            "label": "Feed service"
+          },
+          {
+            "id": "posts",
+            "kind": "cassandra",
+            "label": "Posts DB"
+          },
+          {
+            "id": "graph",
+            "kind": "mysql",
+            "label": "Follow graph"
+          },
+          {
+            "id": "newPosts",
+            "kind": "kafka",
+            "label": "New posts"
+          },
+          {
+            "id": "fanout",
+            "kind": "worker",
+            "label": "Fan-out workers"
+          },
+          {
+            "id": "feedCache",
+            "kind": "redis",
+            "label": "Feed cache"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "post"
+          },
+          {
+            "from": "lb",
+            "to": "feed"
+          },
+          {
+            "from": "post",
+            "to": "posts"
+          },
+          {
+            "from": "feed",
+            "to": "posts"
+          },
+          {
+            "from": "post",
+            "to": "newPosts"
+          },
+          {
+            "from": "newPosts",
+            "to": "fanout"
+          },
+          {
+            "from": "fanout",
+            "to": "graph"
+          },
+          {
+            "from": "fanout",
+            "to": "feedCache"
+          },
+          {
+            "from": "feed",
+            "to": "feedCache"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Ranking",
+      "chapter": "technique",
+      "title": "Rank inside the budget",
+      "body": [
+        "Pure newest-first isn't what people want. The feed list gives ~500 <i>candidates</i>; a <b>Ranker</b> scores each on signals like recency, how often you interact with the author, and early engagement, then returns the top 20.",
+        "Everything must fit the 200 ms budget, so lay it out explicitly. Ranking gets the biggest slice; hydration is a single multi-get; and some headroom is left for the slow tail."
+      ],
+      "changes": [
+        "+ Ranker service",
+        "+ Panel: latency budget"
+      ],
+      "metrics": {
+        "feedMs": 150,
+        "readWork": "1 + 3 celebs",
+        "fanout": "≤ 100k",
+        "postDelay": "~2 s"
+      },
+      "scene": {
+        "entities": {
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45,
+            "tags": [],
+            "pills": "below"
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          },
+          "newPosts": {
+            "type": "block",
+            "x": -19,
+            "y": 3,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "New",
+              "posts"
+            ],
+            "tags": []
+          },
+          "fanout": {
+            "type": "block",
+            "x": -15,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Fan-out",
+              "workers"
+            ],
+            "cpu": 0.3,
+            "tags": []
+          },
+          "feedCache": {
+            "type": "block",
+            "x": 10,
+            "y": 14,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Feed",
+              "cache"
+            ],
+            "sub": "500 ids / user"
+          },
+          "nova": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Nova · 50M fans"
+          },
+          "ranker": {
+            "type": "block",
+            "x": 20,
+            "y": -5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "sparkles",
+            "label": [
+              "Ranker"
+            ],
+            "cpu": 0.5,
+            "tags": [
+              {
+                "text": "top 20 of 500",
+                "tone": "violet",
+                "icon": "sparkles"
+              }
+            ],
+            "pills": "below"
+          },
+          "card": {
+            "type": "panel",
+            "title": "The 200 ms budget",
+            "icon": "timer",
+            "lines": [
+              "# one feed request, server side"
+            ],
+            "chart": "bars",
+            "w": 260,
+            "bars": [
+              {
+                "label": "Read feed list",
+                "note": "0–5 ms",
+                "from": 0,
+                "to": 0.025,
+                "tone": "green"
+              },
+              {
+                "label": "Hydrate posts",
+                "note": "5–35 ms",
+                "from": 0.025,
+                "to": 0.175,
+                "tone": "blue"
+              },
+              {
+                "label": "Rank 500 → 20",
+                "note": "35–110 ms",
+                "from": 0.175,
+                "to": 0.55,
+                "tone": "violet",
+                "bold": true
+              },
+              {
+                "label": "Serialize + send",
+                "note": "110–150 ms",
+                "from": 0.55,
+                "to": 0.75,
+                "tone": "amber"
+              },
+              {
+                "label": "Headroom",
+                "note": "150–200 ms",
+                "from": 0.75,
+                "to": 1,
+                "tone": "gray"
+              }
+            ]
+          }
+        },
+        "links": {
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "style": "off"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "hydrate posts"
+          },
+          "pq": {
+            "from": "post",
+            "to": "newPosts",
+            "pts": [
+              "post",
+              "newPosts"
+            ],
+            "label": "PostCreated",
+            "style": "dashed"
+          },
+          "qw": {
+            "from": "newPosts",
+            "to": "fanout",
+            "pts": [
+              "newPosts",
+              "fanout"
+            ],
+            "label": "consume"
+          },
+          "wg": {
+            "from": "fanout",
+            "to": "graph",
+            "pts": [
+              "fanout",
+              "graph"
+            ],
+            "label": "followers"
+          },
+          "wc": {
+            "from": "fanout",
+            "to": "feedCache",
+            "pts": [
+              "fanout",
+              "feedCache"
+            ],
+            "label": "prepend id"
+          },
+          "fc": {
+            "from": "feed",
+            "to": "feedCache",
+            "pts": [
+              "feed",
+              "feedCache"
+            ],
+            "label": "read my list"
+          },
+          "nl": {
+            "from": "nova",
+            "to": "lb",
+            "pts": [
+              "nova",
+              "lb"
+            ],
+            "label": "1 post"
+          },
+          "fr": {
+            "from": "feed",
+            "to": "ranker",
+            "pts": [
+              "feed",
+              "ranker"
+            ],
+            "label": "score"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "nl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "route": [
+              "pq",
+              "qw",
+              "wg"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "route": [
+              "wc"
+            ],
+            "kind": "write",
+            "rate": 1
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fc"
+            ],
+            "bounce": true,
+            "rate": 1.5
+          },
+          {
+            "route": [
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "fr"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 200000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "post",
+            "kind": "api_server",
+            "label": "Post service"
+          },
+          {
+            "id": "feed",
+            "kind": "api_server",
+            "label": "Feed service"
+          },
+          {
+            "id": "posts",
+            "kind": "cassandra",
+            "label": "Posts DB"
+          },
+          {
+            "id": "graph",
+            "kind": "mysql",
+            "label": "Follow graph"
+          },
+          {
+            "id": "newPosts",
+            "kind": "kafka",
+            "label": "New posts"
+          },
+          {
+            "id": "fanout",
+            "kind": "worker",
+            "label": "Fan-out workers"
+          },
+          {
+            "id": "feedCache",
+            "kind": "redis",
+            "label": "Feed cache"
+          },
+          {
+            "id": "ranker",
+            "kind": "api_server",
+            "label": "Ranker"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "post"
+          },
+          {
+            "from": "lb",
+            "to": "feed"
+          },
+          {
+            "from": "post",
+            "to": "posts"
+          },
+          {
+            "from": "feed",
+            "to": "posts"
+          },
+          {
+            "from": "post",
+            "to": "newPosts"
+          },
+          {
+            "from": "newPosts",
+            "to": "fanout"
+          },
+          {
+            "from": "fanout",
+            "to": "graph"
+          },
+          {
+            "from": "fanout",
+            "to": "feedCache"
+          },
+          {
+            "from": "feed",
+            "to": "feedCache"
+          },
+          {
+            "from": "feed",
+            "to": "ranker"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Edge cases",
+      "chapter": "tradeoff",
+      "title": "Pages, cold users, hot posts",
+      "body": [
+        "Pagination: the cursor holds the <code>(score, post_id)</code> of the last item, read against a short-lived snapshot of the ranked list, so page 2 never repeats page 1.",
+        "<b>Lia</b> returns after three months. No list exists for her, so her first feed is rebuilt the slow way, by pulling from the people she follows, then cached. A viral post becomes a hot key: replicate it across cache nodes. Deleted posts are filtered out when hydrating."
+      ],
+      "changes": [
+        "+ Lia, an inactive user, returns",
+        "~ Feed rebuilt from the follow graph",
+        "+ Panel: pagination and edge cases"
+      ],
+      "metrics": {
+        "feedMs": 600,
+        "readWork": "rebuild once",
+        "fanout": "≤ 100k",
+        "postDelay": "~2 s"
+      },
+      "scene": {
+        "entities": {
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45,
+            "tags": [],
+            "pills": "below"
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          },
+          "newPosts": {
+            "type": "block",
+            "x": -19,
+            "y": 3,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "New",
+              "posts"
+            ],
+            "tags": []
+          },
+          "fanout": {
+            "type": "block",
+            "x": -15,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Fan-out",
+              "workers"
+            ],
+            "cpu": 0.3,
+            "tags": []
+          },
+          "feedCache": {
+            "type": "block",
+            "x": 10,
+            "y": 14,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Feed",
+              "cache"
+            ],
+            "sub": "500 ids / user",
+            "tags": [
+              {
+                "text": "no list for Lia",
+                "tone": "amber",
+                "icon": "alert"
+              }
+            ]
+          },
+          "nova": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Nova · 50M fans"
+          },
+          "ranker": {
+            "type": "block",
+            "x": 20,
+            "y": -5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "sparkles",
+            "label": [
+              "Ranker"
+            ],
+            "cpu": 0.5,
+            "tags": [],
+            "pills": "below"
+          },
+          "lia": {
+            "type": "device",
+            "x": 9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Lia, back after 3 months"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Pages and edge cases",
+            "icon": "listOrdered",
+            "lines": [
+              "next_cursor = (score, post_id) of last item",
+              "= session snapshot: page 2 never repeats page 1",
+              "! inactive 30+ days → no pushes, rebuild on return",
+              "! viral post → hot key: replicate it in the post cache",
+              "! deleted post → filtered out at hydrate time"
+            ]
+          }
+        },
+        "links": {
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "style": "solid",
+            "label": "rebuild: who she follows",
+            "labelTone": "amber"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "hydrate posts"
+          },
+          "pq": {
+            "from": "post",
+            "to": "newPosts",
+            "pts": [
+              "post",
+              "newPosts"
+            ],
+            "label": "PostCreated",
+            "style": "dashed"
+          },
+          "qw": {
+            "from": "newPosts",
+            "to": "fanout",
+            "pts": [
+              "newPosts",
+              "fanout"
+            ],
+            "label": "consume"
+          },
+          "wg": {
+            "from": "fanout",
+            "to": "graph",
+            "pts": [
+              "fanout",
+              "graph"
+            ],
+            "label": "followers"
+          },
+          "wc": {
+            "from": "fanout",
+            "to": "feedCache",
+            "pts": [
+              "fanout",
+              "feedCache"
+            ],
+            "label": "prepend id"
+          },
+          "fc": {
+            "from": "feed",
+            "to": "feedCache",
+            "pts": [
+              "feed",
+              "feedCache"
+            ],
+            "label": "read my list"
+          },
+          "nl": {
+            "from": "nova",
+            "to": "lb",
+            "pts": [
+              "nova",
+              "lb"
+            ],
+            "label": "1 post"
+          },
+          "fr": {
+            "from": "feed",
+            "to": "ranker",
+            "pts": [
+              "feed",
+              "ranker"
+            ],
+            "label": "score"
+          },
+          "ll": {
+            "from": "lia",
+            "to": "lb",
+            "pts": [
+              "lia",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "ll",
+              "lf",
+              "fc"
+            ],
+            "bounce": true,
+            "rate": 0.8,
+            "kind": "empty"
+          },
+          {
+            "route": [
+              "fg"
+            ],
+            "bounce": true,
+            "rate": 0.9,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 1.4,
+            "kind": "heavy"
+          },
+          {
+            "route": [
+              "fc"
+            ],
+            "kind": "write",
+            "rate": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Murmur's feed",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Fan-out on read</b>: cheap posts, expensive reads. Fine at small scale.</li><li><b>Fan-out on write</b>: pre-built feeds in a cache; reads become one list fetch.</li><li><b>Celebrities break push</b>: go hybrid, pull big accounts at read time.</li><li>Skip inactive users; rebuild their feed on return.</li><li><b>Rank</b> a few hundred candidates within an explicit latency budget.</li><li><b>Cursor pagination</b> over a snapshot avoids duplicates.</li></ul>"
+      ],
+      "metrics": {
+        "feedMs": 150,
+        "readWork": "1 + 3 celebs",
+        "fanout": "≤ 100k",
+        "postDelay": "~2 s"
+      },
+      "scene": {
+        "entities": {
+          "readers": {
+            "type": "crowd",
+            "x0": 5,
+            "x1": 13,
+            "y0": -31,
+            "y1": -25,
+            "count": 12,
+            "label": "Readers"
+          },
+          "lb": {
+            "type": "block",
+            "x": 0,
+            "y": -17,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "balancer",
+            "label": [
+              "Load",
+              "Balancer"
+            ],
+            "pills": "below"
+          },
+          "post": {
+            "type": "block",
+            "x": -10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Post",
+              "service"
+            ],
+            "cpu": 0.2
+          },
+          "feed": {
+            "type": "block",
+            "x": 10,
+            "y": -5,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Feed",
+              "service"
+            ],
+            "cpu": 0.45,
+            "tags": [],
+            "pills": "below"
+          },
+          "posts": {
+            "type": "db",
+            "x": -10,
+            "y": 7,
+            "label": "Posts DB"
+          },
+          "graph": {
+            "type": "db",
+            "x": 2,
+            "y": 9,
+            "label": "Follow graph"
+          },
+          "newPosts": {
+            "type": "block",
+            "x": -19,
+            "y": 3,
+            "s": 3.4,
+            "color": "green",
+            "glyph": "inbox",
+            "label": [
+              "New",
+              "posts"
+            ],
+            "tags": []
+          },
+          "fanout": {
+            "type": "block",
+            "x": -15,
+            "y": 14,
+            "s": 3.2,
+            "color": "purple",
+            "glyph": "cpu",
+            "label": [
+              "Fan-out",
+              "workers"
+            ],
+            "cpu": 0.3,
+            "tags": []
+          },
+          "feedCache": {
+            "type": "block",
+            "x": 10,
+            "y": 14,
+            "s": 3.6,
+            "color": "orange",
+            "glyph": "zap",
+            "label": [
+              "Feed",
+              "cache"
+            ],
+            "sub": "500 ids / user"
+          },
+          "nova": {
+            "type": "device",
+            "x": -9,
+            "y": -28,
+            "form": "phone",
+            "w": 4.4,
+            "d": 4.4,
+            "label": "Nova · 50M fans"
+          },
+          "ranker": {
+            "type": "block",
+            "x": 20,
+            "y": -5,
+            "s": 3.4,
+            "color": "purple",
+            "glyph": "sparkles",
+            "label": [
+              "Ranker"
+            ],
+            "cpu": 0.5,
+            "tags": [],
+            "pills": "below"
+          }
+        },
+        "links": {
+          "rl": {
+            "from": "readers",
+            "to": "lb",
+            "pts": [
+              "readers",
+              "lb"
+            ],
+            "label": "GET /v1/feed"
+          },
+          "lp": {
+            "from": "lb",
+            "to": "post",
+            "pts": [
+              "lb",
+              "post"
+            ]
+          },
+          "lf": {
+            "from": "lb",
+            "to": "feed",
+            "pts": [
+              "lb",
+              "feed"
+            ]
+          },
+          "pp": {
+            "from": "post",
+            "to": "posts",
+            "pts": [
+              "post",
+              "posts"
+            ],
+            "label": "insert"
+          },
+          "fg": {
+            "from": "feed",
+            "to": "graph",
+            "pts": [
+              "feed",
+              "graph"
+            ],
+            "style": "off"
+          },
+          "fp": {
+            "from": "feed",
+            "to": "posts",
+            "pts": [
+              "feed",
+              "posts"
+            ],
+            "label": "hydrate posts"
+          },
+          "pq": {
+            "from": "post",
+            "to": "newPosts",
+            "pts": [
+              "post",
+              "newPosts"
+            ],
+            "label": "PostCreated",
+            "style": "dashed"
+          },
+          "qw": {
+            "from": "newPosts",
+            "to": "fanout",
+            "pts": [
+              "newPosts",
+              "fanout"
+            ],
+            "label": "consume"
+          },
+          "wg": {
+            "from": "fanout",
+            "to": "graph",
+            "pts": [
+              "fanout",
+              "graph"
+            ],
+            "label": "followers"
+          },
+          "wc": {
+            "from": "fanout",
+            "to": "feedCache",
+            "pts": [
+              "fanout",
+              "feedCache"
+            ],
+            "label": "prepend id"
+          },
+          "fc": {
+            "from": "feed",
+            "to": "feedCache",
+            "pts": [
+              "feed",
+              "feedCache"
+            ],
+            "label": "read my list"
+          },
+          "nl": {
+            "from": "nova",
+            "to": "lb",
+            "pts": [
+              "nova",
+              "lb"
+            ],
+            "label": "1 post"
+          },
+          "fr": {
+            "from": "feed",
+            "to": "ranker",
+            "pts": [
+              "feed",
+              "ranker"
+            ],
+            "label": "score"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "nl",
+              "lp",
+              "pp"
+            ],
+            "kind": "write",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "route": [
+              "pq",
+              "qw",
+              "wg"
+            ],
+            "kind": "msg",
+            "bounce": true,
+            "rate": 0.3
+          },
+          {
+            "route": [
+              "wc"
+            ],
+            "kind": "write",
+            "rate": 1
+          },
+          {
+            "route": [
+              "rl",
+              "lf",
+              "fc"
+            ],
+            "bounce": true,
+            "rate": 1.5
+          },
+          {
+            "route": [
+              "fp"
+            ],
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "fr"
+            ],
+            "kind": "ping",
+            "bounce": true,
+            "rate": 1.2
+          }
+        ]
+      },
+      "lab": {
+        "users": 200000000,
+        "rps": 23000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Readers"
+          },
+          {
+            "id": "lb",
+            "kind": "load_balancer",
+            "label": "Load Balancer"
+          },
+          {
+            "id": "post",
+            "kind": "api_server",
+            "label": "Post service"
+          },
+          {
+            "id": "feed",
+            "kind": "api_server",
+            "label": "Feed service"
+          },
+          {
+            "id": "posts",
+            "kind": "cassandra",
+            "label": "Posts DB"
+          },
+          {
+            "id": "graph",
+            "kind": "mysql",
+            "label": "Follow graph"
+          },
+          {
+            "id": "newPosts",
+            "kind": "kafka",
+            "label": "New posts"
+          },
+          {
+            "id": "fanout",
+            "kind": "worker",
+            "label": "Fan-out workers"
+          },
+          {
+            "id": "feedCache",
+            "kind": "redis",
+            "label": "Feed cache"
+          },
+          {
+            "id": "ranker",
+            "kind": "api_server",
+            "label": "Ranker"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "lb"
+          },
+          {
+            "from": "lb",
+            "to": "post"
+          },
+          {
+            "from": "lb",
+            "to": "feed"
+          },
+          {
+            "from": "post",
+            "to": "posts"
+          },
+          {
+            "from": "feed",
+            "to": "posts"
+          },
+          {
+            "from": "post",
+            "to": "newPosts"
+          },
+          {
+            "from": "newPosts",
+            "to": "fanout"
+          },
+          {
+            "from": "fanout",
+            "to": "graph"
+          },
+          {
+            "from": "fanout",
+            "to": "feedCache"
+          },
+          {
+            "from": "feed",
+            "to": "feedCache"
+          },
+          {
+            "from": "feed",
+            "to": "ranker"
+          }
+        ]
+      }
+    }
+  ]
+}

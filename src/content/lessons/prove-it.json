@@ -1,0 +1,1952 @@
+{
+  "id": "prove-it",
+  "title": "Prove It",
+  "summary": "Nestegg, a savings app, has to know who is really logging in. Store passwords safely, choose between sessions and tokens, and stop stolen passwords from working at all.",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "leak",
+    "stuffing",
+    "mfa"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "poison",
+      "stolen password"
+    ],
+    [
+      "write",
+      "signed proof"
+    ],
+    [
+      "ping",
+      "one-time code"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Store passwords with a slow, salted hash",
+      "step": 2
+    },
+    {
+      "text": "Compare server sessions with signed tokens",
+      "step": 4
+    },
+    {
+      "text": "Stop credential stuffing with a second factor",
+      "step": 6
+    },
+    {
+      "text": "Delegate login with OAuth 2.0 and OpenID Connect",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Plaintext",
+      "chapter": "setup",
+      "title": "Passwords in a column",
+      "body": [
+        "<span class=\"term\">Authentication</span> answers one question: <i>are you really who you claim to be?</i> <b>Nestegg</b>, a savings app, started the simple way — a users table with the password stored as typed, compared with <code>==</code> on login.",
+        "It works. But anyone who ever reads that table — a backup on a lost laptop, a SQL injection, a curious insider — now has every customer's password. And since people reuse passwords, also their email and their bank."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Never store a password you can read back. If you can recover it, so can whoever steals your database."
+      },
+      "metrics": {
+        "leak": "all passwords",
+        "stuffing": "—",
+        "mfa": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "password: hunter2",
+                "tone": "red",
+                "icon": "eyeOff"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "users table",
+            "icon": "database",
+            "lines": [
+              "# email · password",
+              "ana@… · hunter2",
+              "bo@… · Summer2019!",
+              "! a single dump = every password"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Fast hash",
+      "chapter": "problem",
+      "title": "Hashed — but too quickly",
+      "body": [
+        "A <span class=\"term\">hash</span> is a one-way function: easy to compute, impossible to reverse. Nestegg now stores <code>sha256(password)</code> and compares hashes. Better — until the table leaks.",
+        "General-purpose hashes are built to be <b>fast</b>, so an attacker can try billions of guesses per second. And with no salt, everyone with the password <code>Summer2019!</code> has the same hash: crack it once, and every matching row falls at the same time."
+      ],
+      "changes": [
+        "~ Passwords stored as unsalted SHA-256",
+        "+ Database dump leaked"
+      ],
+      "metrics": {
+        "leak": "most passwords",
+        "stuffing": "—",
+        "mfa": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "sha256(password)",
+                "tone": "amber",
+                "icon": "hash"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "thief": {
+            "type": "ghost",
+            "x": -22,
+            "y": 4,
+            "s": 3.6,
+            "h": 40,
+            "label": "Dump on a forum"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Guessing speed on one GPU",
+            "icon": "zap",
+            "lines": [
+              "# guesses per second (rough)",
+              "! same password → same hash, so tables of precomputed hashes work too"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "SHA-256",
+                "note": "~10 billion / s",
+                "to": 1,
+                "tone": "red",
+                "bold": true
+              },
+              {
+                "label": "bcrypt, cost 12",
+                "note": "~20 thousand / s",
+                "to": 0.08,
+                "tone": "amber"
+              },
+              {
+                "label": "argon2id, 64 MB",
+                "note": "~a few hundred / s",
+                "to": 0.02,
+                "tone": "green"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          },
+          "x1": {
+            "from": "udb",
+            "to": "thief",
+            "pts": [
+              "udb",
+              "thief"
+            ],
+            "label": "leaked",
+            "style": "dashed",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "x1"
+            ],
+            "rate": 0.6,
+            "kind": "poison"
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Slow + salt",
+      "chapter": "solution",
+      "title": "Slow, salted hashing",
+      "body": [
+        "Use a <span class=\"term\">password hashing function</span> — <b>argon2id</b> or <b>bcrypt</b> — that is deliberately slow and memory-hungry, with a tunable cost. 150 ms is nothing for one login but cripples an attacker trying billions.",
+        "Each user also gets a random <span class=\"term\">salt</span> stored next to the hash. Identical passwords now produce different hashes, so precomputed tables are useless and each account must be attacked separately. Only weak passwords remain crackable, slowly."
+      ],
+      "changes": [
+        "~ Hash with argon2id, tuned to ~150 ms",
+        "+ Random salt per user",
+        "~ Rehash old SHA-256 rows at next login"
+      ],
+      "metrics": {
+        "leak": "weak ones, slowly",
+        "stuffing": "—",
+        "mfa": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "~150 ms to verify",
+                "tone": "paper",
+                "icon": "timer"
+              }
+            ]
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "argon2id · per-user salt",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "card": {
+            "type": "panel",
+            "title": "What's stored now",
+            "icon": "fileKey",
+            "lines": [
+              "# email · salt · hash",
+              "ana@… · 9f2c… · $argon2id$…",
+              "bo@… · 41ab… · $argon2id$…",
+              "= same password, different salts → different hashes"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Sessions",
+      "chapter": "technique",
+      "title": "Remembering who logged in",
+      "body": [
+        "Nobody wants to type a password on every click. After a successful login, the server needs to remember the result. The classic way is a <b>session</b>.",
+        "Auth creates a random <span class=\"term\">session ID</span>, stores <code>sid → user, expiry</code> in a fast store and sends the sid in a <code>HttpOnly; Secure</code> cookie. Every request, the API looks the sid up. Logging out — or kicking out a stolen session — is one delete."
+      ],
+      "changes": [
+        "+ Session store",
+        "+ Session cookie on every request",
+        "~ API checks each sid"
+      ],
+      "metrics": {
+        "leak": "weak ones, slowly",
+        "stuffing": "—",
+        "mfa": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB"
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "sess": {
+            "type": "db",
+            "x": 0,
+            "y": 15,
+            "label": "Session store",
+            "tags": [
+              {
+                "text": "sid → user, expires",
+                "tone": "paper",
+                "icon": "key"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          },
+          "s1": {
+            "from": "auth",
+            "to": "sess",
+            "pts": [
+              "auth",
+              "sess"
+            ],
+            "label": "create sid"
+          },
+          "s2": {
+            "from": "api",
+            "to": "sess",
+            "pts": [
+              "api",
+              "sess"
+            ],
+            "label": "sid valid?"
+          },
+          "e4": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              [
+                "api",
+                "users"
+              ],
+              "api"
+            ],
+            "label": "cookie: sid",
+            "labelAt": 0.3
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "s1"
+            ],
+            "rate": 1,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e4",
+              "s2"
+            ],
+            "rate": 2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          },
+          {
+            "id": "sess",
+            "kind": "redis",
+            "label": "Session store"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "auth",
+            "to": "sess"
+          },
+          {
+            "from": "api",
+            "to": "sess"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Tokens",
+      "chapter": "tradeoff",
+      "title": "Signed tokens instead",
+      "body": [
+        "A <span class=\"term\">JWT</span> flips this around: Auth signs a small token saying <i>user 81, expires 10:15</i>. Any service holding the public key can verify it without calling anyone, which suits many services and mobile apps.",
+        "The catch is revocation: a valid token works until it expires, even after logout or theft. So keep access tokens short-lived (minutes) and pair them with a longer <b>refresh token</b> that Auth can check — and revoke — when issuing new ones."
+      ],
+      "changes": [
+        "- Session lookups from the API",
+        "+ Short-lived signed access tokens",
+        "+ Revocable refresh tokens"
+      ],
+      "metrics": {
+        "leak": "weak ones, slowly",
+        "stuffing": "—",
+        "mfa": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "signs JWT · 15 min",
+                "tone": "violet",
+                "icon": "key"
+              }
+            ]
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB"
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "verifies signature locally",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "card": {
+            "type": "panel",
+            "title": "Sessions vs tokens",
+            "icon": "scale",
+            "lines": [
+              "# session id: server looks it up",
+              "= revoke instantly",
+              "! a store lookup per request",
+              "# JWT: signed, checked offline",
+              "= no lookup needed",
+              "! valid until it expires"
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed",
+            "label": "public key"
+          },
+          "e4": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              [
+                "api",
+                "users"
+              ],
+              "api"
+            ],
+            "label": "Bearer eyJ…",
+            "labelAt": 0.3
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 0.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "e4"
+            ],
+            "rate": 2.2,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stuffing",
+      "chapter": "problem",
+      "title": "Someone else's leak",
+      "body": [
+        "Nestegg's hashing is solid. It doesn't matter. Bots take billions of email/password pairs leaked from <i>other</i> sites and try them here: <span class=\"term\">credential stuffing</span>.",
+        "About 2% of attempts succeed, because people reuse passwords. Each success looks like a perfectly normal login. Rate limits per IP, bot detection and rejecting known-breached passwords all help — but as long as a password alone is enough, some will get in."
+      ],
+      "changes": [
+        "+ Bots replaying leaked passwords",
+        "~ 2% of attempts take over an account"
+      ],
+      "metrics": {
+        "leak": "weak ones, slowly",
+        "stuffing": 2,
+        "mfa": "no"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.78,
+            "tags": [
+              {
+                "text": "2% of guesses log in",
+                "tone": "red",
+                "icon": "alert"
+              }
+            ],
+            "heat": 0.35
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "argon2id · per-user salt",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "bots": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 13,
+            "y0": -30,
+            "y1": -25,
+            "count": 7,
+            "label": "Bots · leaked lists"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          },
+          "b1": {
+            "from": "bots",
+            "to": "auth",
+            "pts": [
+              "bots",
+              "auth"
+            ],
+            "label": "stolen pairs",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1",
+              "e2"
+            ],
+            "rate": 2.4,
+            "kind": "poison",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service",
+            "status": "warn"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "MFA",
+      "chapter": "solution",
+      "title": "Something you have",
+      "body": [
+        "<span class=\"term\">Multi-factor authentication</span> asks for a second, different kind of proof. Here, a 6-digit code from an authenticator app that changes every 30 seconds. A stolen password alone no longer opens the account.",
+        "Codes have a weak spot: they can be <b>phished</b>. A fake login page relays your password and code to the real site in real time. SMS codes are weaker still — phone numbers can be hijacked."
+      ],
+      "changes": [
+        "+ One-time codes from an authenticator app",
+        "~ Stolen passwords mostly fail"
+      ],
+      "metrics": {
+        "leak": "weak ones, slowly",
+        "stuffing": 0.05,
+        "mfa": "phishable"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "+ 6-digit code",
+                "tone": "amber",
+                "icon": "smartphone"
+              }
+            ]
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB"
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "bots": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 13,
+            "y0": -30,
+            "y1": -25,
+            "count": 7,
+            "label": "Bots · leaked lists"
+          },
+          "phone": {
+            "type": "device",
+            "form": "phone",
+            "x": -24,
+            "y": -14,
+            "w": 4,
+            "d": 4,
+            "label": "Authenticator app"
+          },
+          "phish": {
+            "type": "ghost",
+            "x": 22,
+            "y": -12,
+            "s": 3.6,
+            "h": 40,
+            "label": "fake nestegg-login.co"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          },
+          "b1": {
+            "from": "bots",
+            "to": "auth",
+            "pts": [
+              "bots",
+              "auth"
+            ],
+            "label": "stolen pairs",
+            "labelTone": "red",
+            "fail": 0.7
+          },
+          "m1": {
+            "from": "phone",
+            "to": "auth",
+            "pts": [
+              "phone",
+              "auth"
+            ],
+            "label": "code 482 913",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1",
+              "e2"
+            ],
+            "rate": 2,
+            "kind": "poison",
+            "bounce": false
+          },
+          {
+            "route": [
+              "m1"
+            ],
+            "rate": 0.6,
+            "kind": "ping"
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Passkeys",
+      "chapter": "solution",
+      "title": "No shared secret at all",
+      "body": [
+        "<span class=\"term\">Passkeys</span> (WebAuthn) replace the password with a key pair. The private key never leaves the user's device and is unlocked by fingerprint or PIN; Nestegg stores only the public key.",
+        "To sign in, the device signs a fresh challenge — and the signature is bound to <code>nestegg.app</code>, so a look-alike phishing site gets nothing usable. A leaked database contains only public keys, and there's no password to stuff."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "Roll passkeys out alongside passwords + MFA, then nudge users over. Keep a safe recovery path — it's now the weakest link."
+      },
+      "changes": [
+        "+ Passkey sign-in",
+        "~ Users DB stores public keys",
+        "~ Stolen passwords rejected"
+      ],
+      "metrics": {
+        "leak": "nothing usable",
+        "stuffing": 0,
+        "mfa": "passkey"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "passkey · origin-bound",
+                "tone": "green",
+                "icon": "fingerprint"
+              }
+            ]
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "public keys only",
+                "tone": "green",
+                "icon": "key"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "bots": {
+            "type": "crowd",
+            "x0": 6,
+            "x1": 13,
+            "y0": -30,
+            "y1": -25,
+            "count": 7,
+            "label": "Bots · leaked lists"
+          },
+          "phone": {
+            "type": "device",
+            "form": "phone",
+            "x": -24,
+            "y": -14,
+            "w": 4,
+            "d": 4,
+            "label": "Phone · private key"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "sign in"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          },
+          "b1": {
+            "from": "bots",
+            "to": "auth",
+            "pts": [
+              "bots",
+              "auth"
+            ],
+            "label": "stolen pairs",
+            "labelTone": "red",
+            "fail": 1
+          },
+          "m1": {
+            "from": "phone",
+            "to": "auth",
+            "pts": [
+              "phone",
+              "auth"
+            ],
+            "label": "signed challenge"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          },
+          {
+            "route": [
+              "b1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "kind": "poison",
+            "bounce": false
+          },
+          {
+            "route": [
+              "m1"
+            ],
+            "rate": 0.8,
+            "kind": "write",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "OIDC",
+      "chapter": "technique",
+      "title": "Let someone else check",
+      "body": [
+        "Nestegg's business app lets employees of client companies log in with their work account. With <span class=\"term\">OAuth 2.0</span> plus <span class=\"term\">OpenID Connect</span>, the user is sent to their company's <b>identity provider</b>, signs in there (with its own MFA), and comes back with a one-time code.",
+        "Nestegg's server swaps the code for a signed <b>ID token</b> naming the user. Nestegg never sees a password. OAuth alone is about <i>delegated access</i> (\"this app may read my calendar\"); OIDC adds the identity layer on top."
+      ],
+      "changes": [
+        "+ Sign in with the company identity provider",
+        "- Passwords for business accounts"
+      ],
+      "metrics": {
+        "leak": "nothing usable",
+        "stuffing": 0,
+        "mfa": "passkey"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "no passwords at all",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          },
+          "idp": {
+            "type": "block",
+            "x": -20,
+            "y": -12,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "idCard",
+            "label": [
+              "Identity",
+              "Provider"
+            ],
+            "h": 34,
+            "tags": [
+              {
+                "text": "password + MFA here",
+                "tone": "violet",
+                "icon": "shield"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "find by sub"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          },
+          "o1": {
+            "from": "users",
+            "to": "idp",
+            "pts": [
+              "users",
+              "idp"
+            ],
+            "label": "1 · sign in with…"
+          },
+          "o2": {
+            "from": "idp",
+            "to": "auth",
+            "pts": [
+              "idp",
+              "auth"
+            ],
+            "label": "2 · code → ID token"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "o1",
+              "o2",
+              "e2"
+            ],
+            "rate": 1.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          },
+          {
+            "id": "idp",
+            "kind": "api_server",
+            "label": "Identity Provider"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "users",
+            "to": "idp"
+          },
+          {
+            "from": "idp",
+            "to": "auth"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Prove it: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Never plaintext or fast hashes</b> → argon2id or bcrypt with a per-user salt</li><li><b>Sessions</b> → server lookup, instant revocation</li><li><b>JWTs</b> → offline checks; keep them short-lived with revocable refresh tokens</li><li><b>MFA</b> → defeats stuffing; codes can still be phished</li><li><b>Passkeys and OIDC</b> → no shared password to leak, phish or reuse</li></ul>"
+      ],
+      "metrics": {
+        "leak": "nothing usable",
+        "stuffing": 0,
+        "mfa": "passkey"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -12,
+            "x1": -4,
+            "y0": -28,
+            "y1": -22,
+            "count": 9,
+            "label": "Savers"
+          },
+          "auth": {
+            "type": "block",
+            "x": 0,
+            "y": -12,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "fingerprint",
+            "label": [
+              "Auth",
+              "Service"
+            ],
+            "h": 34,
+            "cpu": 0.3
+          },
+          "udb": {
+            "type": "db",
+            "x": -10,
+            "y": 4,
+            "label": "Users DB",
+            "tags": [
+              {
+                "text": "public keys · argon2id",
+                "tone": "green",
+                "icon": "lock"
+              }
+            ]
+          },
+          "api": {
+            "type": "block",
+            "x": 10,
+            "y": 4,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Accounts",
+              "API"
+            ],
+            "cpu": 0.3
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "auth",
+            "pts": [
+              "users",
+              "auth"
+            ],
+            "label": "email + password"
+          },
+          "e2": {
+            "from": "auth",
+            "to": "udb",
+            "pts": [
+              "auth",
+              "udb"
+            ],
+            "label": "look up user"
+          },
+          "e3": {
+            "from": "auth",
+            "to": "api",
+            "pts": [
+              "auth",
+              "api"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 1.8,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 400000,
+        "rps": 1200,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Savers"
+          },
+          {
+            "id": "auth",
+            "kind": "api_server",
+            "label": "Auth Service"
+          },
+          {
+            "id": "udb",
+            "kind": "postgres",
+            "label": "Users DB"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Accounts API"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "udb"
+          },
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    }
+  ]
+}

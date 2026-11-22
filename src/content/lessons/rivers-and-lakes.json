@@ -1,0 +1,3204 @@
+{
+  "id": "rivers-and-lakes",
+  "title": "Rivers and Lakes",
+  "summary": "Tunely, a music-streaming app, needs royalty reports and a live trending chart from the same flood of plays. When do you process data in big nightly batches, and when as a never-ending stream?",
+  "minutes": 11,
+  "level": "intermediate",
+  "metrics": [
+    "freshness",
+    "prodLoad",
+    "eventsDay",
+    "exact"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "msg",
+      "play event"
+    ],
+    [
+      "heavy",
+      "bulk read"
+    ],
+    [
+      "write",
+      "results"
+    ],
+    "fail"
+  ],
+  "goals": [
+    {
+      "text": "Move analytics off the production database",
+      "step": 2
+    },
+    {
+      "text": "Explain how a MapReduce-style batch job works",
+      "step": 3
+    },
+    {
+      "text": "Count a stream with windows and watermarks",
+      "step": 7
+    },
+    {
+      "text": "Compare the lambda and kappa architectures",
+      "step": 9
+    }
+  ],
+  "steps": [
+    {
+      "short": "Ask prod",
+      "chapter": "setup",
+      "title": "Ask the production database",
+      "body": [
+        "<b>Tunely</b> streams music. Every play is a row in Postgres — the same database that handles logins and playlists. Artists want to know their play counts, so the analysts run <code>GROUP BY song</code> straight against it.",
+        "With two million plays a day the query takes a few seconds, the numbers are live and exact, and nobody notices the extra load. Simple, and fine for now."
+      ],
+      "metrics": {
+        "freshness": "live",
+        "prodLoad": 30,
+        "eventsDay": "2 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "INSERT play"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "prodDb",
+            "pts": [
+              "analyst",
+              "prodDb"
+            ],
+            "label": "GROUP BY song"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 2,
+            "bounce": true
+          },
+          {
+            "route": [
+              "q1"
+            ],
+            "rate": 0.4,
+            "kind": "heavy",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts · plays"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "analyst",
+            "to": "prodDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Scan storm",
+      "chapter": "problem",
+      "title": "Reports versus listeners",
+      "body": [
+        "Two years later it's sixty million plays a day. The royalty report now scans billions of rows for forty minutes, evicting the hot data from cache and soaking up disk bandwidth.",
+        "Listeners pay for it: pressing play times out because the database is busy answering an analyst. Analytical queries — read everything, aggregate — and transactional queries — touch a few rows, fast — want very different machines."
+      ],
+      "callout": {
+        "kind": "warn",
+        "text": "Never let reporting share a database with the user-facing path. Even a replica only moves the problem once scans get big enough."
+      },
+      "changes": [
+        "~ 60 M plays a day",
+        "~ Report scans billions of rows",
+        "~ Play API times out"
+      ],
+      "metrics": {
+        "freshness": "live",
+        "prodLoad": 96,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.78,
+            "heat": 0.35,
+            "tags": [
+              {
+                "text": "plays timing out",
+                "tone": "red",
+                "icon": "timer"
+              }
+            ]
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "full scan · 40 min",
+                "tone": "red",
+                "icon": "hourglass"
+              }
+            ],
+            "heat": 1,
+            "cpu": 0.97
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "INSERT play",
+            "fail": 0.3
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "prodDb",
+            "pts": [
+              "analyst",
+              "prodDb"
+            ],
+            "label": "GROUP BY song"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "e2"
+            ],
+            "rate": 3,
+            "bounce": true,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "q1"
+            ],
+            "rate": 1.2,
+            "kind": "heavy",
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts · plays",
+            "status": "crit"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "analyst",
+            "to": "prodDb"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Batch",
+      "chapter": "solution",
+      "title": "A lake and a nightly job",
+      "body": [
+        "Tunely stops storing plays in Postgres. Each play becomes an event on a log, landed every hour as files in cheap object storage — a <span class=\"term\">data lake</span> that keeps the raw history forever.",
+        "Every night a <span class=\"term\">batch job</span> reads all of yesterday's files, computes exact totals per song and artist, and loads them into a <span class=\"term\">warehouse</span> built for big scans. Analysts query the warehouse; production never sees them."
+      ],
+      "changes": [
+        "+ Play events go to an event log",
+        "+ Data lake of hourly files",
+        "+ Nightly job loads a warehouse",
+        "- Analytics on Postgres"
+      ],
+      "metrics": {
+        "freshness": "24 h",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "runs 02:00 · 50 min",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              "p2"
+            ],
+            "rate": 2.2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "b1",
+              "b2"
+            ],
+            "rate": 0.6,
+            "kind": "heavy"
+          },
+          {
+            "route": [
+              "q1"
+            ],
+            "rate": 0.6,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts"
+          },
+          {
+            "id": "log",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "batch",
+            "kind": "worker",
+            "label": "Nightly Job",
+            "sub": "reads the lake"
+          },
+          {
+            "id": "wh",
+            "kind": "postgres",
+            "label": "Warehouse"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "api",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "batch"
+          },
+          {
+            "from": "batch",
+            "to": "wh"
+          },
+          {
+            "from": "analyst",
+            "to": "wh"
+          }
+        ]
+      }
+    },
+    {
+      "short": "MapReduce",
+      "chapter": "technique",
+      "title": "Split, shuffle, sum",
+      "body": [
+        "How do you count 60 million plays quickly? Split the files across many workers. In the <span class=\"term\">map</span> step each worker turns its plays into pairs like <code>(song, 1)</code>. The framework then <span class=\"term\">shuffle</span>s, sending every pair for the same song to the same reducer.",
+        "Each <span class=\"term\">reduce</span> worker sums its songs and writes totals. Add machines and the job gets faster; if one dies, only its slice reruns. Modern engines like Spark refine the idea, but the shape is the same."
+      ],
+      "changes": [
+        "~ 3 mappers emit (song, 1)",
+        "~ Shuffle groups by song",
+        "~ 2 reducers write totals"
+      ],
+      "metrics": {
+        "freshness": "24 h",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "lake": {
+            "type": "block",
+            "x": -20,
+            "y": -4,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22,
+            "tags": [
+              {
+                "text": "yesterday: 60 M plays",
+                "tone": "paper",
+                "icon": "layers"
+              }
+            ]
+          },
+          "wh": {
+            "type": "db",
+            "x": 20,
+            "y": -4,
+            "label": "Warehouse"
+          },
+          "m0": {
+            "type": "block",
+            "x": -6,
+            "y": -16,
+            "s": 3,
+            "color": "yellow",
+            "glyph": "filter",
+            "label": [
+              "Map"
+            ],
+            "h": 26,
+            "tags": [
+              {
+                "text": "play → (song, 1)",
+                "tone": "paper",
+                "icon": "filter"
+              }
+            ]
+          },
+          "m1": {
+            "type": "block",
+            "x": -6,
+            "y": -4,
+            "s": 3,
+            "color": "yellow",
+            "glyph": "filter",
+            "label": [
+              "Map"
+            ],
+            "h": 26
+          },
+          "m2": {
+            "type": "block",
+            "x": -6,
+            "y": 8,
+            "s": 3,
+            "color": "yellow",
+            "glyph": "filter",
+            "label": [
+              "Map"
+            ],
+            "h": 26
+          },
+          "r0": {
+            "type": "block",
+            "x": 8,
+            "y": -10,
+            "s": 3,
+            "color": "orange",
+            "glyph": "sigma",
+            "label": [
+              "Reduce"
+            ],
+            "h": 26,
+            "tags": [
+              {
+                "text": "shuffle by song · sum",
+                "tone": "paper",
+                "icon": "sigma"
+              }
+            ]
+          },
+          "r1": {
+            "type": "block",
+            "x": 8,
+            "y": 2,
+            "s": 3,
+            "color": "orange",
+            "glyph": "sigma",
+            "label": [
+              "Reduce"
+            ],
+            "h": 26
+          }
+        },
+        "links": {
+          "lm0": {
+            "from": "lake",
+            "to": "m0",
+            "pts": [
+              "lake",
+              "m0"
+            ],
+            "label": "split"
+          },
+          "lm1": {
+            "from": "lake",
+            "to": "m1",
+            "pts": [
+              "lake",
+              "m1"
+            ]
+          },
+          "lm2": {
+            "from": "lake",
+            "to": "m2",
+            "pts": [
+              "lake",
+              "m2"
+            ]
+          },
+          "rw0": {
+            "from": "r0",
+            "to": "wh",
+            "pts": [
+              "r0",
+              "wh"
+            ],
+            "label": "totals"
+          },
+          "rw1": {
+            "from": "r1",
+            "to": "wh",
+            "pts": [
+              "r1",
+              "wh"
+            ]
+          },
+          "s00": {
+            "from": "m0",
+            "to": "r0",
+            "pts": [
+              "m0",
+              "r0"
+            ],
+            "style": "dashed"
+          },
+          "s01": {
+            "from": "m0",
+            "to": "r1",
+            "pts": [
+              "m0",
+              "r1"
+            ],
+            "style": "dashed"
+          },
+          "s10": {
+            "from": "m1",
+            "to": "r0",
+            "pts": [
+              "m1",
+              "r0"
+            ],
+            "style": "dashed"
+          },
+          "s11": {
+            "from": "m1",
+            "to": "r1",
+            "pts": [
+              "m1",
+              "r1"
+            ],
+            "style": "dashed"
+          },
+          "s20": {
+            "from": "m2",
+            "to": "r0",
+            "pts": [
+              "m2",
+              "r0"
+            ],
+            "style": "dashed"
+          },
+          "s21": {
+            "from": "m2",
+            "to": "r1",
+            "pts": [
+              "m2",
+              "r1"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "lm0",
+                  "s00",
+                  "rw0"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "lm0",
+                  "s01",
+                  "rw1"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "lm1",
+                  "s10",
+                  "rw0"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "lm1",
+                  "s11",
+                  "rw1"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "lm2",
+                  "s20",
+                  "rw0"
+                ],
+                "kind": "heavy"
+              },
+              {
+                "path": [
+                  "lm2",
+                  "s21",
+                  "rw1"
+                ],
+                "kind": "heavy"
+              }
+            ],
+            "rate": 2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stale chart",
+      "chapter": "problem",
+      "title": "Trending, as of yesterday",
+      "body": [
+        "Product wants a <b>Trending now</b> chart. A song goes viral at lunchtime — and the chart, fed by last night's job, won't show it until tomorrow morning.",
+        "Running the batch every hour helps a little but rescans hours of data each time, and the chart is still up to an hour behind. Batch is great at <i>complete and exact</i>; it's bad at <i>now</i>."
+      ],
+      "changes": [
+        "+ Trending chart reads the warehouse",
+        "~ Chart is up to a day old"
+      ],
+      "metrics": {
+        "freshness": "1 day",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "Trending = yesterday's chart",
+                "tone": "red",
+                "icon": "clock"
+              }
+            ]
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse",
+            "tags": [
+              {
+                "text": "last load 02:50",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          },
+          "tr": {
+            "from": "api",
+            "to": "wh",
+            "pts": [
+              "api",
+              "wh"
+            ],
+            "label": "GET /trending"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              "p2"
+            ],
+            "rate": 2.6,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "e1",
+              "tr"
+            ],
+            "rate": 0.8,
+            "bounce": true,
+            "kind": "slow"
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts"
+          },
+          {
+            "id": "log",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "batch",
+            "kind": "worker",
+            "label": "Nightly Job",
+            "sub": "reads the lake"
+          },
+          {
+            "id": "wh",
+            "kind": "postgres",
+            "label": "Warehouse"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "api",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "batch"
+          },
+          {
+            "from": "batch",
+            "to": "wh"
+          },
+          {
+            "from": "analyst",
+            "to": "wh"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stream",
+      "chapter": "solution",
+      "title": "Process events as they flow",
+      "body": [
+        "A <span class=\"term\">stream processor</span> reads the same event log continuously. It keeps a small running count per song in memory and, every minute, writes the latest numbers to a fast Trending store.",
+        "Instead of re-reading the past, it updates state one event at a time, so the chart is seconds old. The processor checkpoints its state and log position, so after a crash it resumes without double-counting."
+      ],
+      "changes": [
+        "+ Stream processor reads the event log",
+        "+ Trending store updated every minute",
+        "~ Trending chart reads the stream's output"
+      ],
+      "metrics": {
+        "freshness": "5s",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          },
+          "stream": {
+            "type": "block",
+            "x": 20,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "waves",
+            "label": [
+              "Stream",
+              "Processor"
+            ],
+            "h": 30,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "1-min windows",
+                "tone": "green",
+                "icon": "timer"
+              }
+            ]
+          },
+          "trend": {
+            "type": "db",
+            "x": 20,
+            "y": 9,
+            "label": "Trending"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          },
+          "s1": {
+            "from": "log",
+            "to": "stream",
+            "pts": [
+              "log",
+              "stream"
+            ],
+            "label": "PlayEvent"
+          },
+          "s2": {
+            "from": "stream",
+            "to": "trend",
+            "pts": [
+              "stream",
+              "trend"
+            ],
+            "label": "counts per minute"
+          },
+          "tr": {
+            "from": "api",
+            "to": "trend",
+            "pts": [
+              "api",
+              [
+                "api",
+                "trend"
+              ],
+              "trend"
+            ],
+            "label": "GET /trending",
+            "labelAt": 0.25
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              [
+                "p2",
+                "s1"
+              ]
+            ],
+            "rate": 2.6,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "s2"
+            ],
+            "rate": 1,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "b1",
+              "b2"
+            ],
+            "rate": 0.3,
+            "kind": "heavy"
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts"
+          },
+          {
+            "id": "log",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "batch",
+            "kind": "worker",
+            "label": "Nightly Job",
+            "sub": "reads the lake"
+          },
+          {
+            "id": "wh",
+            "kind": "postgres",
+            "label": "Warehouse"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          },
+          {
+            "id": "stream",
+            "kind": "worker",
+            "label": "Stream Processor"
+          },
+          {
+            "id": "trend",
+            "kind": "redis",
+            "label": "Trending"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "api",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "batch"
+          },
+          {
+            "from": "batch",
+            "to": "wh"
+          },
+          {
+            "from": "analyst",
+            "to": "wh"
+          },
+          {
+            "from": "log",
+            "to": "stream"
+          },
+          {
+            "from": "stream",
+            "to": "trend"
+          },
+          {
+            "from": "api",
+            "to": "trend"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Windows",
+      "chapter": "technique",
+      "title": "A stream never ends — so cut it",
+      "body": [
+        "You can't ask \"how many plays in total?\" of an endless stream. Instead you count inside <span class=\"term\">windows</span>: slices of time that open, collect events and close with a result.",
+        "Pick the shape to fit the question: tumbling windows for per-minute charts, sliding windows for \"last ten minutes\", session windows for a listener's continuous listening."
+      ],
+      "changes": [
+        "~ Plays grouped into 1-minute tumbling windows"
+      ],
+      "metrics": {
+        "freshness": "5s",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          },
+          "stream": {
+            "type": "block",
+            "x": 20,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "waves",
+            "label": [
+              "Stream",
+              "Processor"
+            ],
+            "h": 30,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "1-min windows",
+                "tone": "green",
+                "icon": "timer"
+              }
+            ]
+          },
+          "trend": {
+            "type": "db",
+            "x": 20,
+            "y": 9,
+            "label": "Trending"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Three kinds of window",
+            "icon": "timer",
+            "lines": [
+              "# plays per song, grouped by time"
+            ],
+            "chart": "bars",
+            "bars": [
+              {
+                "label": "Tumbling",
+                "note": "fixed, no overlap: 14:00–14:01, 14:01–14:02",
+                "to": 0.45,
+                "tone": "green"
+              },
+              {
+                "label": "Sliding",
+                "note": "last 10 min, updated every minute",
+                "to": 0.8,
+                "tone": "blue"
+              },
+              {
+                "label": "Session",
+                "note": "until a listener goes quiet for 30 min",
+                "to": 1,
+                "tone": "violet",
+                "bold": true
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          },
+          "s1": {
+            "from": "log",
+            "to": "stream",
+            "pts": [
+              "log",
+              "stream"
+            ],
+            "label": "PlayEvent"
+          },
+          "s2": {
+            "from": "stream",
+            "to": "trend",
+            "pts": [
+              "stream",
+              "trend"
+            ],
+            "label": "counts per minute"
+          },
+          "tr": {
+            "from": "api",
+            "to": "trend",
+            "pts": [
+              "api",
+              [
+                "api",
+                "trend"
+              ],
+              "trend"
+            ],
+            "label": "GET /trending",
+            "labelAt": 0.25
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              [
+                "p2",
+                "s1"
+              ]
+            ],
+            "rate": 2.6,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "s2"
+            ],
+            "rate": 1,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "b1",
+              "b2"
+            ],
+            "rate": 0.3,
+            "kind": "heavy"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Late events",
+      "chapter": "tradeoff",
+      "title": "Plays from the past",
+      "body": [
+        "A listener on a plane plays ten songs offline at 14:05; the phone uploads them at 16:40. Which window do they count in? By <b>event time</b> they belong to 14:05 — a window that closed long ago.",
+        "A <span class=\"term\">watermark</span> is the processor's guess that \"everything before 16:39 has probably arrived\". Windows wait a grace period past it, then close. Later stragglers are dropped or sent as corrections — fast results are slightly inexact."
+      ],
+      "changes": [
+        "+ Offline phone uploads plays 2½ hours late",
+        "+ Watermark with 10-minute grace period",
+        "~ Very late plays miss their window"
+      ],
+      "metrics": {
+        "freshness": "5s",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "partly"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          },
+          "stream": {
+            "type": "block",
+            "x": 20,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "waves",
+            "label": [
+              "Stream",
+              "Processor"
+            ],
+            "h": 30,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "watermark 16:39 · 10 min grace",
+                "tone": "amber",
+                "icon": "hourglass"
+              }
+            ]
+          },
+          "trend": {
+            "type": "db",
+            "x": 20,
+            "y": 9,
+            "label": "Trending"
+          },
+          "phone": {
+            "type": "device",
+            "form": "phone",
+            "x": -18,
+            "y": -28,
+            "w": 4,
+            "d": 4,
+            "label": "Offline on a plane",
+            "tags": [
+              {
+                "text": "14:05 plays, sent 16:40",
+                "tone": "amber",
+                "icon": "plane"
+              }
+            ]
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          },
+          "s1": {
+            "from": "log",
+            "to": "stream",
+            "pts": [
+              "log",
+              "stream"
+            ],
+            "label": "PlayEvent"
+          },
+          "s2": {
+            "from": "stream",
+            "to": "trend",
+            "pts": [
+              "stream",
+              "trend"
+            ],
+            "label": "counts per minute"
+          },
+          "tr": {
+            "from": "api",
+            "to": "trend",
+            "pts": [
+              "api",
+              [
+                "api",
+                "trend"
+              ],
+              "trend"
+            ],
+            "label": "GET /trending",
+            "labelAt": 0.25
+          },
+          "late": {
+            "from": "phone",
+            "to": "api",
+            "pts": [
+              "phone",
+              "api"
+            ],
+            "label": "late batch"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              "s1"
+            ],
+            "rate": 2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "late",
+              "p1",
+              "s1"
+            ],
+            "rate": 0.7,
+            "kind": "slow"
+          },
+          {
+            "route": [
+              "s2"
+            ],
+            "rate": 1,
+            "kind": "write"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Lambda",
+      "chapter": "tradeoff",
+      "title": "Both rivers: lambda",
+      "body": [
+        "The <span class=\"term\">lambda architecture</span> runs both: a stream for fast, approximate numbers, and the nightly batch that recomputes exact totals from the lake and overwrites them. Readers get speed now and correctness later.",
+        "The cost is <b>two codebases</b> computing the same thing in two engines. They drift: a bug fixed in one but not the other makes the chart jump every morning."
+      ],
+      "changes": [
+        "~ Batch job overwrites stream results nightly",
+        "~ Same logic maintained twice"
+      ],
+      "metrics": {
+        "freshness": "5s",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "overwrites with exact totals",
+                "tone": "violet",
+                "icon": "refresh"
+              }
+            ]
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          },
+          "stream": {
+            "type": "block",
+            "x": 20,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "waves",
+            "label": [
+              "Stream",
+              "Processor"
+            ],
+            "h": 30,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "fast, approximate",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "trend": {
+            "type": "db",
+            "x": 20,
+            "y": 9,
+            "label": "Trending"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          },
+          "s1": {
+            "from": "log",
+            "to": "stream",
+            "pts": [
+              "log",
+              "stream"
+            ],
+            "label": "PlayEvent"
+          },
+          "s2": {
+            "from": "stream",
+            "to": "trend",
+            "pts": [
+              "stream",
+              "trend"
+            ],
+            "label": "counts per minute"
+          },
+          "tr": {
+            "from": "api",
+            "to": "trend",
+            "pts": [
+              "api",
+              [
+                "api",
+                "trend"
+              ],
+              "trend"
+            ],
+            "label": "GET /trending",
+            "labelAt": 0.25
+          },
+          "fix": {
+            "from": "batch",
+            "to": "trend",
+            "pts": [
+              "batch",
+              "trend"
+            ],
+            "label": "nightly correction",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              [
+                "p2",
+                "s1"
+              ]
+            ],
+            "rate": 2.6,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "s2"
+            ],
+            "rate": 1,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "b1",
+              "b2"
+            ],
+            "rate": 0.3,
+            "kind": "heavy"
+          },
+          {
+            "route": [
+              "fix"
+            ],
+            "rate": 0.4,
+            "kind": "write"
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts"
+          },
+          {
+            "id": "log",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "batch",
+            "kind": "worker",
+            "label": "Nightly Job",
+            "sub": "reads the lake"
+          },
+          {
+            "id": "wh",
+            "kind": "postgres",
+            "label": "Warehouse"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          },
+          {
+            "id": "stream",
+            "kind": "worker",
+            "label": "Stream Processor"
+          },
+          {
+            "id": "trend",
+            "kind": "redis",
+            "label": "Trending"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "api",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "batch"
+          },
+          {
+            "from": "batch",
+            "to": "wh"
+          },
+          {
+            "from": "analyst",
+            "to": "wh"
+          },
+          {
+            "from": "log",
+            "to": "stream"
+          },
+          {
+            "from": "stream",
+            "to": "trend"
+          },
+          {
+            "from": "api",
+            "to": "trend"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Kappa",
+      "chapter": "insight",
+      "title": "One river: kappa",
+      "body": [
+        "The <span class=\"term\">kappa architecture</span> drops the batch layer. The event log keeps a long history, and everything — trending, royalty totals — is computed by stream jobs.",
+        "Need to fix a bug or add a metric? Start <b>v2</b> of the job reading the log from the beginning; when it catches up, switch readers over and retire v1. One codebase, at the price of a long-retention log and replays that take hours."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Batch is just a stream that happens to be finite. Many modern engines run the same code over both."
+      },
+      "changes": [
+        "- Data lake batch job",
+        "+ Event log retains a year",
+        "+ Stream v2 replays history"
+      ],
+      "metrics": {
+        "freshness": "5s",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30,
+            "tags": [
+              {
+                "text": "keeps 1 year · replayable",
+                "tone": "violet",
+                "icon": "replay"
+              }
+            ]
+          },
+          "stream": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "waves",
+            "label": [
+              "Stream",
+              "Processor"
+            ],
+            "h": 30,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "v1 · live",
+                "tone": "green",
+                "icon": "waves"
+              }
+            ]
+          },
+          "v2": {
+            "type": "block",
+            "x": 20,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "replay",
+            "label": [
+              "Stream",
+              "v2"
+            ],
+            "h": 30,
+            "heat": 0.35,
+            "cpu": 0.78,
+            "tags": [
+              {
+                "text": "replaying from day 1",
+                "tone": "amber",
+                "icon": "replay"
+              }
+            ]
+          },
+          "trend": {
+            "type": "db",
+            "x": 8,
+            "y": 9,
+            "label": "Trending"
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "s1": {
+            "from": "log",
+            "to": "stream",
+            "pts": [
+              "log",
+              "stream"
+            ],
+            "label": "live"
+          },
+          "s2": {
+            "from": "stream",
+            "to": "trend",
+            "pts": [
+              "stream",
+              "trend"
+            ]
+          },
+          "s3": {
+            "from": "stream",
+            "to": "wh",
+            "pts": [
+              "stream",
+              "wh"
+            ],
+            "label": "totals"
+          },
+          "rp": {
+            "from": "log",
+            "to": "v2",
+            "pts": [
+              "log",
+              [
+                "v2",
+                "log"
+              ],
+              "v2"
+            ],
+            "label": "from offset 0"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              "s1",
+              [
+                "s2",
+                "s3"
+              ]
+            ],
+            "rate": 2.2,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "rp"
+            ],
+            "rate": 2.4,
+            "kind": "heavy",
+            "speed": 1.6
+          },
+          {
+            "route": [
+              "q1"
+            ],
+            "rate": 0.5,
+            "bounce": true
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts"
+          },
+          {
+            "id": "log",
+            "kind": "kafka",
+            "label": "Event Log",
+            "sub": "1 year retention"
+          },
+          {
+            "id": "stream",
+            "kind": "worker",
+            "label": "Stream Processor"
+          },
+          {
+            "id": "trend",
+            "kind": "redis",
+            "label": "Trending"
+          },
+          {
+            "id": "wh",
+            "kind": "postgres",
+            "label": "Warehouse"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "api",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "stream"
+          },
+          {
+            "from": "stream",
+            "to": "trend"
+          },
+          {
+            "from": "stream",
+            "to": "wh"
+          },
+          {
+            "from": "analyst",
+            "to": "wh"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Rivers and lakes: recap",
+      "body": [
+        "<ul class=\"takeaways\"><li><b>Separate analytics</b> → big scans never share a database with users</li><li><b>Batch</b> → complete, exact and cheap, but hours behind</li><li><b>Stream</b> → seconds fresh, with windows and checkpointed state</li><li><b>Event time + watermarks</b> → handle late data, accept small inexactness</li><li><b>Lambda vs kappa</b> → two pipelines for correctness, or one log you can replay</li></ul>"
+      ],
+      "metrics": {
+        "freshness": "5s",
+        "prodLoad": 35,
+        "eventsDay": "60 M",
+        "exact": "yes"
+      },
+      "scene": {
+        "entities": {
+          "users": {
+            "type": "crowd",
+            "x0": -8,
+            "x1": 0,
+            "y0": -29,
+            "y1": -23,
+            "count": 9,
+            "label": "Listeners"
+          },
+          "api": {
+            "type": "block",
+            "x": -4,
+            "y": -16,
+            "s": 3.6,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Play API"
+            ],
+            "cpu": 0.3
+          },
+          "prodDb": {
+            "type": "db",
+            "x": -16,
+            "y": -16,
+            "label": "Postgres",
+            "tags": [
+              {
+                "text": "accounts · plays",
+                "tone": "paper",
+                "icon": "database"
+              }
+            ]
+          },
+          "analyst": {
+            "type": "device",
+            "x": -16,
+            "y": 6,
+            "w": 5,
+            "d": 5,
+            "label": "Analysts"
+          },
+          "log": {
+            "type": "block",
+            "x": 8,
+            "y": -16,
+            "s": 3.6,
+            "color": "purple",
+            "glyph": "inbox",
+            "label": [
+              "Event",
+              "Log"
+            ],
+            "h": 30
+          },
+          "lake": {
+            "type": "block",
+            "x": 8,
+            "y": -3,
+            "s": 3.6,
+            "color": "slab",
+            "glyph": "layers",
+            "label": [
+              "Data",
+              "Lake"
+            ],
+            "h": 22
+          },
+          "batch": {
+            "type": "block",
+            "x": 8,
+            "y": 9,
+            "s": 3.6,
+            "color": "yellow",
+            "glyph": "hourglass",
+            "label": [
+              "Nightly",
+              "Job"
+            ],
+            "h": 30
+          },
+          "wh": {
+            "type": "db",
+            "x": -4,
+            "y": 9,
+            "label": "Warehouse"
+          },
+          "stream": {
+            "type": "block",
+            "x": 20,
+            "y": -3,
+            "s": 3.6,
+            "color": "green",
+            "glyph": "waves",
+            "label": [
+              "Stream",
+              "Processor"
+            ],
+            "h": 30,
+            "cpu": 0.3,
+            "tags": [
+              {
+                "text": "1-min windows",
+                "tone": "green",
+                "icon": "timer"
+              }
+            ]
+          },
+          "trend": {
+            "type": "db",
+            "x": 20,
+            "y": 9,
+            "label": "Trending"
+          }
+        },
+        "links": {
+          "e1": {
+            "from": "users",
+            "to": "api",
+            "pts": [
+              "users",
+              "api"
+            ],
+            "label": "▶ play"
+          },
+          "e2": {
+            "from": "api",
+            "to": "prodDb",
+            "pts": [
+              "api",
+              "prodDb"
+            ],
+            "label": "accounts only"
+          },
+          "p1": {
+            "from": "api",
+            "to": "log",
+            "pts": [
+              "api",
+              "log"
+            ],
+            "label": "PlayEvent"
+          },
+          "p2": {
+            "from": "log",
+            "to": "lake",
+            "pts": [
+              "log",
+              "lake"
+            ],
+            "label": "hourly files"
+          },
+          "b1": {
+            "from": "lake",
+            "to": "batch",
+            "pts": [
+              "lake",
+              "batch"
+            ],
+            "label": "read all of yesterday"
+          },
+          "b2": {
+            "from": "batch",
+            "to": "wh",
+            "pts": [
+              "batch",
+              "wh"
+            ],
+            "label": "daily totals"
+          },
+          "q1": {
+            "from": "analyst",
+            "to": "wh",
+            "pts": [
+              "analyst",
+              "wh"
+            ],
+            "label": "GROUP BY song"
+          },
+          "s1": {
+            "from": "log",
+            "to": "stream",
+            "pts": [
+              "log",
+              "stream"
+            ],
+            "label": "PlayEvent"
+          },
+          "s2": {
+            "from": "stream",
+            "to": "trend",
+            "pts": [
+              "stream",
+              "trend"
+            ],
+            "label": "counts per minute"
+          },
+          "tr": {
+            "from": "api",
+            "to": "trend",
+            "pts": [
+              "api",
+              [
+                "api",
+                "trend"
+              ],
+              "trend"
+            ],
+            "label": "GET /trending",
+            "labelAt": 0.25
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "e1",
+              "p1",
+              [
+                "p2",
+                "s1"
+              ]
+            ],
+            "rate": 2.6,
+            "kind": "msg"
+          },
+          {
+            "route": [
+              "s2"
+            ],
+            "rate": 1,
+            "kind": "write"
+          },
+          {
+            "route": [
+              "b1",
+              "b2"
+            ],
+            "rate": 0.3,
+            "kind": "heavy"
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 9000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Listeners"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Play API"
+          },
+          {
+            "id": "prodDb",
+            "kind": "postgres",
+            "label": "Postgres",
+            "sub": "accounts"
+          },
+          {
+            "id": "log",
+            "kind": "kafka",
+            "label": "Event Log"
+          },
+          {
+            "id": "batch",
+            "kind": "worker",
+            "label": "Nightly Job",
+            "sub": "reads the lake"
+          },
+          {
+            "id": "wh",
+            "kind": "postgres",
+            "label": "Warehouse"
+          },
+          {
+            "id": "analyst",
+            "kind": "monitoring",
+            "label": "Analysts"
+          },
+          {
+            "id": "stream",
+            "kind": "worker",
+            "label": "Stream Processor"
+          },
+          {
+            "id": "trend",
+            "kind": "redis",
+            "label": "Trending"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          },
+          {
+            "from": "api",
+            "to": "prodDb"
+          },
+          {
+            "from": "api",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "batch"
+          },
+          {
+            "from": "batch",
+            "to": "wh"
+          },
+          {
+            "from": "analyst",
+            "to": "wh"
+          },
+          {
+            "from": "log",
+            "to": "stream"
+          },
+          {
+            "from": "stream",
+            "to": "trend"
+          },
+          {
+            "from": "api",
+            "to": "trend"
+          }
+        ]
+      }
+    }
+  ]
+}

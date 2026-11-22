@@ -1159,7 +1159,7 @@
       "chapter": "tradeoff",
       "title": "Every index taxes every write",
       "body": [
-        "Over a year, teams added indexes for every report idea — six in total. Each new parcel now means writing the row <b>plus an entry in every index</b>, each in a different place on disk.",
+        "Over a year, teams added an index for every report idea — five secondary indexes in total. Each new parcel now means writing the row <b>plus an entry in every index</b>, each in a different place on disk.",
         "At 2,000 inserts a second that's 12,000 writes a second. Inserts slow down, the indexes take more disk than the table itself, and backups grow with them."
       ],
       "changes": [

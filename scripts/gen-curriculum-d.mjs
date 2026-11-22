@@ -1714,7 +1714,6 @@ function write(lesson) {
 
   const s9 = clone(s8);
   s9.entities.bot.tags = [T("backs off · Retry-After", "green", "clock")];
-  s9.entities.gw.tags = [T("free 10/s · pro 100/s", "violet", "key")];
   s9.flows[1].rate = 0.8;
   s9.entities.card = card("Limits are product decisions", "key", ["per plan: free 10/s · pro 100/s", "per endpoint: POST /login 5/min per IP", "per tenant: cap total, not just per key", "clients: honour Retry-After + jitter", "# shed load when the backend itself is hot"]);
 
@@ -2156,7 +2155,7 @@ function write(lesson) {
     send: server(0, -10, ["Send"], { s: 3.6 }),
     bill: server(8, -10, ["Billing"], { s: 3.6 }),
     tmpl: blk(1, 3, "orange", "file", ["Templates"], { s: 3.6, h: 40 }),
-    sdb: db(-9, 3, "subscribers"),
+    sdb: db(-12, 1, "subscribers"),
   });
   const links = (failT = 0) => ({
     u: B("users", "gw", "POST /send"),
@@ -2186,11 +2185,9 @@ function write(lesson) {
   });
 
   const s1 = { entities: ents(), links: links(0.08), flows: traffic({ pattern: ["req", "req", "slow"] }) };
-  s1.entities.tmpl.tags = [T("?", "gray", "eyeOff")];
   s1.entities.card = card("What the team saw", "eyeOff", ["14:02  new template engine deployed", "14:02–16:00  nothing", "16:05  a writer posts: “my issue never went out”", "! 3% of sends failing for two hours"]);
 
   const s2 = clone(s1);
-  delete s2.entities.tmpl.tags;
   s2.entities.oncall = laptop(15, -20, "On-call");
   s2.links.ss = L("oncall", "send", "ssh + grep", { style: "dashed", labelAt: 0.4 });
   s2.links.sl = L("oncall", "bill", "", { style: "dashed" });

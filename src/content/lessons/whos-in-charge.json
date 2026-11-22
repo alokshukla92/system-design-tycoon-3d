@@ -110,8 +110,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -129,8 +129,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -297,8 +297,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -317,8 +317,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -472,8 +472,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -493,8 +493,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -680,8 +680,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -705,8 +705,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -863,8 +863,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -888,8 +888,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1050,8 +1050,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1080,8 +1080,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1237,12 +1237,12 @@
             "cpu": 0.3,
             "tags": [
               {
-                "text": "steps down · term 2",
+                "text": "follower · term 2",
                 "tone": "violet",
                 "icon": "undo"
               },
               {
-                "text": "drops its uncommitted #42",
+                "text": "drops #42",
                 "tone": "amber",
                 "icon": "alert"
               }
@@ -1250,8 +1250,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1275,8 +1275,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1449,8 +1449,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1474,8 +1474,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1496,8 +1496,8 @@
           },
           "n4": {
             "type": "block",
-            "x": -14,
-            "y": -8,
+            "x": -16,
+            "y": -2,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1515,8 +1515,8 @@
           },
           "n5": {
             "type": "block",
-            "x": 14,
-            "y": -8,
+            "x": 16,
+            "y": -6,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1629,14 +1629,6 @@
             "to": "n5",
             "pts": [
               "n2",
-              [
-                -9,
-                -12
-              ],
-              [
-                9,
-                -12
-              ],
               "n5"
             ],
             "label": "append"
@@ -1732,8 +1724,8 @@
           },
           "n2": {
             "type": "block",
-            "x": -9,
-            "y": 5,
+            "x": -11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1757,8 +1749,8 @@
           },
           "n3": {
             "type": "block",
-            "x": 9,
-            "y": 5,
+            "x": 11,
+            "y": 9,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1776,8 +1768,8 @@
           },
           "n4": {
             "type": "block",
-            "x": -14,
-            "y": -8,
+            "x": -16,
+            "y": -2,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1795,8 +1787,8 @@
           },
           "n5": {
             "type": "block",
-            "x": 14,
-            "y": -8,
+            "x": 16,
+            "y": -6,
             "s": 3.4,
             "color": "purple",
             "glyph": "database",
@@ -1873,14 +1865,6 @@
             "to": "n5",
             "pts": [
               "n2",
-              [
-                -9,
-                -12
-              ],
-              [
-                9,
-                -12
-              ],
               "n5"
             ],
             "label": ""

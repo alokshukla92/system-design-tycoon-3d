@@ -1,0 +1,2264 @@
+{
+  "id": "closer-to-home",
+  "title": "Closer to Home",
+  "summary": "CDNs: beat the speed of light by moving content near your users — and keep it fresh once it's out there.",
+  "minutes": 12,
+  "level": "intermediate",
+  "metrics": [
+    "imgLoad",
+    "hitRate",
+    "origin",
+    "fresh"
+  ],
+  "legend": [
+    "req",
+    "res",
+    [
+      "slow",
+      "long-haul request"
+    ],
+    [
+      "mine",
+      "personal request"
+    ],
+    [
+      "kill",
+      "purge"
+    ]
+  ],
+  "goals": [
+    {
+      "text": "See why distance sets a latency floor",
+      "step": 1
+    },
+    {
+      "text": "Serve hits from edge servers",
+      "step": 3
+    },
+    {
+      "text": "Protect the origin with a shield",
+      "step": 5
+    },
+    {
+      "text": "Control caching and purge stale files",
+      "step": 8
+    }
+  ],
+  "steps": [
+    {
+      "short": "Far away",
+      "chapter": "problem",
+      "title": "Half a world away",
+      "body": [
+        "Pantry Post is a recipe site whose servers sit in Iowa. Wei opens a recipe in Singapore, 15,000 km away. Each round trip across that distance takes about 200 ms, and a page with photos needs several of them: connection, TLS, the HTML, then the images.",
+        "Her first photo appears after about 660 ms. And every viewer on Earth hits the same origin: 12,000 requests a second, most of them for the same photos."
+      ],
+      "metrics": {
+        "imgLoad": 660,
+        "hitRate": 0,
+        "origin": 12000,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.75,
+            "heat": 0.4
+          }
+        },
+        "links": {
+          "d": {
+            "from": "wei",
+            "to": "origin",
+            "pts": [
+              "wei",
+              "origin"
+            ],
+            "label": "15,000 km · ~200 ms round trip",
+            "heads": "both",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "d"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 12000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Viewers worldwide"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Origin",
+            "sub": "Iowa",
+            "status": "warn"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Physics",
+      "chapter": "insight",
+      "title": "You can't out-code the speed of light",
+      "body": [
+        "Light in optical fibre travels at about 200,000 km/s — two-thirds of its speed in a vacuum. 15,000 km takes 75 ms one way, 150 ms there and back, before any routing detour or queueing. Real paths add more.",
+        "No faster server can fix that. The only way to cut distance latency is to <b>shorten the distance</b>: put the content near the user."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "Each round trip pays the full distance. Distance × round trips sets a floor no hardware can beat."
+      },
+      "metrics": {
+        "imgLoad": 660,
+        "hitRate": 0,
+        "origin": 12000,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.75,
+            "heat": 0.4
+          },
+          "card": {
+            "type": "panel",
+            "title": "Distance → minimum round trip",
+            "icon": "globe",
+            "lines": [
+              "fibre ≈ 200,000 km/s = 200 km per ms",
+              "same city (50 km) · ~0.5 ms",
+              "Singapore ↔ Tokyo (5,300 km) · ~55 ms",
+              "Singapore ↔ Iowa (15,000 km) · ~150 ms",
+              "! real routes: 1.3–1.5× longer"
+            ]
+          }
+        },
+        "links": {
+          "d": {
+            "from": "wei",
+            "to": "origin",
+            "pts": [
+              "wei",
+              "origin"
+            ],
+            "label": "15,000 km · ~200 ms round trip",
+            "heads": "both",
+            "labelTone": "red"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "d"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1.4
+          }
+        ]
+      }
+    },
+    {
+      "short": "First miss",
+      "chapter": "solution",
+      "title": "An edge server near Wei",
+      "body": [
+        "A <span class=\"term\">CDN</span> (content delivery network) runs <span class=\"term\">edge servers</span> in hundreds of cities. Pantry Post points its image domain at the CDN, and Wei's requests now go to an edge in Singapore, ~5 ms away.",
+        "The first time anyone there asks for this photo, the edge doesn't have it — a <b>miss</b>. It fetches the photo from Iowa over a connection it keeps warm, stores a copy and returns it: 230 ms."
+      ],
+      "changes": [
+        "+ Singapore edge server",
+        "~ Images now served through the CDN"
+      ],
+      "metrics": {
+        "imgLoad": 230,
+        "hitRate": 30,
+        "origin": 8400,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ],
+            "tags": [
+              {
+                "text": "miss → fetch",
+                "tone": "amber",
+                "icon": "search"
+              }
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.6
+          }
+        },
+        "links": {
+          "w": {
+            "0": "~",
+            "1": "5",
+            "2": " ",
+            "3": "m",
+            "4": "s",
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "origin",
+            "pts": [
+              "sg",
+              "origin"
+            ],
+            "label": "long haul",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "route": [
+              "w",
+              "o1"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 1
+          },
+          {
+            "route": [
+              "w"
+            ],
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 12000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Viewers worldwide"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN edges"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Origin",
+            "sub": "Iowa"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Edge hit",
+      "chapter": "solution",
+      "title": "Every viewer after the first",
+      "body": [
+        "The next viewer in Singapore asking for that photo gets it straight from the edge: a <b>hit</b>. Load time falls to about 22 ms — 30× faster than going to Iowa.",
+        "Popular recipe photos are requested thousands of times a day, so most requests are now hits. The origin sees only misses: about 600 requests a second instead of 12,000."
+      ],
+      "callout": {
+        "kind": "tip",
+        "text": "The best request is one that never reaches your servers."
+      },
+      "changes": [
+        "~ Most requests hit at the edge",
+        "~ Origin load 8,400 → 600 req/s"
+      ],
+      "metrics": {
+        "imgLoad": 22,
+        "hitRate": 95,
+        "origin": 600,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "photo in 22 ms",
+                "tone": "green",
+                "icon": "zap"
+              }
+            ]
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ],
+            "tags": [
+              {
+                "text": "hit",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.1
+          }
+        },
+        "links": {
+          "w": {
+            "0": "~",
+            "1": "5",
+            "2": " ",
+            "3": "m",
+            "4": "s",
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "origin",
+            "pts": [
+              "sg",
+              "origin"
+            ],
+            "label": "long haul",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 95
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 5
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Many edges",
+      "chapter": "problem",
+      "title": "Every edge misses on its own",
+      "body": [
+        "Pantry Post's viewers are everywhere, so many edges are serving them — Frankfurt, São Paulo, and dozens more. Each edge has its own cache and misses on its own, and each miss crosses the world to Iowa.",
+        "When a new recipe goes viral, hundreds of edges ask the origin for the same photo within seconds. Origin load climbs back to about 4,000 req/s."
+      ],
+      "changes": [
+        "+ Frankfurt and São Paulo edges",
+        "~ Each edge misses separately"
+      ],
+      "metrics": {
+        "imgLoad": 24,
+        "hitRate": 88,
+        "origin": 4000,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.5,
+            "tags": [
+              {
+                "text": "same photo × 200 edges",
+                "tone": "amber",
+                "icon": "layers"
+              }
+            ]
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "origin",
+            "pts": [
+              "sg",
+              "origin"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "origin",
+            "pts": [
+              "fra",
+              "origin"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "origin",
+            "pts": [
+              "sao",
+              "origin"
+            ],
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 88
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 88
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 88
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 12
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 12
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 12
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 12000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Viewers worldwide"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN edges"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Origin",
+            "sub": "Iowa"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Shield",
+      "chapter": "solution",
+      "title": "One more layer: the origin shield",
+      "body": [
+        "An <span class=\"term\">origin shield</span> is a single CDN cache placed near the origin — here, Chicago. Edges that miss ask the shield instead of the origin; only when the shield misses too does the request reach Iowa.",
+        "Now a new photo is fetched from the origin roughly once, not once per edge. Origin load falls to about 150 req/s and the overall hit ratio rises to 98%."
+      ],
+      "changes": [
+        "+ Origin shield in Chicago",
+        "~ Origin load 4,000 → 150 req/s"
+      ],
+      "metrics": {
+        "imgLoad": 23,
+        "hitRate": 98,
+        "origin": 150,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.05
+          },
+          "shield": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 3.6,
+            "h": 34,
+            "color": "purple",
+            "glyph": "shield",
+            "label": [
+              "Origin",
+              "shield"
+            ],
+            "sub": "Chicago"
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "shield",
+            "pts": [
+              "sg",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "shield",
+            "pts": [
+              "fra",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "shield",
+            "pts": [
+              "sao",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "so": {
+            "from": "shield",
+            "to": "origin",
+            "pts": [
+              "shield",
+              "origin"
+            ],
+            "label": "one fetch per object",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "so"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.3
+          }
+        ]
+      },
+      "lab": {
+        "users": 2000000,
+        "rps": 12000,
+        "nodes": [
+          {
+            "id": "users",
+            "kind": "users",
+            "label": "Viewers worldwide"
+          },
+          {
+            "id": "cdn",
+            "kind": "cdn",
+            "label": "CDN edges"
+          },
+          {
+            "id": "api",
+            "kind": "api_server",
+            "label": "Origin",
+            "sub": "Iowa"
+          }
+        ],
+        "edges": [
+          {
+            "from": "users",
+            "to": "cdn"
+          },
+          {
+            "from": "cdn",
+            "to": "api"
+          }
+        ]
+      }
+    },
+    {
+      "short": "Headers",
+      "chapter": "technique",
+      "title": "The origin decides what's cacheable",
+      "body": [
+        "The CDN doesn't guess: the origin labels each response with a <span class=\"term\">Cache-Control</span> header. It says whether the response may be cached, by whom, and for how long.",
+        "Photos that never change can be cached for a year. The HTML of a recipe page might be cached for a minute. A signed-in user's saved recipes must not be stored at the edge at all."
+      ],
+      "changes": [
+        "+ Cache-Control on every response"
+      ],
+      "metrics": {
+        "imgLoad": 23,
+        "hitRate": 98,
+        "origin": 150,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.05
+          },
+          "shield": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 3.6,
+            "h": 34,
+            "color": "purple",
+            "glyph": "shield",
+            "label": [
+              "Origin",
+              "shield"
+            ],
+            "sub": "Chicago"
+          },
+          "card": {
+            "type": "panel",
+            "title": "Cache-Control examples",
+            "icon": "file",
+            "lines": [
+              "photo · public, max-age=31536000, immutable",
+              "recipe page · public, max-age=60",
+              "saved recipes · private, no-store",
+              "# ETag lets an edge revalidate cheaply"
+            ]
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "shield",
+            "pts": [
+              "sg",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "shield",
+            "pts": [
+              "fra",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "shield",
+            "pts": [
+              "sao",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "so": {
+            "from": "shield",
+            "to": "origin",
+            "pts": [
+              "shield",
+              "origin"
+            ],
+            "label": "one fetch per object",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Stale logo",
+      "chapter": "problem",
+      "title": "Same name, new picture",
+      "body": [
+        "Pantry Post rebrands and uploads a new logo — to the same URL, <code>/logo.png</code>, which was cached for a week. Edges that already have the old file keep serving it until it expires.",
+        "Viewers see a mix of old and new logos for days, depending on which edge they hit."
+      ],
+      "changes": [
+        "~ Logo replaced at the same URL",
+        "~ Edges keep the old copy"
+      ],
+      "metrics": {
+        "imgLoad": 23,
+        "hitRate": 98,
+        "origin": 150,
+        "fresh": "stale"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ],
+            "tags": [
+              {
+                "text": "old logo · 5 days left",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ],
+            "tags": [
+              {
+                "text": "old logo",
+                "tone": "amber",
+                "icon": "clock"
+              }
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.05,
+            "tags": [
+              {
+                "text": "new logo.png",
+                "tone": "green",
+                "icon": "sparkles"
+              }
+            ]
+          },
+          "shield": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 3.6,
+            "h": 34,
+            "color": "purple",
+            "glyph": "shield",
+            "label": [
+              "Origin",
+              "shield"
+            ],
+            "sub": "Chicago"
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "shield",
+            "pts": [
+              "sg",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "shield",
+            "pts": [
+              "fra",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "shield",
+            "pts": [
+              "sao",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "so": {
+            "from": "shield",
+            "to": "origin",
+            "pts": [
+              "shield",
+              "origin"
+            ],
+            "label": "one fetch per object",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          }
+        ]
+      }
+    },
+    {
+      "short": "Purge",
+      "chapter": "solution",
+      "title": "Purge — or change the name",
+      "body": [
+        "Most CDNs offer a <span class=\"term\">purge</span>: an API call telling every edge to drop a URL, which takes effect within seconds. It's the emergency tool.",
+        "The everyday fix is <span class=\"term\">versioned URLs</span>: name files after their contents, like <code>logo.3f9a.png</code>. A new logo gets a new name, pages link to it, and both files can be cached forever — nothing stale is ever served."
+      ],
+      "changes": [
+        "+ Purge sent to every edge",
+        "~ Assets renamed by content hash"
+      ],
+      "metrics": {
+        "imgLoad": 23,
+        "hitRate": 98,
+        "origin": 150,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ],
+            "tags": [
+              {
+                "text": "purged",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ],
+            "tags": [
+              {
+                "text": "purged",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ],
+            "tags": [
+              {
+                "text": "purged",
+                "tone": "green",
+                "icon": "check"
+              }
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.05,
+            "tags": [
+              {
+                "text": "logo.3f9a.png",
+                "tone": "green",
+                "icon": "hash"
+              }
+            ]
+          },
+          "shield": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 3.6,
+            "h": 34,
+            "color": "purple",
+            "glyph": "shield",
+            "label": [
+              "Origin",
+              "shield"
+            ],
+            "sub": "Chicago"
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "shield",
+            "pts": [
+              "sg",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "shield",
+            "pts": [
+              "fra",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "shield",
+            "pts": [
+              "sao",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "so": {
+            "from": "shield",
+            "to": "origin",
+            "pts": [
+              "shield",
+              "origin"
+            ],
+            "label": "one fetch per object",
+            "heads": "both"
+          },
+          "p1": {
+            "from": "origin",
+            "to": "sg",
+            "pts": [
+              "origin",
+              "sg"
+            ],
+            "style": "dashed"
+          },
+          "p2": {
+            "from": "origin",
+            "to": "fra",
+            "pts": [
+              "origin",
+              "fra"
+            ],
+            "style": "dashed"
+          },
+          "p3": {
+            "from": "origin",
+            "to": "sao",
+            "pts": [
+              "origin",
+              "sao"
+            ],
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              [
+                "p1",
+                "p2",
+                "p3"
+              ]
+            ],
+            "kind": "kill",
+            "rate": 1.2
+          }
+        ]
+      }
+    },
+    {
+      "short": "Dynamic",
+      "chapter": "tradeoff",
+      "title": "What the edge can't cache",
+      "body": [
+        "Personal pages — Wei's saved recipes, her shopping list — can't be cached; they must come from the origin. But the CDN still helps: Wei's TLS handshake finishes at the nearby edge in a few milliseconds, and the edge forwards her request over a connection to the origin that's already open.",
+        "That saves the extra round trips across the ocean, even though the request itself still has to make the long trip once."
+      ],
+      "callout": {
+        "kind": "insight",
+        "text": "A CDN helps uncacheable requests too, by ending TLS nearby and reusing long-haul connections."
+      },
+      "changes": [
+        "+ Personal request passes through the edge"
+      ],
+      "metrics": {
+        "imgLoad": 23,
+        "hitRate": 98,
+        "origin": 150,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone",
+            "tags": [
+              {
+                "text": "saved recipes",
+                "tone": "violet",
+                "icon": "bookmark"
+              }
+            ]
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ],
+            "tags": [
+              {
+                "text": "TLS ends here",
+                "tone": "violet",
+                "icon": "lock"
+              }
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.08
+          },
+          "shield": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 3.6,
+            "h": 34,
+            "color": "purple",
+            "glyph": "shield",
+            "label": [
+              "Origin",
+              "shield"
+            ],
+            "sub": "Chicago"
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "shield",
+            "pts": [
+              "sg",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "shield",
+            "pts": [
+              "fra",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "shield",
+            "pts": [
+              "sao",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "so": {
+            "from": "shield",
+            "to": "origin",
+            "pts": [
+              "shield",
+              "origin"
+            ],
+            "label": "one fetch per object",
+            "heads": "both"
+          },
+          "dyn": {
+            "from": "sg",
+            "to": "origin",
+            "pts": [
+              "sg",
+              "origin"
+            ],
+            "heads": "both",
+            "style": "dashed"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 2.4
+          },
+          {
+            "route": [
+              "w",
+              "dyn"
+            ],
+            "kind": "mine",
+            "bounce": true,
+            "rate": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "short": "Recap",
+      "chapter": "recap",
+      "title": "Closer to home",
+      "body": [
+        "<ul class=\"takeaways\"><li>Distance sets a latency floor: ~1 ms per 100 km of round trip, per round trip.</li><li>CDN edges cache content near users; hits skip the long haul entirely.</li><li>An origin shield collapses many edge misses into one origin fetch.</li><li>Cache-Control headers decide what is cached and for how long.</li><li>Versioned URLs avoid stale files; purge is the emergency brake.</li></ul>"
+      ],
+      "callout": {
+        "kind": "next",
+        "text": "Next module: what happens to data when one database is no longer enough."
+      },
+      "metrics": {
+        "imgLoad": 23,
+        "hitRate": 98,
+        "origin": 150,
+        "fresh": "fresh"
+      },
+      "scene": {
+        "entities": {
+          "wei": {
+            "type": "device",
+            "x": -9,
+            "y": -9,
+            "label": "Wei · Singapore",
+            "form": "phone"
+          },
+          "lena": {
+            "type": "device",
+            "x": -19.5,
+            "y": 1.5,
+            "label": "Lena · Berlin",
+            "form": "phone"
+          },
+          "rafa": {
+            "type": "device",
+            "x": 1.5,
+            "y": -19.5,
+            "label": "Rafa · São Paulo",
+            "form": "phone"
+          },
+          "sg": {
+            "type": "block",
+            "x": -3,
+            "y": -3,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Singapore"
+            ]
+          },
+          "fra": {
+            "type": "block",
+            "x": -13.5,
+            "y": 7.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "Frankfurt"
+            ]
+          },
+          "sao": {
+            "type": "block",
+            "x": 7.5,
+            "y": -13.5,
+            "s": 3.4,
+            "h": 30,
+            "color": "green",
+            "glyph": "globe",
+            "label": [
+              "Edge",
+              "São Paulo"
+            ]
+          },
+          "origin": {
+            "type": "block",
+            "x": 11,
+            "y": 11,
+            "s": 4,
+            "color": "blue",
+            "glyph": "server",
+            "label": [
+              "Origin",
+              "server"
+            ],
+            "sub": "Iowa, US",
+            "cpu": 0.05
+          },
+          "shield": {
+            "type": "block",
+            "x": 4,
+            "y": 4,
+            "s": 3.6,
+            "h": 34,
+            "color": "purple",
+            "glyph": "shield",
+            "label": [
+              "Origin",
+              "shield"
+            ],
+            "sub": "Chicago"
+          }
+        },
+        "links": {
+          "w": {
+            "from": "wei",
+            "to": "sg",
+            "pts": [
+              "wei",
+              "sg"
+            ],
+            "heads": "both"
+          },
+          "l": {
+            "from": "lena",
+            "to": "fra",
+            "pts": [
+              "lena",
+              "fra"
+            ],
+            "heads": "both"
+          },
+          "r": {
+            "from": "rafa",
+            "to": "sao",
+            "pts": [
+              "rafa",
+              "sao"
+            ],
+            "heads": "both"
+          },
+          "o1": {
+            "from": "sg",
+            "to": "shield",
+            "pts": [
+              "sg",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o2": {
+            "from": "fra",
+            "to": "shield",
+            "pts": [
+              "fra",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "o3": {
+            "from": "sao",
+            "to": "shield",
+            "pts": [
+              "sao",
+              "shield"
+            ],
+            "heads": "both"
+          },
+          "so": {
+            "from": "shield",
+            "to": "origin",
+            "pts": [
+              "shield",
+              "origin"
+            ],
+            "label": "one fetch per object",
+            "heads": "both"
+          }
+        },
+        "flows": [
+          {
+            "routes": [
+              {
+                "path": [
+                  "w"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "l"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "r"
+                ],
+                "weight": 96
+              },
+              {
+                "path": [
+                  "w",
+                  "o1"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "l",
+                  "o2"
+                ],
+                "kind": "slow",
+                "weight": 4
+              },
+              {
+                "path": [
+                  "r",
+                  "o3"
+                ],
+                "kind": "slow",
+                "weight": 4
+              }
+            ],
+            "pick": "weights",
+            "bounce": true,
+            "rate": 3
+          },
+          {
+            "route": [
+              "so"
+            ],
+            "kind": "slow",
+            "bounce": true,
+            "rate": 0.3
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -60,8 +60,8 @@
         "One system, one backup, transactions for free. It worked fine for the first ten thousand photos."
       ],
       "metrics": {
-        "dbGrowth": "+2 TB / month",
-        "appTraffic": "every photo byte",
+        "dbGrowth": "+2 TB/mo",
+        "appTraffic": "all bytes",
         "respond": 3800,
         "imgLoad": 850,
         "storeCost": "$1,900"
@@ -190,8 +190,8 @@
         "~ Backups and replicas slow down"
       ],
       "metrics": {
-        "dbGrowth": "+2 TB / month",
-        "appTraffic": "every photo byte",
+        "dbGrowth": "+2 TB/mo",
+        "appTraffic": "all bytes",
         "respond": 4200,
         "imgLoad": 1400,
         "storeCost": "$1,900"
@@ -340,8 +340,8 @@
         "+ Timeouts on unrelated requests"
       ],
       "metrics": {
-        "dbGrowth": "+2 TB / month",
-        "appTraffic": "every photo byte",
+        "dbGrowth": "+2 TB/mo",
+        "appTraffic": "all bytes",
         "respond": 6500,
         "imgLoad": 1400,
         "storeCost": "$1,900"
@@ -514,8 +514,8 @@
         "~ Database stores metadata rows only"
       ],
       "metrics": {
-        "dbGrowth": "+3 GB / month",
-        "appTraffic": "every photo byte",
+        "dbGrowth": "+3 GB/mo",
+        "appTraffic": "all bytes",
         "respond": 3500,
         "imgLoad": 700,
         "storeCost": "$420"
@@ -690,8 +690,8 @@
         "~ Photo bytes bypass the API entirely"
       ],
       "metrics": {
-        "dbGrowth": "+3 GB / month",
-        "appTraffic": "small JSON only",
+        "dbGrowth": "+3 GB/mo",
+        "appTraffic": "small JSON",
         "respond": 60,
         "imgLoad": 700,
         "storeCost": "$420"
@@ -850,8 +850,8 @@
         "~ Row status pending → ready"
       ],
       "metrics": {
-        "dbGrowth": "+3 GB / month",
-        "appTraffic": "small JSON only",
+        "dbGrowth": "+3 GB/mo",
+        "appTraffic": "small JSON",
         "respond": 60,
         "imgLoad": 400,
         "storeCost": "$440"
@@ -1131,8 +1131,8 @@
         "~ Photo views served from the edge"
       ],
       "metrics": {
-        "dbGrowth": "+3 GB / month",
-        "appTraffic": "small JSON only",
+        "dbGrowth": "+3 GB/mo",
+        "appTraffic": "small JSON",
         "respond": 60,
         "imgLoad": 45,
         "storeCost": "$440"
@@ -1217,8 +1217,8 @@
           },
           "cdn": {
             "type": "block",
-            "x": -11,
-            "y": -22,
+            "x": 22,
+            "y": -20,
             "s": 3.6,
             "color": "yellow",
             "glyph": "globe",
@@ -1258,10 +1258,6 @@
             "to": "obj",
             "pts": [
               "users",
-              [
-                11,
-                "users"
-              ],
               "obj"
             ],
             "label": "PUT · signed URL"
@@ -1328,18 +1324,6 @@
             "to": "obj",
             "pts": [
               "cdn",
-              [
-                -11,
-                -34
-              ],
-              [
-                22,
-                -34
-              ],
-              [
-                22,
-                "obj"
-              ],
               "obj"
             ],
             "label": "miss only",
@@ -1475,8 +1459,8 @@
         "~ Signed URLs limited by size, type and time"
       ],
       "metrics": {
-        "dbGrowth": "+3 GB / month",
-        "appTraffic": "small JSON only",
+        "dbGrowth": "+3 GB/mo",
+        "appTraffic": "small JSON",
         "respond": 60,
         "imgLoad": 45,
         "storeCost": "$260"
@@ -1568,8 +1552,8 @@
           },
           "cdn": {
             "type": "block",
-            "x": -11,
-            "y": -22,
+            "x": 22,
+            "y": -20,
             "s": 3.6,
             "color": "yellow",
             "glyph": "globe",
@@ -1621,10 +1605,6 @@
             "to": "obj",
             "pts": [
               "users",
-              [
-                11,
-                "users"
-              ],
               "obj"
             ],
             "label": "PUT · signed URL"
@@ -1691,18 +1671,6 @@
             "to": "obj",
             "pts": [
               "cdn",
-              [
-                -11,
-                -34
-              ],
-              [
-                22,
-                -34
-              ],
-              [
-                22,
-                "obj"
-              ],
               "obj"
             ],
             "label": "miss only",
@@ -1833,8 +1801,8 @@
         "<ul class=\"takeaways\"><li>Big files in the database bloat backups, replicas and memory.</li><li>Object storage holds the bytes; the database holds metadata and status.</li><li>Pre-signed URLs let clients upload directly, keeping API servers light.</li><li>Process asynchronously from upload events; serve variants through a CDN.</li></ul>"
       ],
       "metrics": {
-        "dbGrowth": "+3 GB / month",
-        "appTraffic": "small JSON only",
+        "dbGrowth": "+3 GB/mo",
+        "appTraffic": "small JSON",
         "respond": 60,
         "imgLoad": 45,
         "storeCost": "$260"
@@ -1926,8 +1894,8 @@
           },
           "cdn": {
             "type": "block",
-            "x": -11,
-            "y": -22,
+            "x": 22,
+            "y": -20,
             "s": 3.6,
             "color": "yellow",
             "glyph": "globe",
@@ -1967,10 +1935,6 @@
             "to": "obj",
             "pts": [
               "users",
-              [
-                11,
-                "users"
-              ],
               "obj"
             ],
             "label": "PUT · signed URL"
@@ -2037,18 +2001,6 @@
             "to": "obj",
             "pts": [
               "cdn",
-              [
-                -11,
-                -34
-              ],
-              [
-                22,
-                -34
-              ],
-              [
-                22,
-                "obj"
-              ],
               "obj"
             ],
             "label": "miss only",
