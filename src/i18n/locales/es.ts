@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "En esta lección",
   "Step {n} of {total}": "Paso {n} de {total}",
   "Lessons": "Lecciones",
+  "Part {n}": "Parte {n}",
   "Progress": "Progreso",
   "Course": "Curso",
   "Sections": "Secciones",

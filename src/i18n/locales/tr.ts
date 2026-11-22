@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "Bu derste",
   "Step {n} of {total}": "Adım {n} / {total}",
   "Lessons": "Dersler",
+  "Part {n}": "Bölüm {n}",
   "Progress": "İlerleme",
   "Course": "Kurs",
   "Sections": "Bölümler",

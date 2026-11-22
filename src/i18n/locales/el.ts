@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "Σε αυτό το μάθημα",
   "Step {n} of {total}": "Βήμα {n} από {total}",
   "Lessons": "Μαθήματα",
+  "Part {n}": "Μέρος {n}",
   "Progress": "Πρόοδος",
   "Course": "Μάθημα",
   "Sections": "Ενότητες",

@@ -50,6 +50,7 @@ export const EN_KEYS = [
   "Step {n} of {total}",
   // components/Sidebar.tsx
   "Lessons",
+  "Part {n}",
   "Progress",
   "Course",
   "Sections",

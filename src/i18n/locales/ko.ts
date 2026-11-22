@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "이 레슨에서",
   "Step {n} of {total}": "단계 {n} / {total}",
   "Lessons": "레슨",
+  "Part {n}": "파트 {n}",
   "Progress": "진행 상황",
   "Course": "코스",
   "Sections": "섹션",

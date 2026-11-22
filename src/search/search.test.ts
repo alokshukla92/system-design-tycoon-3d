@@ -78,6 +78,7 @@ const CACHE: Lesson = {
 const MODULE: Module = {
   id: "foundations",
   num: "01",
+  part: "learn",
   title: "Foundations",
   color: "sand",
   lessons: [

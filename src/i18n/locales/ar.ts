@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "في هذا الدرس",
   "Step {n} of {total}": "الخطوة {n} من {total}",
   "Lessons": "الدروس",
+  "Part {n}": "الجزء {n}",
   "Progress": "التقدّم",
   "Course": "الدورة",
   "Sections": "الأقسام",

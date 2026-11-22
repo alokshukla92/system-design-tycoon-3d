@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
-import { COURSE, lessonMeta } from "../content";
+import { Fragment, type ReactNode } from "react";
+import { COURSE, PARTS, lessonMeta } from "../content";
 import { BRAND } from "../brand";
 import { fmt, t } from "../i18n";
 import { SiteLinks, SupportEmail } from "./SiteLinks";
 import { SiteCredit } from "../components/Credit";
+import { partLabel } from "../components/Sidebar";
 import {
   featured,
   first,
@@ -130,21 +131,28 @@ export function CourseOverview() {
         })}
       </p>
       <div className="course-modules">
-        {COURSE.map((m) => (
-          <section key={m.id}>
-            <h3>{m.title}</h3>
-            <ul>
-              {m.lessons.map((l) => {
-                const summary = lessonMeta(l.id)?.summary;
-                return (
-                  <li key={l.id}>
-                    <LessonLink id={l.id}>{l.title}</LessonLink>
-                    {summary && <p dangerouslySetInnerHTML={{ __html: summary }} />}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
+        {PARTS.map((p) => (
+          <Fragment key={p.id}>
+            <h3 className="course-part" data-part={p.id}>
+              {partLabel(p.id)}
+            </h3>
+            {COURSE.filter((m) => m.part === p.id).map((m) => (
+              <section key={m.id}>
+                <h3>{m.title}</h3>
+                <ul>
+                  {m.lessons.map((l) => {
+                    const summary = lessonMeta(l.id)?.summary;
+                    return (
+                      <li key={l.id}>
+                        <LessonLink id={l.id}>{l.title}</LessonLink>
+                        {summary && <p dangerouslySetInnerHTML={{ __html: summary }} />}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </Fragment>
         ))}
       </div>
       {refs.length > 0 && (

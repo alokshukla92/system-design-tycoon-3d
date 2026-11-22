@@ -28,6 +28,17 @@
   padding-inline-end: 6px;
 }
 
+.course__part {
+  margin: 0;
+  padding-block: 14px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.course__part:first-child { padding-block-start: 2px; }
+
 .mod__head {
   display: flex;
   align-items: center;

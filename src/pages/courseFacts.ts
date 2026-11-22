@@ -30,7 +30,9 @@ export const techniques: string[] = LESSONS.map((l) => {
 export const lessonHref = (id: string): string => `${homeHref()}#/${id}/1`;
 
 export const first = FLAT[0];
-export const last = FLAT[FLAT.length - 1];
+/** Capstone: the last lesson of Part 1 (the curriculum), not of the whole course. */
+const firstPart = FLAT.filter((r) => r.module.part === FLAT[0]?.module.part);
+export const last = firstPart[firstPart.length - 1];
 /** A lesson from the middle of the course, used for the "closer look" example. */
 export const featured = FLAT[Math.floor((FLAT.length - 1) / 2)];
 

@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "इस पाठ में",
   "Step {n} of {total}": "चरण {n} / {total}",
   "Lessons": "पाठ",
+  "Part {n}": "भाग {n}",
   "Progress": "प्रगति",
   "Course": "कोर्स",
   "Sections": "खंड",

@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "このレッスンの内容",
   "Step {n} of {total}": "ステップ {n} / {total}",
   "Lessons": "レッスン",
+  "Part {n}": "パート {n}",
   "Progress": "進捗",
   "Course": "コース",
   "Sections": "セクション",

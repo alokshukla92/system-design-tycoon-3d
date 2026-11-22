@@ -14,12 +14,18 @@ export interface LessonRef {
 export interface Module {
   id: string;
   num: string; // "01"
+  part: string; // Part id
   title: string;
   color: ModuleColor;
   lessons: LessonRef[];
 }
 
 export type Course = Module[];
+
+export interface Part {
+  id: string;
+  title: string;
+}
 
 /** Flattened lesson ref (doc 11 §1: derived at runtime). index is 1-based within its module. */
 export interface FlatLessonRef extends LessonRef {

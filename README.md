@@ -1,8 +1,10 @@
 # System Design Tycoon — classroom replica
 
 Exact behavioural/visual replica of the reverse-engineered classroom (spec: `../reverse-engineering/`),
-with 56 lessons in 12 modules: modules 01–03 are converted from `system-design-tycoon`, and modules 04–12 are an
-original 40-lesson curriculum (Foundations through Whole Systems). All modules are free.
+with 56 lessons in 12 modules, in two parts (`PARTS` in `src/content/course.ts`, shown as sidebar/course-page headings):
+**Part 1 · Learn** (modules 01–09) is an original 40-lesson curriculum (Foundations through Whole Systems), and
+**Part 2 · Startup Career** (modules 10–12) is converted from `system-design-tycoon`. All modules are free; the default
+lesson is the first one in the course.
 
 ```sh
 npm install
@@ -26,7 +28,7 @@ Engine harness (dev only): `http://localhost:5173/engine-harness.html`.
 ## Scripts
 - `node scripts/convert-lessons.mjs` — one-time lesson conversion (overwrites `src/content/lessons/*.json`, including hand enrichment encoded in the script).
 - `node scripts/gen-incident-lessons.mjs` — regenerates the modules 02–03 lessons (Incident Commander, Campaign Extras) drafted from the source game's incidents/levels.
-- `node scripts/gen-curriculum-{a..f}.mjs` — generators (the source of truth) for the modules 04–12 lessons; rerun one after editing it.
+- `node scripts/gen-curriculum-{a..f}.mjs` — generators (the source of truth) for the Part 1 (modules 01–09) lessons; rerun one after editing it.
 - `node scripts/gen-icons.mjs` — regenerate `src/icons.data.ts` after editing `ICON_NAMES`/`ALIAS`.
 
 ## Adding a lesson
@@ -37,7 +39,7 @@ existing registry keys (metrics, legend, chapters, callouts), because those are 
 **Lazy loading.** Each lesson is its own chunk, fetched by `loadLesson()` (`getLesson()` is a sync cache lookup).
 Lesson metadata (titles, step counts, minutes) is derived at build time by a Vite plugin (`src/content/derive.ts`),
 and the search corpus (`src/search/corpus.ts`) is loaded the first time search opens. `lessons/all.ts` is an eager loader
-for tests only. Lab graphs (`step.lab`) are required on every step for modules 01–03 and optional for 04–12.
+for tests only. Lab graphs (`step.lab`) are required on every step for Part 2 modules and optional for Part 1.
 
 ## Practice & Design Lab (simulator)
 

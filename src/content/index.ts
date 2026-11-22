@@ -6,7 +6,7 @@ import { COURSE, FREE_MODULES } from "./course";
 import type { LessonMeta } from "./derive";
 import { LOADERS, META } from "./lessons";
 
-export { COURSE } from "./course";
+export { COURSE, PARTS } from "./course";
 export { METRICS, LEGEND, CHAPTERS, CALLOUTS, LEVELS } from "./registries";
 export type { MetricDef, LegendDef, ChapterDef, CalloutDef } from "./registries";
 export type { LessonMeta } from "./derive";

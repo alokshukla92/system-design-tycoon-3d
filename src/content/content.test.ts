@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ICON_NAMES } from "../icons";
 import type { Entity, Flow, Lesson, PointRef } from "../types/lesson";
 import { CALLOUTS, CHAPTERS, COURSE, FLAT, LEGEND, LEVELS, METRICS, getLesson, lessonMeta, loadLesson } from "./index";
-import { FREE_MODULES } from "./course";
+import { FREE_MODULES, PARTS } from "./course";
 import { lessonMeta as deriveMeta } from "./derive";
 import { LOADERS } from "./lessons";
 import { LESSONS } from "./lessons/all";
@@ -106,6 +106,12 @@ describe("course", () => {
     }
     expect(Object.keys(LESSONS).sort()).toEqual([...refs].sort());
     expect(Object.keys(RAW).sort()).toEqual([...refs].sort());
+  });
+
+  it("numbers modules 01, 02, … in order and keeps each part contiguous, in PARTS order", () => {
+    expect(COURSE.map((m) => m.num)).toEqual(COURSE.map((_, i) => String(i + 1).padStart(2, "0")));
+    const runs = COURSE.map((m) => m.part).filter((p, i, a) => i === 0 || a[i - 1] !== p);
+    expect(runs).toEqual(PARTS.map((p) => p.id));
   });
 
   it("names every lesson file after its id, with matching lazy loader and metadata", () => {

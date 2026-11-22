@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "本课内容",
   "Step {n} of {total}": "第 {n} 步，共 {total} 步",
   "Lessons": "课程",
+  "Part {n}": "第 {n} 部分",
   "Progress": "进度",
   "Course": "课程",
   "Sections": "章节",

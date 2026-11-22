@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "בשיעור זה",
   "Step {n} of {total}": "שלב {n} מתוך {total}",
   "Lessons": "שיעורים",
+  "Part {n}": "חלק {n}",
   "Progress": "התקדמות",
   "Course": "קורס",
   "Sections": "חלקים",

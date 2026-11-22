@@ -25,8 +25,8 @@ const stepLab = (lessonId: string, step: number): StepLab => {
 const dataOf = (lab: StepLab, id: string) => lessonLabGraph(lab).graph.nodes.find((n) => n.id === id)!.data;
 
 describe("lesson → lab graph", () => {
-  // Modules converted from the game (01–03) carry a lab graph on every step; curriculum lessons (04+) only where it fits.
-  const ALWAYS_LAB = new Set(COURSE.slice(0, 3).flatMap((m) => m.lessons.map((l) => l.id)));
+  // Modules converted from the game (part "career") carry a lab graph on every step; curriculum lessons only where it fits.
+  const ALWAYS_LAB = new Set(COURSE.filter((m) => m.part === "career").flatMap((m) => m.lessons.map((l) => l.id)));
 
   it("every lesson step with lab data carries a loadable architecture", () => {
     for (const lesson of Object.values(LESSONS))

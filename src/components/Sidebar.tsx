@@ -1,4 +1,5 @@
-import { COURSE, FLAT } from "../content";
+import { Fragment } from "react";
+import { COURSE, FLAT, PARTS } from "../content";
 import { Credit } from "./Credit";
 import { t } from "../i18n";
 import type { Module } from "../types/lesson";
@@ -18,6 +19,12 @@ function Folder({ color }: { color: Module["color"] }) {
   );
 }
 
+/** "Part 1 · Learn" label, shown before the first module of each part. */
+export function partLabel(partId: string): string {
+  const i = PARTS.findIndex((p) => p.id === partId);
+  return i < 0 ? "" : `${t("Part {n}", { n: i + 1 })} · ${PARTS[i].title}`;
+}
+
 function LessonMark({ id, done }: { id: string; done: boolean }) {
   if (isLocked(id)) return <Icon name="lock" size={15} stroke={1.5} cls="lesson__mark" />;
   if (done) return <Icon name="circleCheck" size={16} stroke={2} cls="lesson__mark lesson__mark--done" />;
@@ -30,47 +37,55 @@ function ModuleTree() {
   const done = useClassroom((s) => s.done);
   return (
     <nav className="course" id="course" aria-label={t("Lessons")}>
-      {COURSE.map((m) => {
+      {COURSE.map((m, i) => {
         const open = openModule === m.id;
         const count = m.lessons.filter((l) => done.has(l.id)).length;
+        const startsPart = i === 0 || COURSE[i - 1].part !== m.part;
         return (
-          <section key={m.id} className={open ? "mod is-open" : "mod"} data-mod={m.id}>
-            <button className="mod__head" type="button" data-mod={m.id} aria-expanded={open} onClick={() => toggleModule(m.id)}>
-              <Icon name="chevronRight" size={15} stroke={2.2} cls="mod__chev" />
-              <Folder color={m.color} />
-              <span className="mod__title" title={m.title}>
-                {m.num}. {m.title}
-              </span>
-              <span className="mod__count">
-                {count}/{m.lessons.length}
-              </span>
-            </button>
-            <div className="mod__body">
-              <div className="mod__clip">
-                <ul className="mod__lessons">
-                  {m.lessons.map((l) => {
-                    const current = l.id === lessonId;
-                    return (
-                      <li key={l.id} className={current ? "lesson is-current" : "lesson"} data-lesson={l.id} data-done={done.has(l.id)}>
-                        <a
-                          href={`#/${l.id}/1`}
-                          className={current ? "btn-pop" : undefined}
-                          aria-current={current ? "page" : undefined}
-                        >
-                          <span className="lesson__markbox">
-                            <LessonMark id={l.id} done={done.has(l.id)} />
-                          </span>
-                          <span className="lesson__title" title={l.title}>
-                            {l.title}
-                          </span>
-                        </a>
-                      </li>
-                    );
-                  })}
-                </ul>
+          <Fragment key={m.id}>
+            {startsPart && (
+              <h3 className="course__part" data-part={m.part}>
+                {partLabel(m.part)}
+              </h3>
+            )}
+            <section className={open ? "mod is-open" : "mod"} data-mod={m.id}>
+              <button className="mod__head" type="button" data-mod={m.id} aria-expanded={open} onClick={() => toggleModule(m.id)}>
+                <Icon name="chevronRight" size={15} stroke={2.2} cls="mod__chev" />
+                <Folder color={m.color} />
+                <span className="mod__title" title={m.title}>
+                  {m.num}. {m.title}
+                </span>
+                <span className="mod__count">
+                  {count}/{m.lessons.length}
+                </span>
+              </button>
+              <div className="mod__body">
+                <div className="mod__clip">
+                  <ul className="mod__lessons">
+                    {m.lessons.map((l) => {
+                      const current = l.id === lessonId;
+                      return (
+                        <li key={l.id} className={current ? "lesson is-current" : "lesson"} data-lesson={l.id} data-done={done.has(l.id)}>
+                          <a
+                            href={`#/${l.id}/1`}
+                            className={current ? "btn-pop" : undefined}
+                            aria-current={current ? "page" : undefined}
+                          >
+                            <span className="lesson__markbox">
+                              <LessonMark id={l.id} done={done.has(l.id)} />
+                            </span>
+                            <span className="lesson__title" title={l.title}>
+                              {l.title}
+                            </span>
+                          </a>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </Fragment>
         );
       })}
     </nav>

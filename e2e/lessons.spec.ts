@@ -153,8 +153,9 @@ test.describe("Lessons", () => {
       await page.route(CHUNK, (route) => route.abort());
       await page.goto("/#/checkout/1");
       await expect(page.locator(".toast__text")).toHaveText(ERROR);
-      await expect(page.locator("#head .title")).toHaveText("Day One");
-      await expect(page).toHaveURL(/#\/day-one\/1$/);
+      // Default lesson = first lesson of the course (Part 1 · Learn).
+      await expect(page.locator("#head .title")).toHaveText("How a Click Travels");
+      await expect(page).toHaveURL(/#\/how-a-click-travels\/1$/);
       pageErrors.splice(0);
     });
   });

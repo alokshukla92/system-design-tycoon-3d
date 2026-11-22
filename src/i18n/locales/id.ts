@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "Dalam pelajaran ini",
   "Step {n} of {total}": "Langkah {n} dari {total}",
   "Lessons": "Pelajaran",
+  "Part {n}": "Bagian {n}",
   "Progress": "Progres",
   "Course": "Kursus",
   "Sections": "Bagian",

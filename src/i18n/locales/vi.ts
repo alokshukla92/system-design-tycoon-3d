@@ -41,6 +41,7 @@ const messages: Messages = {
   "In this lesson": "Trong bài học này",
   "Step {n} of {total}": "Bước {n} / {total}",
   "Lessons": "Bài học",
+  "Part {n}": "Phần {n}",
   "Progress": "Tiến độ",
   "Course": "Khóa học",
   "Sections": "Phần",

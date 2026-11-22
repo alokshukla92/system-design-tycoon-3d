@@ -109,7 +109,17 @@ html[data-interactive] .course-overview { content-visibility: auto; contain-intr
   border-radius: 8px;
   background: var(--paper);
 }
-.course-modules h3 { margin: 0 0 20px; padding-block-end: 12px; border-bottom: 1px solid var(--line); }
+.course-modules > h3.course-part {
+  margin: 16px 0 -4px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.course-modules > h3.course-part:first-child { margin-block-start: 0; }
+.course-modules section h3 { margin: 0 0 20px; padding-block-end: 12px; border-bottom: 1px solid var(--line); }
 .course-modules ul { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 32px; margin: 0; padding: 0; list-style: none; }
 .course-modules li { min-width: 0; }
 .course-modules li a { display: inline-block; padding-block: 4px; font-weight: 600; }
